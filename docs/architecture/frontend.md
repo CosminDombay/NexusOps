@@ -1,0 +1,169 @@
+# Frontend Architecture
+
+## Overview
+
+The frontend is a React, TypeScript, Vite, and TailwindCSS application. It is organized by feature under `frontend/src/features` and uses React Router for page routing.
+
+The frontend currently implements:
+
+- inventory dashboard
+- server creation form
+- server list table/card views
+- Proxmox infrastructure dashboard
+- placeholder pages for future modules
+
+## Application Shell
+
+Key files:
+
+- `frontend/src/main.tsx`
+- `frontend/src/app/App.tsx`
+- `frontend/src/app/router.tsx`
+- `frontend/src/components/layout/AppLayout.tsx`
+- `frontend/src/components/layout/PageHeader.tsx`
+
+`AppLayout` provides the persistent navigation and page content area. Routes are registered in `router.tsx`.
+
+Current main routes:
+
+- `/` inventory
+- `/infrastructure` read-only Proxmox visibility
+- `/provisioning` placeholder
+- `/deployments` placeholder
+- `/packages` placeholder
+- `/monitoring` placeholder
+- `/profiles` placeholder
+- `/jobs` placeholder
+
+## Feature-Based Structure
+
+Implemented feature folders follow this structure:
+
+```text
+src/features/<feature>/
+  api/
+  components/
+  hooks/
+  pages/
+  types/
+  utils/
+```
+
+Inventory and Proxmox follow this pattern. Placeholder modules currently use simple page components only.
+
+## API Client
+
+The shared API client is `frontend/src/lib/api/client.ts`.
+
+It uses Axios with:
+
+- `VITE_API_BASE_URL`
+- JSON content headers
+- reusable API error formatting
+
+Feature folders define their own API functions and types, but they use the shared client for transport.
+
+## Inventory Frontend Flow
+
+```text
+InventoryDashboardPage
+  -> useServers
+  -> serversApi
+  -> shared apiClient
+  -> FastAPI /api/v1/servers
+```
+
+Inventory frontend components:
+
+- `CreateServerForm`
+- `ServerList`
+- `ServerBadges`
+- `InventoryDashboardPage`
+
+The inventory UI includes:
+
+- loading skeletons
+- API error display
+- required field validation
+- SSH port validation
+- responsive table/cards
+- summary metric cards
+
+## Proxmox Frontend Flow
+
+```text
+InfrastructurePage
+  -> useProxmoxDashboard
+  -> proxmoxApi
+  -> shared apiClient
+  -> FastAPI /api/v1/proxmox/dashboard
+```
+
+Proxmox frontend components:
+
+- `SummaryCards`
+- `NodeCards`
+- `VmTable`
+- `StatusBadge`
+
+The Proxmox UI includes:
+
+- cluster summary cards
+- node cards
+- VM table on desktop
+- VM cards on mobile
+- loading state
+- API error state
+- retry action
+
+## Types, Hooks, and Utilities
+
+Frontend API response types live in each feature's `types/` folder.
+
+Hooks own async data loading state:
+
+- `useServers`
+- `useProxmoxDashboard`
+
+Utilities own small feature-specific formatting and label helpers.
+
+## TailwindCSS
+
+Tailwind is configured through:
+
+- `frontend/tailwind.config.ts`
+- `frontend/postcss.config.js`
+- `frontend/src/styles/global.css`
+
+The UI uses utility classes directly. Shared visual primitives are minimal and feature components remain explicit.
+
+## Tooling
+
+Frontend tooling currently includes:
+
+- TypeScript build through `tsc -b`
+- Vite production build
+- ESLint 9 flat config
+- Prettier config
+- TailwindCSS
+
+Validation command:
+
+```bash
+npm run lint
+npm run build
+```
+
+## Frontend/Backend Communication
+
+The frontend expects the backend API at `VITE_API_BASE_URL`, defaulting to:
+
+```text
+http://localhost:8000/api/v1
+```
+
+The backend CORS configuration allows the local Vite origin:
+
+```text
+http://localhost:5173
+```

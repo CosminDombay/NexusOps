@@ -1,0 +1,137 @@
+# Adapter Architecture
+
+## Philosophy
+
+Adapters define boundaries between NexusOps application services and external infrastructure systems. They keep provider-specific HTTP APIs, authentication, sessions, SDKs, and protocol details out of routers and domain services.
+
+The adapter layer currently prioritizes:
+
+- explicit contracts
+- testability
+- provider isolation
+- operational safety for infrastructure visibility and controlled lifecycle actions
+- future replacement or extension without changing API routers
+
+## Canonical Structure
+
+Adapters live under `backend/app/adapters`.
+
+```text
+backend/app/adapters/
+  base.py
+  docker/
+    base.py
+  proxmox/
+    base.py
+    http.py
+  ssh/
+    base.py
+```
+
+`base.py` defines the shared `Adapter` base contract. Provider-specific folders define more precise abstract interfaces.
+
+## Proxmox Adapter
+
+The Proxmox adapter is the first concrete external infrastructure adapter.
+
+Files:
+
+- `backend/app/adapters/proxmox/base.py`
+- `backend/app/adapters/proxmox/http.py`
+
+The abstract `ProxmoxAdapter` defines visibility methods:
+
+- `get_nodes()`
+- `list_vms()`
+- `get_vm_status()`
+- `get_cluster_summary()`
+
+It also defines controlled lifecycle methods:
+
+- `start_vm()`
+- `stop_vm()`
+- `reboot_vm()`
+- `shutdown_vm()`
+
+The concrete `HttpProxmoxAdapter` uses `httpx.AsyncClient` and Proxmox API tokens.
+
+Configuration:
+
+- `PROXMOX_API_URL`
+- `PROXMOX_TOKEN_ID`
+- `PROXMOX_TOKEN_SECRET`
+- `PROXMOX_VERIFY_SSL`
+- `PROXMOX_TIMEOUT_SECONDS`
+
+Current safety boundary:
+
+- no VM creation
+- no VM deletion
+- no provisioning
+- no host mutation
+- lifecycle control is limited to start, stop, reboot, and shutdown
+
+## SSH Adapter
+
+The SSH adapter is currently an abstract boundary only.
+
+File:
+
+- `backend/app/adapters/ssh/base.py`
+
+It defines:
+
+- `SshAdapter`
+- `SshExecutionResult`
+
+No concrete SSH execution engine is implemented yet.
+
+## Docker Adapter
+
+The Docker adapter is currently an abstract boundary only.
+
+File:
+
+- `backend/app/adapters/docker/base.py`
+
+It defines Docker Compose-oriented operations:
+
+- `deploy_compose()`
+- `stop_compose()`
+- `get_compose_status()`
+
+No Docker deployment execution is implemented yet.
+
+## Service Integration Pattern
+
+Services depend on adapter contracts rather than concrete infrastructure details.
+
+Current Proxmox flow:
+
+```text
+FastAPI router -> ProxmoxService -> ProxmoxAdapter -> Proxmox API
+```
+
+The service normalizes provider-specific data into frontend-friendly Pydantic schemas.
+
+## Error Handling
+
+The Proxmox adapter maps low-level HTTP failures into adapter-specific exceptions:
+
+- `ProxmoxConfigurationError`
+- `ProxmoxConnectionError`
+
+The router maps those exceptions into HTTP responses:
+
+- missing configuration: `503`
+- connection/auth/API failures: `502`
+
+## Future Extensibility
+
+Future provider implementations should:
+
+- implement the existing abstract adapter for their boundary
+- keep provider-specific response shapes inside the adapter/service layer
+- expose normalized API schemas to frontend consumers
+- avoid leaking provider SDK objects into routers or database models
+- keep destructive or provisioning operations separate from visibility and lifecycle-control endpoints

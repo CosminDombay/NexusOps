@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     proxmox_verify_ssl: bool = False
     proxmox_token_id: str | None = None
     proxmox_token_secret: str | None = None
+    proxmox_timeout_seconds: int = Field(default=15, ge=1, le=120)
 
     ssh_default_port: int = 22
     ssh_connect_timeout_seconds: int = 15
@@ -36,4 +37,3 @@ def get_settings() -> Settings:
 
 
 settings = get_settings()
-

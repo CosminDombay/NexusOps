@@ -1,0 +1,189 @@
+from typing import Any
+from urllib.parse import urljoin
+
+import httpx
+import structlog
+
+from backend.app.adapters.proxmox.base import ProxmoxAdapter
+from backend.app.core.config import settings
+
+logger = structlog.get_logger(__name__)
+
+
+class ProxmoxAdapterError(Exception):
+    """Base exception for Proxmox adapter failures."""
+
+
+class ProxmoxConfigurationError(ProxmoxAdapterError):
+    """Raised when required Proxmox settings are missing."""
+
+
+class ProxmoxConnectionError(ProxmoxAdapterError):
+    """Raised when Proxmox cannot be reached or rejects the request."""
+
+
+class HttpProxmoxAdapter(ProxmoxAdapter):
+    """Async HTTP implementation for read-only Proxmox API discovery."""
+
+    @property
+    def name(self) -> str:
+        return "proxmox-http"
+
+    def __init__(
+        self,
+        *,
+        api_url: str | None = None,
+        token_id: str | None = None,
+        token_secret: str | None = None,
+        verify_ssl: bool | None = None,
+        timeout_seconds: int | None = None,
+    ) -> None:
+        self.api_url = (api_url or settings.proxmox_api_url or "").rstrip("/") + "/"
+        self.token_id = token_id if token_id is not None else settings.proxmox_token_id
+        self.token_secret = (
+            token_secret if token_secret is not None else settings.proxmox_token_secret
+        )
+        self.verify_ssl = settings.proxmox_verify_ssl if verify_ssl is None else verify_ssl
+        self.timeout_seconds = timeout_seconds or settings.proxmox_timeout_seconds
+
+    async def get_nodes(self) -> list[dict[str, Any]]:
+        data = await self._get("nodes")
+        return list(data)
+
+    async def list_vms(self) -> list[dict[str, Any]]:
+        data = await self._get("cluster/resources", params={"type": "vm"})
+        return list(data)
+
+    async def get_vm_status(self, *, node: str, vm_id: int, vm_type: str) -> dict[str, Any]:
+        normalized_type = self._normalize_vm_type(vm_type)
+        return dict(await self._get(f"nodes/{node}/{normalized_type}/{vm_id}/status/current"))
+
+    async def get_cluster_summary(self) -> dict[str, Any]:
+        resources = await self._get("cluster/resources")
+        return {"resources": list(resources)}
+
+    async def start_vm(self, *, node: str, vm_id: int, vm_type: str) -> dict[str, Any]:
+        return await self._post_vm_action(node=node, vm_id=vm_id, vm_type=vm_type, action="start")
+
+    async def stop_vm(self, *, node: str, vm_id: int, vm_type: str) -> dict[str, Any]:
+        return await self._post_vm_action(node=node, vm_id=vm_id, vm_type=vm_type, action="stop")
+
+    async def reboot_vm(self, *, node: str, vm_id: int, vm_type: str) -> dict[str, Any]:
+        return await self._post_vm_action(node=node, vm_id=vm_id, vm_type=vm_type, action="reboot")
+
+    async def shutdown_vm(self, *, node: str, vm_id: int, vm_type: str) -> dict[str, Any]:
+        return await self._post_vm_action(
+            node=node,
+            vm_id=vm_id,
+            vm_type=vm_type,
+            action="shutdown",
+        )
+
+    async def _get(self, path: str, params: dict[str, str] | None = None) -> Any:
+        self._validate_configuration()
+        url = urljoin(self.api_url, path.lstrip("/"))
+
+        try:
+            async with httpx.AsyncClient(
+                headers=self._headers(),
+                timeout=self.timeout_seconds,
+                verify=self.verify_ssl,
+            ) as client:
+                response = await client.get(url, params=params)
+                response.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            logger.warning(
+                "proxmox_request_failed",
+                url=url,
+                status_code=exc.response.status_code,
+                reason="http_status",
+            )
+            raise ProxmoxConnectionError(
+                f"Proxmox API returned status {exc.response.status_code}"
+            ) from exc
+        except httpx.HTTPError as exc:
+            logger.warning("proxmox_request_failed", url=url, reason=exc.__class__.__name__)
+            raise ProxmoxConnectionError("Unable to reach the configured Proxmox API") from exc
+
+        payload = response.json()
+        if not isinstance(payload, dict) or "data" not in payload:
+            logger.warning("proxmox_response_invalid", url=url)
+            raise ProxmoxConnectionError("Proxmox API returned an unexpected response shape")
+
+        logger.info("proxmox_request_succeeded", url=url)
+        return payload["data"]
+
+    async def _post_vm_action(
+        self,
+        *,
+        node: str,
+        vm_id: int,
+        vm_type: str,
+        action: str,
+    ) -> dict[str, Any]:
+        normalized_type = self._normalize_vm_type(vm_type)
+        data = await self._post(f"nodes/{node}/{normalized_type}/{vm_id}/status/{action}")
+        return {"task_id": data}
+
+    async def _post(self, path: str) -> Any:
+        self._validate_configuration()
+        url = urljoin(self.api_url, path.lstrip("/"))
+
+        try:
+            async with httpx.AsyncClient(
+                headers=self._headers(),
+                timeout=self.timeout_seconds,
+                verify=self.verify_ssl,
+            ) as client:
+                response = await client.post(url)
+                response.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            logger.warning(
+                "proxmox_request_failed",
+                url=url,
+                status_code=exc.response.status_code,
+                reason="http_status",
+            )
+            raise ProxmoxConnectionError(
+                f"Proxmox API returned status {exc.response.status_code}"
+            ) from exc
+        except httpx.HTTPError as exc:
+            logger.warning("proxmox_request_failed", url=url, reason=exc.__class__.__name__)
+            raise ProxmoxConnectionError("Unable to reach the configured Proxmox API") from exc
+
+        payload = response.json()
+        if not isinstance(payload, dict) or "data" not in payload:
+            logger.warning("proxmox_response_invalid", url=url)
+            raise ProxmoxConnectionError("Proxmox API returned an unexpected response shape")
+
+        logger.info("proxmox_request_succeeded", url=url)
+        return payload["data"]
+
+    def _validate_configuration(self) -> None:
+        missing = []
+        if not self.api_url.strip("/"):
+            missing.append("PROXMOX_API_URL")
+        if not self.token_id:
+            missing.append("PROXMOX_TOKEN_ID")
+        if not self.token_secret:
+            missing.append("PROXMOX_TOKEN_SECRET")
+
+        if missing:
+            logger.warning("proxmox_configuration_missing", missing=missing)
+            raise ProxmoxConfigurationError(
+                f"Missing Proxmox configuration: {', '.join(missing)}"
+            )
+
+    def _headers(self) -> dict[str, str]:
+        return {
+            "Authorization": f"PVEAPIToken={self.token_id}={self.token_secret}",
+            "Accept": "application/json",
+        }
+
+    @staticmethod
+    def _normalize_vm_type(vm_type: str) -> str:
+        if vm_type in {"qemu", "lxc"}:
+            return vm_type
+        if vm_type == "vm":
+            return "qemu"
+        raise ProxmoxConfigurationError("VM type must be qemu or lxc")
