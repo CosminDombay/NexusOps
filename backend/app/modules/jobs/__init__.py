@@ -1,0 +1,2 @@
+"""Job tracking domain module."""
+

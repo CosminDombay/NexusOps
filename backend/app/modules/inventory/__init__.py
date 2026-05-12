@@ -1,0 +1,2 @@
+"""Server inventory domain module."""
+

@@ -1,0 +1,2 @@
+"""Monitoring collection domain module."""
+

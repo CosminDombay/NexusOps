@@ -1,0 +1,1 @@
+"""Generated deployment asset templates."""
