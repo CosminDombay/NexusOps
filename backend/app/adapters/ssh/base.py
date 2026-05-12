@@ -1,14 +1,17 @@
-from abc import ABC, abstractmethod
+from abc import abstractmethod
+from dataclasses import dataclass
+
+from backend.app.adapters.base import Adapter
 
 
+@dataclass(frozen=True)
 class SshExecutionResult:
-    def __init__(self, exit_code: int, stdout: str, stderr: str) -> None:
-        self.exit_code = exit_code
-        self.stdout = stdout
-        self.stderr = stderr
+    exit_code: int
+    stdout: str
+    stderr: str
 
 
-class SshAdapter(ABC):
+class SshAdapter(Adapter):
     """Remote execution boundary for Linux hosts."""
 
     @abstractmethod
@@ -18,4 +21,3 @@ class SshAdapter(ABC):
     @abstractmethod
     async def upload_file(self, host: str, local_path: str, remote_path: str, user: str) -> None:
         raise NotImplementedError
-

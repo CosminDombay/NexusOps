@@ -1,7 +1,9 @@
-from abc import ABC, abstractmethod
+from abc import abstractmethod
+
+from backend.app.adapters.base import Adapter
 
 
-class DockerComposeAdapter(ABC):
+class DockerComposeAdapter(Adapter):
     """Boundary for Docker Compose operations on managed servers."""
 
     @abstractmethod
@@ -15,4 +17,3 @@ class DockerComposeAdapter(ABC):
     @abstractmethod
     async def get_compose_status(self, host: str, project_name: str) -> dict[str, str]:
         raise NotImplementedError
-
