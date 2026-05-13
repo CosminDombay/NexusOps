@@ -74,6 +74,14 @@ backend/app/adapters/
   - stop
   - reboot
   - shutdown
+- Proxmox template-based VM provisioning:
+  - template listing
+  - clone from cloud-init capable template
+  - cloud-init identity/SSH/static network configuration
+  - Proxmox task polling
+  - SSH readiness polling
+  - inventory auto-registration
+  - optional profile/package bootstrap through Jobs
 - Infrastructure dashboard in the frontend
 - Jobs domain:
   - persisted job history
@@ -106,6 +114,24 @@ backend/app/adapters/
   - raw command runner
   - job history
   - stdout/stderr result viewer
+- Package definitions:
+  - Docker Engine
+  - Tailscale
+  - Node Exporter
+  - Promtail
+  - Fail2Ban
+  - UFW
+  - custom package create/update/delete
+  - package execution through Jobs
+- Infrastructure profiles:
+  - Base Linux Server
+  - Docker Host
+  - Monitoring Node
+  - Development VM
+  - sequential package/action execution through Jobs
+  - custom profile create/update/delete
+- Packages and Profiles frontend pages
+- Provisioning frontend page
 - ESLint, Prettier, Tailwind, and TypeScript tooling
 - persistent docs under `docs/architecture/` and `docs/sprints/`
 
@@ -113,9 +139,7 @@ backend/app/adapters/
 
 - authentication
 - authorization and RBAC
-- VM creation
 - VM deletion
-- provisioning
 - Terraform
 - cloud-init
 - Docker deployment execution
@@ -123,11 +147,12 @@ backend/app/adapters/
 - realtime updates
 - background workers
 - infrastructure action audit persistence
-- Proxmox task polling
+- ISO installation workflows
 - Proxmox-to-inventory sync/import
 - Ansible integration
 - credential vault/encrypted secret storage
 - workflow chaining
+- rollback orchestration
 
 ## Operational Safety
 
@@ -137,6 +162,10 @@ backend/app/adapters/
 - The frontend requires confirmation for stop, reboot, and shutdown.
 - Inventory remains the orchestration abstraction layer. Jobs and operational actions execute only against inventory-managed servers, not raw Proxmox VM records.
 - Operational actions must reuse the Jobs -> SSH -> persistence pipeline instead of creating standalone execution logic.
+- Packages and Profiles must resolve into Jobs; they must not bypass the Jobs -> SSH -> persistence pipeline.
+- Provisioning must use Proxmox templates and cloud-init only; do not add ISO/raw installer provisioning.
+- Provisioning must register Inventory before profile/package/bootstrap execution.
+- Built-in package/profile templates may be listed and executed, but only custom persisted definitions should be editable/deletable.
 - Destructive operational actions should require frontend confirmation.
 - SSH passwords and private key paths are temporary local MVP metadata; do not treat them as production-grade secret management.
 - Secrets must not be committed. Proxmox token values belong in local environment variables or ignored `.env` files.

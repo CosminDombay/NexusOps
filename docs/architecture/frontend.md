@@ -11,6 +11,9 @@ The frontend currently implements:
 - server list table/card views
 - Proxmox infrastructure dashboard
 - Jobs page with operational actions, raw command execution, history, and result viewer
+- Package definitions page
+- Infrastructure profiles page with apply workflow and execution visibility
+- VM provisioning page with template, cloud-init, static networking, bootstrap, and history sections
 - placeholder pages for future modules
 
 ## Application Shell
@@ -30,6 +33,9 @@ Current main routes:
 - `/` inventory
 - `/infrastructure` read-only Proxmox visibility
 - `/jobs` SSH-backed operations and job history
+- `/packages` package definition catalog
+- `/profiles` reusable infrastructure profile templates
+- `/provisioning` Proxmox template provisioning workflow
 - `/provisioning` placeholder
 - `/deployments` placeholder
 - `/packages` placeholder
@@ -50,7 +56,7 @@ src/features/<feature>/
   utils/
 ```
 
-Inventory, Proxmox, and Jobs follow this pattern. Placeholder modules currently use simple page components only.
+Inventory, Proxmox, Jobs, Packages, and Profiles follow this pattern. Placeholder modules currently use simple page components only.
 
 ## API Client
 
@@ -146,6 +152,53 @@ The Jobs UI includes:
 - persisted job history
 - stdout/stderr result viewer
 - responsive table/cards
+
+## Packages Frontend Flow
+
+```text
+PackagesPage
+  -> packagesApi
+  -> shared apiClient
+  -> FastAPI /api/v1/packages
+```
+
+The Packages UI displays reusable package definitions with install commands, validation commands, tags, category, and supported OS metadata. It also supports adding custom package definitions, deleting custom definitions, selecting a target host, and running a package through Jobs.
+
+## Profiles Frontend Flow
+
+```text
+ProfilesPage
+  -> profilesApi
+  -> shared apiClient
+  -> FastAPI /api/v1/profiles
+```
+
+The Profiles UI includes:
+
+- profile cards
+- ordered step display
+- profile builder using package/action references
+- target inventory host selector
+- apply profile action
+- generated job sequence visibility
+
+## Provisioning Frontend Flow
+
+```text
+ProvisioningPage
+  -> provisioningApi
+  -> shared apiClient
+  -> FastAPI /api/v1/vms
+```
+
+The Provisioning UI includes:
+
+- Proxmox template selector
+- VM sizing and network bridge inputs
+- cloud-init username/password/SSH key inputs
+- static IP/CIDR, gateway, and DNS inputs
+- profile/package bootstrap selectors
+- provisioning lifecycle history cards
 
 ## Types, Hooks, and Utilities
 

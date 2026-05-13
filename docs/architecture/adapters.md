@@ -129,6 +129,10 @@ FastAPI router -> JobService -> SshAdapter -> Linux host
 
 Operational actions resolve to commands inside the Jobs module before following the same SSH flow.
 
+Package definitions and profiles also resolve to commands before entering the same Jobs/SSH flow. They do not introduce separate execution adapters.
+
+Provisioning extends the Proxmox adapter with template listing, template cloning, cloud-init configuration, disk resize, VM start, and task status polling. Bootstrap still uses the SSH adapter only after the VM is registered in Inventory.
+
 The service normalizes provider-specific data into frontend-friendly Pydantic schemas.
 
 ## Error Handling

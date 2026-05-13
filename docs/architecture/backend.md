@@ -32,7 +32,10 @@ Current implemented domain routes include:
 
 - `/api/v1/servers` for inventory
 - `/api/v1/proxmox` for Proxmox visibility and controlled lifecycle actions
+- `/api/v1/vms` for template-based Proxmox provisioning
 - `/api/v1/jobs` for SSH command execution, job history, and operational actions
+- `/api/v1/packages` for reusable package definitions
+- `/api/v1/profiles` for reusable infrastructure profile templates and execution
 
 Placeholder routers exist for future modules such as provisioning, deployments, packages, monitoring, profiles, and execution, but they do not yet implement real workflows.
 
@@ -73,6 +76,14 @@ Jobs follow the same architecture:
 - `schemas.py` defines command, action, and job response contracts.
 
 Operational actions do not duplicate execution logic. They resolve an action into a command and call the same Jobs execution flow used by raw commands.
+
+Packages and Profiles are lightweight orchestration definitions:
+
+- Packages expose reusable package metadata, install commands, and validation commands.
+- Custom package definitions are persisted and can be created, edited, deleted, and executed.
+- Profiles compose ordered action/package steps.
+- Custom profiles are persisted and can be created, edited, deleted, and applied.
+- Applying a profile resolves each step into a command and calls `JobService.execute()` sequentially.
 
 ## Async SQLAlchemy
 
@@ -169,6 +180,35 @@ Frontend Jobs page
 ```
 
 Operational actions are intentionally lightweight. They are predefined action definitions that map to shell commands/scripts and then reuse the Jobs pipeline.
+
+## Profiles Backend Flow
+
+```text
+Frontend Profiles page
+  -> FastAPI /api/v1/profiles/{profile_id}/apply
+  -> ProfileService
+  -> resolve action/package step
+  -> JobService.execute()
+  -> SSH adapter
+  -> persisted job result
+```
+
+Package/profile definition CRUD uses module repositories and persists only definitions. Actual execution history remains centralized in Jobs.
+
+## Provisioning Backend Flow
+
+```text
+Frontend Provisioning page
+  -> FastAPI /api/v1/vms
+  -> ProvisioningService
+  -> ProxmoxAdapter clone/configure/start/template task polling
+  -> SSH readiness polling
+  -> InventoryService creates managed server
+  -> optional ProfileService / PackageAutomationService bootstrap
+  -> Jobs persist bootstrap execution
+```
+
+Provisioning uses Proxmox templates only. Cloud-init configuration sets identity, SSH credentials, static IP/CIDR, gateway, DNS, CPU, memory, network bridge, on-boot behavior, and description metadata.
 
 ## Current Backend Boundaries
 

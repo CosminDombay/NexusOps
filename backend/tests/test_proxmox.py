@@ -45,6 +45,9 @@ class FakeProxmoxAdapter(ProxmoxAdapter):
             },
         ]
 
+    async def list_vm_templates(self) -> list[dict[str, Any]]:
+        return []
+
     async def get_vm_status(self, *, node: str, vm_id: int, vm_type: str) -> dict[str, Any]:
         return {
             "vmid": vm_id,
@@ -57,6 +60,9 @@ class FakeProxmoxAdapter(ProxmoxAdapter):
     async def get_cluster_summary(self) -> dict[str, Any]:
         return {"resources": []}
 
+    async def get_task_status(self, *, node: str, task_id: str) -> dict[str, Any]:
+        return {"status": "stopped", "exitstatus": "OK"}
+
     async def start_vm(self, *, node: str, vm_id: int, vm_type: str) -> dict[str, Any]:
         return {"task_id": f"UPID:{node}:{vm_type}:{vm_id}:start"}
 
@@ -68,6 +74,39 @@ class FakeProxmoxAdapter(ProxmoxAdapter):
 
     async def shutdown_vm(self, *, node: str, vm_id: int, vm_type: str) -> dict[str, Any]:
         return {"task_id": f"UPID:{node}:{vm_type}:{vm_id}:shutdown"}
+
+    async def clone_vm_template(
+        self,
+        *,
+        node: str,
+        template_id: int,
+        new_vm_id: int,
+        name: str,
+        description: str | None = None,
+    ) -> dict[str, Any]:
+        return {"task_id": f"UPID:{node}:clone:{template_id}:{new_vm_id}"}
+
+    async def configure_cloud_init(
+        self,
+        *,
+        node: str,
+        vm_id: int,
+        cpu_cores: int,
+        memory_mb: int,
+        network_bridge: str,
+        username: str,
+        password: str | None,
+        ssh_public_key: str | None,
+        ip_cidr: str,
+        gateway: str,
+        dns_servers: list[str],
+        start_on_boot: bool,
+        description: str | None = None,
+    ) -> dict[str, Any]:
+        return {"task_id": f"UPID:{node}:config:{vm_id}"}
+
+    async def resize_vm_disk(self, *, node: str, vm_id: int, disk_size_gb: int) -> dict[str, Any]:
+        return {"task_id": f"UPID:{node}:resize:{vm_id}"}
 
 
 @pytest.mark.asyncio

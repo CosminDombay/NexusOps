@@ -1,7 +1,7 @@
 from enum import StrEnum
 from uuid import UUID
 
-from sqlalchemy import Enum, ForeignKey, String, Text
+from sqlalchemy import JSON, Boolean, Enum, ForeignKey, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from backend.app.db.base import Base, TimestampMixin, UuidPrimaryKeyMixin
@@ -27,3 +27,17 @@ class PackageInstallation(Base, UuidPrimaryKeyMixin, TimestampMixin):
         default=PackageInstallStatus.PENDING,
     )
 
+
+class PackageDefinitionRecord(Base, UuidPrimaryKeyMixin, TimestampMixin):
+    __tablename__ = "package_definitions"
+    __table_args__ = (UniqueConstraint("slug", name="uq_package_definitions_slug"),)
+
+    slug: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    category: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
+    supported_os: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
+    install_command: Mapped[str] = mapped_column(Text, nullable=False)
+    validation_command: Mapped[str] = mapped_column(Text, nullable=False)
+    tags: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
+    description: Mapped[str] = mapped_column(Text, nullable=False)
+    is_builtin: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)

@@ -1,4 +1,4 @@
-from sqlalchemy import JSON, String
+from sqlalchemy import JSON, Boolean, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from backend.app.db.base import Base, TimestampMixin, UuidPrimaryKeyMixin
@@ -12,3 +12,15 @@ class StandardizationProfile(Base, UuidPrimaryKeyMixin, TimestampMixin):
     users: Mapped[list[dict]] = mapped_column(JSON, default=list)
     groups: Mapped[list[dict]] = mapped_column(JSON, default=list)
 
+
+class InfrastructureProfileRecord(Base, UuidPrimaryKeyMixin, TimestampMixin):
+    __tablename__ = "infrastructure_profiles"
+    __table_args__ = (UniqueConstraint("slug", name="uq_infrastructure_profiles_slug"),)
+
+    slug: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    category: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
+    description: Mapped[str] = mapped_column(Text, nullable=False)
+    tags: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
+    steps: Mapped[list[dict]] = mapped_column(JSON, default=list, nullable=False)
+    is_builtin: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
