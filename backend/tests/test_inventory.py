@@ -103,3 +103,33 @@ def test_inventory_filters_by_provider(client) -> None:
     servers = response.json()
     assert len(servers) == 1
     assert servers[0]["hostname"] == "baremetal-01"
+
+
+def test_inventory_requires_password_for_password_auth(client) -> None:
+    response = client.post(
+        "/api/v1/servers",
+        json=server_payload(
+            hostname="password-host",
+            ip_address="10.0.0.30",
+            ssh_auth_method="password",
+        ),
+    )
+
+    assert response.status_code == 422
+
+
+def test_inventory_accepts_password_auth_without_echoing_secret(client) -> None:
+    response = client.post(
+        "/api/v1/servers",
+        json=server_payload(
+            hostname="password-host",
+            ip_address="10.0.0.30",
+            ssh_auth_method="password",
+            ssh_password="secret",
+        ),
+    )
+
+    assert response.status_code == 201
+    payload = response.json()
+    assert payload["ssh_auth_method"] == "password"
+    assert "ssh_password" not in payload

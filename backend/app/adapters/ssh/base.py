@@ -15,7 +15,16 @@ class SshAdapter(Adapter):
     """Remote execution boundary for Linux hosts."""
 
     @abstractmethod
-    async def run_command(self, host: str, command: str, user: str) -> SshExecutionResult:
+    async def run_command(
+        self,
+        *,
+        host: str,
+        port: int,
+        command: str,
+        user: str,
+        password: str | None = None,
+        private_key_path: str | None = None,
+    ) -> SshExecutionResult:
         raise NotImplementedError
 
     @abstractmethod

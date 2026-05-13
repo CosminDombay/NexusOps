@@ -77,7 +77,7 @@ export function ServerList({ servers, isLoading, error, onRetry }: ServerListPro
         <table className="min-w-full divide-y divide-zinc-200">
           <thead className="bg-zinc-50">
             <tr>
-              {['Hostname', 'IP address', 'Environment', 'Provider', 'Status'].map((heading) => (
+              {['Hostname', 'IP address', 'Environment', 'Provider', 'SSH auth', 'Status'].map((heading) => (
                 <th key={heading} className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-normal text-zinc-500">
                   {heading}
                 </th>
@@ -96,6 +96,9 @@ export function ServerList({ servers, isLoading, error, onRetry }: ServerListPro
                   <EnvironmentBadge environment={server.environment} />
                 </td>
                 <td className="px-5 py-4 text-sm text-zinc-700">{formatLabel(server.provider)}</td>
+                <td className="px-5 py-4 text-sm text-zinc-700">
+                  {server.ssh_auth_method === 'password' ? 'Password' : 'SSH Key'}
+                </td>
                 <td className="px-5 py-4">
                   <StatusBadge status={server.status} />
                 </td>
@@ -119,6 +122,9 @@ export function ServerList({ servers, isLoading, error, onRetry }: ServerListPro
               <EnvironmentBadge environment={server.environment} />
               <span className="inline-flex items-center rounded-full bg-zinc-100 px-2.5 py-1 text-xs font-medium text-zinc-700 ring-1 ring-inset ring-zinc-200">
                 {formatLabel(server.provider)}
+              </span>
+              <span className="inline-flex items-center rounded-full bg-zinc-100 px-2.5 py-1 text-xs font-medium text-zinc-700 ring-1 ring-inset ring-zinc-200">
+                {server.ssh_auth_method === 'password' ? 'Password' : 'SSH Key'}
               </span>
             </div>
             <p className="mt-3 text-sm text-zinc-500">{server.operating_system}</p>

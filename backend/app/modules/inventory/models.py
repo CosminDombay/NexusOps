@@ -21,6 +21,11 @@ class ServerEnvironment(StrEnum):
     LAB = "lab"
 
 
+class ServerSshAuthMethod(StrEnum):
+    KEY = "key"
+    PASSWORD = "password"
+
+
 class Server(Base, UuidPrimaryKeyMixin, TimestampMixin):
     __tablename__ = "servers"
     __table_args__ = (
@@ -40,6 +45,17 @@ class Server(Base, UuidPrimaryKeyMixin, TimestampMixin):
     tags: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
     ssh_port: Mapped[int] = mapped_column(Integer, default=22, nullable=False)
     ssh_username: Mapped[str] = mapped_column(String(100), nullable=False)
+    ssh_auth_method: Mapped[ServerSshAuthMethod] = mapped_column(
+        Enum(
+            ServerSshAuthMethod,
+            name="server_ssh_auth_method",
+            values_callable=lambda enum: [member.value for member in enum],
+        ),
+        default=ServerSshAuthMethod.KEY,
+        nullable=False,
+    )
+    ssh_password: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    ssh_private_key_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
     status: Mapped[ServerStatus] = mapped_column(
         Enum(ServerStatus),
         default=ServerStatus.UNKNOWN,

@@ -20,6 +20,8 @@ class Settings(BaseSettings):
 
     ssh_default_port: int = 22
     ssh_connect_timeout_seconds: int = 15
+    ssh_command_timeout_seconds: int = Field(default=60, ge=1, le=3600)
+    ssh_private_key_path: str | None = None
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 

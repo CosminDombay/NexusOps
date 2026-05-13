@@ -26,6 +26,7 @@ backend/app/adapters/
     http.py
   ssh/
     base.py
+    paramiko.py
 ```
 
 `base.py` defines the shared `Adapter` base contract. Provider-specific folders define more precise abstract interfaces.
@@ -73,18 +74,26 @@ Current safety boundary:
 
 ## SSH Adapter
 
-The SSH adapter is currently an abstract boundary only.
+The SSH adapter provides the concrete remote execution boundary used by Jobs.
 
-File:
+Files:
 
 - `backend/app/adapters/ssh/base.py`
+- `backend/app/adapters/ssh/paramiko.py`
 
 It defines:
 
 - `SshAdapter`
 - `SshExecutionResult`
+- `ParamikoSshAdapter`
 
-No concrete SSH execution engine is implemented yet.
+The concrete adapter uses Paramiko and supports:
+
+- key-based authentication through per-server private key path, global `SSH_PRIVATE_KEY_PATH`, SSH agent, or default local keys
+- password authentication through inventory server metadata
+- command execution with stdout, stderr, and exit code capture
+
+SSH execution targets are inventory-managed servers, not raw Proxmox VM records.
 
 ## Docker Adapter
 
@@ -111,6 +120,14 @@ Current Proxmox flow:
 ```text
 FastAPI router -> ProxmoxService -> ProxmoxAdapter -> Proxmox API
 ```
+
+Current Jobs/SSH flow:
+
+```text
+FastAPI router -> JobService -> SshAdapter -> Linux host
+```
+
+Operational actions resolve to commands inside the Jobs module before following the same SSH flow.
 
 The service normalizes provider-specific data into frontend-friendly Pydantic schemas.
 

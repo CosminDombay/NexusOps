@@ -5,7 +5,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from backend.app.modules.inventory.models import ServerEnvironment, ServerStatus
+from backend.app.modules.inventory.models import ServerEnvironment, ServerSshAuthMethod, ServerStatus
 
 
 class ServerBase(BaseModel):
@@ -17,6 +17,9 @@ class ServerBase(BaseModel):
     tags: list[str] = Field(default_factory=list)
     ssh_port: int = Field(default=22, ge=1, le=65535)
     ssh_username: str = Field(min_length=1, max_length=100)
+    ssh_auth_method: ServerSshAuthMethod = ServerSshAuthMethod.KEY
+    ssh_password: str | None = Field(default=None, max_length=500)
+    ssh_private_key_path: str | None = Field(default=None, max_length=500)
     status: ServerStatus = ServerStatus.UNKNOWN
     provider: str = Field(min_length=1, max_length=100)
 
@@ -45,6 +48,20 @@ class ServerBase(BaseModel):
                 seen.add(clean)
         return normalized
 
+    @field_validator("ssh_password", "ssh_private_key_path")
+    @classmethod
+    def strip_optional_secret_strings(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        stripped = value.strip()
+        return stripped or None
+
+    @model_validator(mode="after")
+    def validate_ssh_auth(self) -> Self:
+        if self.ssh_auth_method == ServerSshAuthMethod.PASSWORD and not self.ssh_password:
+            raise ValueError("SSH password is required when password authentication is selected")
+        return self
+
 
 class ServerCreate(ServerBase):
     pass
@@ -59,6 +76,9 @@ class ServerUpdate(BaseModel):
     tags: list[str] | None = None
     ssh_port: int | None = Field(default=None, ge=1, le=65535)
     ssh_username: str | None = Field(default=None, min_length=1, max_length=100)
+    ssh_auth_method: ServerSshAuthMethod | None = None
+    ssh_password: str | None = Field(default=None, max_length=500)
+    ssh_private_key_path: str | None = Field(default=None, max_length=500)
     status: ServerStatus | None = None
     provider: str | None = Field(default=None, min_length=1, max_length=100)
 
@@ -93,6 +113,14 @@ class ServerUpdate(BaseModel):
                 seen.add(clean)
         return normalized
 
+    @field_validator("ssh_password", "ssh_private_key_path")
+    @classmethod
+    def strip_optional_secret_strings(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        stripped = value.strip()
+        return stripped or None
+
     @model_validator(mode="after")
     def require_at_least_one_field(self) -> Self:
         if not self.model_dump(exclude_unset=True):
@@ -104,6 +132,7 @@ class ServerRead(ServerBase):
     id: UUID
     created_at: datetime
     updated_at: datetime
+    ssh_password: str | None = Field(default=None, exclude=True)
 
 
     model_config = ConfigDict(from_attributes=True)

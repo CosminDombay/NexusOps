@@ -18,6 +18,8 @@ frontend/.vite/
 frontend/*.tsbuildinfo
 frontend/tsconfig*.tsbuildinfo
 npm-debug.log*
+*.log
+screenshots/
 
 # Environment
 .env

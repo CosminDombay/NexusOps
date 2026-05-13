@@ -1,4 +1,4 @@
-import type { ServerEnvironment, ServerStatus } from '../types/server';
+import type { ServerEnvironment, ServerSshAuthMethod, ServerStatus } from '../types/server';
 
 export const environmentOptions: Array<{ label: string; value: ServerEnvironment }> = [
   { label: 'Development', value: 'development' },
@@ -6,6 +6,11 @@ export const environmentOptions: Array<{ label: string; value: ServerEnvironment
   { label: 'Production', value: 'production' },
   { label: 'Testing', value: 'testing' },
   { label: 'Lab', value: 'lab' },
+];
+
+export const sshAuthMethodOptions: Array<{ label: string; value: ServerSshAuthMethod }> = [
+  { label: 'SSH Key', value: 'key' },
+  { label: 'Password', value: 'password' },
 ];
 
 export const statusStyles: Record<ServerStatus, string> = {

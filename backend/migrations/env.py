@@ -10,7 +10,7 @@ from backend.app.db.base import Base
 from backend.app.modules.deployments.models import Deployment
 from backend.app.modules.execution.models import CommandExecution
 from backend.app.modules.inventory.models import Server
-from backend.app.modules.jobs.models import Job, JobLog
+from backend.app.modules.jobs.models import Job
 from backend.app.modules.monitoring.models import MetricSample
 from backend.app.modules.packages.models import PackageInstallation
 from backend.app.modules.profiles.models import StandardizationProfile
@@ -28,7 +28,6 @@ _models = (
     CommandExecution,
     Deployment,
     Job,
-    JobLog,
     MetricSample,
     PackageInstallation,
     Server,
@@ -75,4 +74,3 @@ else:
     import asyncio
 
     asyncio.run(run_migrations_online())
-

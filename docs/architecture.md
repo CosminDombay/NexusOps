@@ -11,7 +11,6 @@ NexusOps/
       common/               Shared schemas and repository base types
       core/                 Configuration and logging
       db/                   SQLAlchemy base and async sessions
-      jobs/                 Background execution boundary
       modules/              Business modules in the modular monolith
     migrations/             Alembic environment and versions
     tests/                  Backend tests
@@ -44,13 +43,12 @@ The frontend is organized by feature rather than technical layer. Pages for inve
 
 - `Server`: Linux host inventory and connection state.
 - `VirtualMachine`: VM request and Proxmox provider mapping.
-- `CommandExecution`: SSH command audit trail and output.
+- `CommandExecution`: legacy placeholder for command audit concepts.
 - `Deployment`: Docker Compose project definition and state.
 - `PackageInstallation`: package automation execution record.
 - `MetricSample`: collected monitoring metric.
 - `StandardizationProfile`: reusable users/groups profile.
-- `Job`: long-running orchestration task state.
-- `JobLog`: structured log lines attached to a job.
+- `Job`: persisted SSH command/action execution state, output, exit code, and timestamps.
 
 ## Infrastructure Adapter Interfaces
 
@@ -61,3 +59,12 @@ The frontend is organized by feature rather than technical layer. Pages for inve
 
 These contracts keep external system details out of service and API layers, which makes later replacement, testing, and mocking straightforward.
 
+## Current Orchestration Flow
+
+NexusOps now uses Inventory as the execution abstraction:
+
+```text
+Inventory -> Jobs / Operational Actions -> SSH adapter -> managed Linux host
+```
+
+Proxmox remains a provider discovery and lifecycle-control layer. Jobs and operational actions execute only against inventory-managed servers.

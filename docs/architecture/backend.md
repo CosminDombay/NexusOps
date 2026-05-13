@@ -31,9 +31,10 @@ Current routing pattern:
 Current implemented domain routes include:
 
 - `/api/v1/servers` for inventory
-- `/api/v1/proxmox` for read-only Proxmox visibility
+- `/api/v1/proxmox` for Proxmox visibility and controlled lifecycle actions
+- `/api/v1/jobs` for SSH command execution, job history, and operational actions
 
-Placeholder routers exist for future modules such as provisioning, deployments, packages, monitoring, profiles, jobs, and execution, but they do not yet implement real workflows.
+Placeholder routers exist for future modules such as provisioning, deployments, packages, monitoring, profiles, and execution, but they do not yet implement real workflows.
 
 ## Module Organization
 
@@ -49,7 +50,7 @@ backend/app/modules/<domain>/
   tasks.py
 ```
 
-Not every file is fully implemented yet. Inventory is the first complete database-backed module. Proxmox is implemented as a read-only external integration module.
+Not every file is fully implemented yet. Inventory and Jobs are implemented database-backed modules. Proxmox is implemented as an external infrastructure integration module.
 
 ## Repository-Service Pattern
 
@@ -62,6 +63,16 @@ Inventory follows the primary repository-service architecture:
 - `models.py` defines SQLAlchemy persistence models.
 
 This keeps HTTP logic, business logic, and database access separate.
+
+Jobs follow the same architecture:
+
+- `router.py` exposes command execution, action execution, job lookup, and history endpoints.
+- `service.py` validates inventory targets, creates jobs, transitions status, invokes SSH, and persists results.
+- `repository.py` owns job persistence queries.
+- `actions.py` defines the predefined operational action registry.
+- `schemas.py` defines command, action, and job response contracts.
+
+Operational actions do not duplicate execution logic. They resolve an action into a command and call the same Jobs execution flow used by raw commands.
 
 ## Async SQLAlchemy
 
@@ -80,14 +91,14 @@ Inventory commits are currently performed in the service layer after repository 
 
 Alembic is configured at the repository root through `alembic.ini` and migration code under `backend/migrations`.
 
-The current migration creates the `servers` table and related indexes/constraints.
+Current migrations create the `servers` and `jobs` tables, plus inventory SSH authentication metadata.
 
 Important migration characteristics:
 
 - imports model metadata in `backend/migrations/env.py`
 - uses async migration execution
 - targets `Base.metadata`
-- supports PostgreSQL enum types for server environment and status
+- supports PostgreSQL enum types for server environment, SSH auth method, server status, and job status
 
 ## Configuration
 
@@ -109,14 +120,19 @@ Important settings include:
 - `PROXMOX_TOKEN_SECRET`
 - `PROXMOX_VERIFY_SSL`
 - `PROXMOX_TIMEOUT_SECONDS`
+- `SSH_CONNECT_TIMEOUT_SECONDS`
+- `SSH_COMMAND_TIMEOUT_SECONDS`
+- `SSH_PRIVATE_KEY_PATH`
 
 Proxmox secrets are not committed. They should be supplied by local environment variables or an ignored `.env`.
+
+SSH passwords and private key paths are part of the current local MVP and are not encrypted yet. They should be treated as temporary development/lab metadata until a vault or encryption layer is added.
 
 ## Structured Logging
 
 Logging is configured in `backend/app/core/logging.py` with `structlog`.
 
-The inventory service and Proxmox adapter use structured log events for successful operations and failure paths.
+The inventory service, Proxmox adapter, Jobs service, and SSH adapter use structured log events for successful operations and failure paths.
 
 ## Proxmox Backend Flow
 
@@ -140,6 +156,20 @@ sequenceDiagram
   API-->>UI: JSON
 ```
 
+## Jobs and Actions Backend Flow
+
+```text
+Frontend Jobs page
+  -> FastAPI /api/v1/jobs/actions/execute or /api/v1/jobs/execute
+  -> JobService
+  -> ServerRepository resolves inventory target
+  -> JobRepository creates pending/running job
+  -> ParamikoSshAdapter executes command
+  -> JobRepository persists stdout/stderr/exit_code/status
+```
+
+Operational actions are intentionally lightweight. They are predefined action definitions that map to shell commands/scripts and then reuse the Jobs pipeline.
+
 ## Current Backend Boundaries
 
-The backend currently mutates only NexusOps-owned database state. Infrastructure integrations, including Proxmox, are read-only.
+The backend mutates NexusOps-owned inventory/job data, requests controlled Proxmox VM lifecycle actions, and executes SSH commands against inventory-managed hosts. Proxmox VM objects are not direct execution targets.

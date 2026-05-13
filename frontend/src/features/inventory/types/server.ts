@@ -2,6 +2,8 @@ export type ServerEnvironment = 'development' | 'staging' | 'production' | 'test
 
 export type ServerStatus = 'unknown' | 'online' | 'offline' | 'maintenance';
 
+export type ServerSshAuthMethod = 'key' | 'password';
+
 export type Server = {
   id: string;
   hostname: string;
@@ -12,6 +14,8 @@ export type Server = {
   tags: string[];
   ssh_port: number;
   ssh_username: string;
+  ssh_auth_method: ServerSshAuthMethod;
+  ssh_private_key_path: string | null;
   status: ServerStatus;
   provider: string;
   created_at: string;
@@ -26,4 +30,7 @@ export type CreateServerPayload = {
   provider: string;
   ssh_port: number;
   ssh_username: string;
+  ssh_auth_method: ServerSshAuthMethod;
+  ssh_password?: string | null;
+  ssh_private_key_path?: string | null;
 };

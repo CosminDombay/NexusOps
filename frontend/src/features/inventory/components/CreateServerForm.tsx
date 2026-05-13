@@ -1,8 +1,8 @@
 import { AlertCircle, Loader2, Plus } from 'lucide-react';
 import { FormEvent, useMemo, useState } from 'react';
 
-import type { CreateServerPayload, ServerEnvironment } from '../types/server';
-import { environmentOptions } from '../utils/options';
+import type { CreateServerPayload, ServerEnvironment, ServerSshAuthMethod } from '../types/server';
+import { environmentOptions, sshAuthMethodOptions } from '../utils/options';
 
 type FormState = {
   hostname: string;
@@ -12,6 +12,9 @@ type FormState = {
   provider: string;
   ssh_port: string;
   ssh_username: string;
+  ssh_auth_method: ServerSshAuthMethod;
+  ssh_password: string;
+  ssh_private_key_path: string;
 };
 
 type CreateServerFormProps = {
@@ -29,10 +32,16 @@ const initialFormState: FormState = {
   provider: '',
   ssh_port: '22',
   ssh_username: '',
+  ssh_auth_method: 'key',
+  ssh_password: '',
+  ssh_private_key_path: '',
 };
 
 const textFields: Array<{
-  name: keyof Omit<FormState, 'environment'>;
+  name: keyof Pick<
+    FormState,
+    'hostname' | 'ip_address' | 'operating_system' | 'provider' | 'ssh_port' | 'ssh_username'
+  >;
   label: string;
   placeholder: string;
   type?: string;
@@ -75,6 +84,11 @@ export function CreateServerForm({ isSubmitting, apiError, onSubmit, onFieldChan
       return;
     }
 
+    if (formState.ssh_auth_method === 'password' && !formState.ssh_password.trim()) {
+      setValidationError('SSH password is required when password authentication is selected.');
+      return;
+    }
+
     const created = await onSubmit({
       hostname: formState.hostname.trim(),
       ip_address: formState.ip_address.trim(),
@@ -83,6 +97,13 @@ export function CreateServerForm({ isSubmitting, apiError, onSubmit, onFieldChan
       provider: formState.provider.trim(),
       ssh_port: sshPort,
       ssh_username: formState.ssh_username.trim(),
+      ssh_auth_method: formState.ssh_auth_method,
+      ssh_password:
+        formState.ssh_auth_method === 'password' ? formState.ssh_password.trim() : null,
+      ssh_private_key_path:
+        formState.ssh_auth_method === 'key' && formState.ssh_private_key_path.trim()
+          ? formState.ssh_private_key_path.trim()
+          : null,
     });
 
     if (created) {
@@ -138,6 +159,45 @@ export function CreateServerForm({ isSubmitting, apiError, onSubmit, onFieldChan
             ))}
           </select>
         </label>
+
+        <label className="text-sm font-medium text-zinc-700">
+          SSH authentication
+          <select
+            className="mt-1 w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-950 shadow-sm outline-none transition focus:border-zinc-900 focus:ring-2 focus:ring-zinc-900/10"
+            value={formState.ssh_auth_method}
+            onChange={(event) => updateField('ssh_auth_method', event.target.value as ServerSshAuthMethod)}
+          >
+            {sshAuthMethodOptions.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        {formState.ssh_auth_method === 'key' ? (
+          <label className="text-sm font-medium text-zinc-700 xl:col-span-2">
+            SSH private key path
+            <input
+              className="mt-1 w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-950 shadow-sm outline-none transition focus:border-zinc-900 focus:ring-2 focus:ring-zinc-900/10"
+              placeholder="Optional, falls back to configured key or SSH agent"
+              type="text"
+              value={formState.ssh_private_key_path}
+              onChange={(event) => updateField('ssh_private_key_path', event.target.value)}
+            />
+          </label>
+        ) : (
+          <label className="text-sm font-medium text-zinc-700 xl:col-span-2">
+            SSH password
+            <input
+              className="mt-1 w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-950 shadow-sm outline-none transition focus:border-zinc-900 focus:ring-2 focus:ring-zinc-900/10"
+              placeholder="Temporary bootstrap password"
+              type="password"
+              value={formState.ssh_password}
+              onChange={(event) => updateField('ssh_password', event.target.value)}
+            />
+          </label>
+        )}
       </div>
 
       <div className="mt-5 flex justify-end">

@@ -10,6 +10,7 @@ The frontend currently implements:
 - server creation form
 - server list table/card views
 - Proxmox infrastructure dashboard
+- Jobs page with operational actions, raw command execution, history, and result viewer
 - placeholder pages for future modules
 
 ## Application Shell
@@ -28,12 +29,12 @@ Current main routes:
 
 - `/` inventory
 - `/infrastructure` read-only Proxmox visibility
+- `/jobs` SSH-backed operations and job history
 - `/provisioning` placeholder
 - `/deployments` placeholder
 - `/packages` placeholder
 - `/monitoring` placeholder
 - `/profiles` placeholder
-- `/jobs` placeholder
 
 ## Feature-Based Structure
 
@@ -49,7 +50,7 @@ src/features/<feature>/
   utils/
 ```
 
-Inventory and Proxmox follow this pattern. Placeholder modules currently use simple page components only.
+Inventory, Proxmox, and Jobs follow this pattern. Placeholder modules currently use simple page components only.
 
 ## API Client
 
@@ -86,6 +87,9 @@ The inventory UI includes:
 - API error display
 - required field validation
 - SSH port validation
+- SSH authentication method selection
+- optional private key path input
+- password input for password-auth hosts
 - responsive table/cards
 - summary metric cards
 
@@ -115,6 +119,33 @@ The Proxmox UI includes:
 - loading state
 - API error state
 - retry action
+
+## Jobs Frontend Flow
+
+```text
+JobsPage
+  -> jobsApi
+  -> shared apiClient
+  -> FastAPI /api/v1/jobs
+```
+
+Jobs frontend components:
+
+- `OperationalActionsPanel`
+- `RunCommandPanel`
+- `JobsTable`
+- `JobResultViewer`
+- `JobStatusBadge`
+
+The Jobs UI includes:
+
+- target inventory host selector
+- predefined operational action selector grouped by category
+- destructive action confirmation
+- raw command execution form
+- persisted job history
+- stdout/stderr result viewer
+- responsive table/cards
 
 ## Types, Hooks, and Utilities
 
