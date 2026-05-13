@@ -13,6 +13,7 @@ NexusOps is a modular monolith infrastructure orchestration platform.
 - Pydantic v2
 - structlog
 - httpx for provider API calls
+- Paramiko for SSH execution
 
 ## Frontend Stack
 
@@ -51,6 +52,8 @@ src/features/<feature>/
 backend/app/adapters/
   base.py
   ssh/
+    base.py
+    paramiko.py
   docker/
   proxmox/
 ```
@@ -60,6 +63,10 @@ backend/app/adapters/
 - inventory CRUD
 - frontend/backend inventory integration
 - PostgreSQL inventory persistence
+- inventory SSH authentication metadata:
+  - key authentication
+  - password authentication
+  - optional per-server private key path
 - Proxmox infrastructure visibility
 - Proxmox VM listing and status retrieval
 - controlled Proxmox VM lifecycle actions:
@@ -68,6 +75,37 @@ backend/app/adapters/
   - reboot
   - shutdown
 - Infrastructure dashboard in the frontend
+- Jobs domain:
+  - persisted job history
+  - SSH command execution against inventory-managed servers
+  - stdout/stderr/exit code capture
+  - job status lifecycle:
+    - pending
+    - running
+    - success
+    - failed
+    - cancelled
+- Operational actions framework:
+  - predefined action registry
+  - action execution through Jobs
+  - diagnostics actions:
+    - uptime
+    - disk usage
+    - memory usage
+    - Docker containers
+  - service actions:
+    - Docker status
+    - Docker restart
+  - installation actions:
+    - Docker Engine
+    - Tailscale
+    - Node Exporter
+- Jobs page in the frontend:
+  - inventory host selector
+  - predefined action runner
+  - raw command runner
+  - job history
+  - stdout/stderr result viewer
 - ESLint, Prettier, Tailwind, and TypeScript tooling
 - persistent docs under `docs/architecture/` and `docs/sprints/`
 
@@ -80,13 +118,16 @@ backend/app/adapters/
 - provisioning
 - Terraform
 - cloud-init
-- SSH execution
 - Docker deployment execution
 - monitoring collection
 - realtime updates
 - background workers
 - infrastructure action audit persistence
 - Proxmox task polling
+- Proxmox-to-inventory sync/import
+- Ansible integration
+- credential vault/encrypted secret storage
+- workflow chaining
 
 ## Operational Safety
 
@@ -94,7 +135,12 @@ backend/app/adapters/
 - The backend resolves VM node/type server-side before dispatching lifecycle actions.
 - The backend validates VM existence and status before action dispatch.
 - The frontend requires confirmation for stop, reboot, and shutdown.
+- Inventory remains the orchestration abstraction layer. Jobs and operational actions execute only against inventory-managed servers, not raw Proxmox VM records.
+- Operational actions must reuse the Jobs -> SSH -> persistence pipeline instead of creating standalone execution logic.
+- Destructive operational actions should require frontend confirmation.
+- SSH passwords and private key paths are temporary local MVP metadata; do not treat them as production-grade secret management.
 - Secrets must not be committed. Proxmox token values belong in local environment variables or ignored `.env` files.
+- Generated logs, screenshots, local SQLite files, and build artifacts must not be committed.
 
 ## Validation Requirements
 
@@ -106,3 +152,4 @@ Before finalizing substantial changes:
 - verify Alembic migrations when database models change
 - smoke-test inventory after backend changes
 - smoke-test `/api/v1/proxmox/dashboard` after Proxmox changes
+- smoke-test `/api/v1/jobs` and `/api/v1/jobs/actions` after Jobs/actions changes
