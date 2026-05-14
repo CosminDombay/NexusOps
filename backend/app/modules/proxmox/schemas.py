@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class ProxmoxNodeRead(BaseModel):
@@ -23,6 +23,12 @@ class ProxmoxVmRead(BaseModel):
     disk_used: int | None = None
     disk_total: int | None = None
     uptime_seconds: int | None = None
+    ip_address: str | None = None
+    inventory_server_id: str | None = None
+    inventory_hostname: str | None = None
+    inventory_lifecycle_state: str | None = None
+    inventory_sync_status: str = "unmanaged"
+    inventory_notes: list[str] = Field(default_factory=list)
 
 
 class ProxmoxVmActionRead(BaseModel):

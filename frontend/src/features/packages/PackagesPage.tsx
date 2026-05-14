@@ -4,8 +4,15 @@ import { PageHeader } from '../../components/layout/PageHeader';
 import { getApiErrorMessage } from '../../lib/api/client';
 import { listServers } from '../inventory/api/serversApi';
 import type { Server } from '../inventory/types/server';
-import { createPackageDefinition, deletePackageDefinition, executePackageDefinition, listPackageDefinitions } from './api/packagesApi';
+import {
+  createPackageDefinition,
+  deletePackageDefinition,
+  executePackageDefinition,
+  executePackageDefinitionBulk,
+  listPackageDefinitions,
+} from './api/packagesApi';
 import type { CreatePackageDefinitionPayload, PackageDefinition } from './types/package';
+import type { BulkExecutionResponse } from '../jobs/types/job';
 
 type FormState = CreatePackageDefinitionPayload & {
   supported_os_text: string;
@@ -29,12 +36,14 @@ export function PackagesPage() {
   const [packages, setPackages] = useState<PackageDefinition[]>([]);
   const [servers, setServers] = useState<Server[]>([]);
   const [selectedServerId, setSelectedServerId] = useState('');
+  const [selectedServerIds, setSelectedServerIds] = useState<string[]>([]);
   const [formState, setFormState] = useState<FormState>(initialFormState);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isCreating, setIsCreating] = useState(false);
   const [executingPackageId, setExecutingPackageId] = useState<string | null>(null);
+  const [bulkResult, setBulkResult] = useState<BulkExecutionResponse | null>(null);
 
   useEffect(() => {
     async function loadPackages() {
@@ -109,23 +118,31 @@ export function PackagesPage() {
   }
 
   async function handleExecutePackage(packageDefinition: PackageDefinition) {
-    if (!selectedServerId) {
-      setError('Select a target host before running a package.');
+    if (!selectedServerId && selectedServerIds.length === 0) {
+      setError('Select one or more target hosts before running a package.');
       return;
     }
 
-    const confirmed = window.confirm(`Run ${packageDefinition.name} on the selected host?`);
+    const targetCount = selectedServerIds.length || 1;
+    const confirmed = window.confirm(`Run ${packageDefinition.name} on ${targetCount} host(s)?`);
     if (!confirmed) {
       return;
     }
 
-    setExecutingPackageId(packageDefinition.id);
-    setError(null);
-    setSuccess(null);
+      setExecutingPackageId(packageDefinition.id);
+      setError(null);
+      setSuccess(null);
+      setBulkResult(null);
 
     try {
-      const job = await executePackageDefinition(packageDefinition.id, selectedServerId);
-      setSuccess(`Started package ${packageDefinition.name}. Job status: ${job.status}.`);
+      if (selectedServerIds.length > 0) {
+        const result = await executePackageDefinitionBulk(packageDefinition.id, selectedServerIds);
+        setBulkResult(result);
+        setSuccess(`Package ${packageDefinition.name}: ${result.success_count} succeeded, ${result.failure_count} failed.`);
+      } else {
+        const job = await executePackageDefinition(packageDefinition.id, selectedServerId);
+        setSuccess(`Started package ${packageDefinition.name}. Job status: ${job.status}.`);
+      }
     } catch (caughtError) {
       setError(getApiErrorMessage(caughtError));
     } finally {
@@ -141,9 +158,9 @@ export function PackagesPage() {
       />
 
       <section className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm">
-        <div className="grid gap-4 xl:grid-cols-[1fr_1fr_auto] xl:items-end">
+        <div className="grid gap-4 lg:grid-cols-2">
           <label className="block">
-            <span className="text-sm font-medium text-zinc-950">Run target</span>
+            <span className="text-sm font-medium text-zinc-950">Single target</span>
             <select
               className="mt-2 h-10 w-full rounded-md border border-zinc-300 bg-white px-3 text-sm text-zinc-950 shadow-sm outline-none transition focus:border-zinc-950 focus:ring-2 focus:ring-zinc-950/10"
               value={selectedServerId}
@@ -157,6 +174,26 @@ export function PackagesPage() {
               ))}
             </select>
           </label>
+          <label className="block">
+            <span className="text-sm font-medium text-zinc-950">Bulk targets</span>
+            <select
+              className="mt-2 min-h-28 w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-950 shadow-sm outline-none transition focus:border-zinc-950 focus:ring-2 focus:ring-zinc-950/10"
+              multiple
+              value={selectedServerIds}
+              onChange={(event) =>
+                setSelectedServerIds(Array.from(event.target.selectedOptions, (option) => option.value))
+              }
+            >
+              {servers.map((server) => (
+                <option key={server.id} value={server.id}>
+                  {server.hostname} ({server.ip_address})
+                </option>
+              ))}
+            </select>
+            <p className="mt-2 text-xs text-zinc-500">
+              Bulk selection takes precedence over the single target.
+            </p>
+          </label>
         </div>
       </section>
 
@@ -169,6 +206,7 @@ export function PackagesPage() {
 
       {success ? <p className="rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-700">{success}</p> : null}
       {error ? <p className="rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">{error}</p> : null}
+      {bulkResult ? <BulkResultPanel result={bulkResult} /> : null}
       {isLoading ? <LoadingGrid /> : null}
       {!isLoading && !error ? (
         <div className="grid gap-4 xl:grid-cols-2">
@@ -184,6 +222,28 @@ export function PackagesPage() {
         </div>
       ) : null}
     </div>
+  );
+}
+
+function BulkResultPanel({ result }: { result: BulkExecutionResponse }) {
+  return (
+    <section className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm">
+      <h3 className="text-base font-semibold text-zinc-950">Bulk package result</h3>
+      <p className="mt-1 text-sm text-zinc-500">
+        {result.success_count} succeeded, {result.failure_count} failed
+      </p>
+      <div className="mt-4 divide-y divide-zinc-100 rounded-md border border-zinc-200">
+        {result.results.map((item) => (
+          <div key={item.target_server_id} className="px-3 py-2 text-sm">
+            <span className={item.success ? 'font-semibold text-emerald-700' : 'font-semibold text-rose-700'}>
+              {item.success ? 'Success' : 'Failed'}
+            </span>
+            <span className="ml-2 text-zinc-700">{item.target_hostname ?? item.target_server_id}</span>
+            {item.error ? <p className="mt-1 font-mono text-xs text-zinc-500">{item.error}</p> : null}
+          </div>
+        ))}
+      </div>
+    </section>
   );
 }
 

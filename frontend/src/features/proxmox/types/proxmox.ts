@@ -20,6 +20,12 @@ export type ProxmoxVm = {
   disk_used: number | null;
   disk_total: number | null;
   uptime_seconds: number | null;
+  ip_address: string | null;
+  inventory_server_id: string | null;
+  inventory_hostname: string | null;
+  inventory_lifecycle_state: string | null;
+  inventory_sync_status: 'unknown' | 'synced' | 'unmanaged' | 'orphaned' | 'mismatch' | 'archived';
+  inventory_notes: string[];
 };
 
 export type ProxmoxClusterSummary = {

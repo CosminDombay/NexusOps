@@ -9,8 +9,14 @@ import { JobStatusBadge } from '../jobs/components/JobStatusBadge';
 import type { OperationalAction } from '../jobs/types/job';
 import { listPackageDefinitions } from '../packages/api/packagesApi';
 import type { PackageDefinition } from '../packages/types/package';
-import { applyProfile, createProfile, deleteProfile, listProfiles } from './api/profilesApi';
-import type { ApplyProfileResult, CreateInfrastructureProfilePayload, InfrastructureProfile, ProfileStep } from './types/profile';
+import { applyProfile, applyProfileBulk, createProfile, deleteProfile, listProfiles } from './api/profilesApi';
+import type {
+  ApplyProfileBulkResult,
+  ApplyProfileResult,
+  CreateInfrastructureProfilePayload,
+  InfrastructureProfile,
+  ProfileStep,
+} from './types/profile';
 
 type ProfileFormState = Omit<CreateInfrastructureProfilePayload, 'tags' | 'steps'> & {
   tags_text: string;
@@ -33,8 +39,10 @@ export function ProfilesPage() {
   const [actions, setActions] = useState<OperationalAction[]>([]);
   const [selectedProfileId, setSelectedProfileId] = useState('');
   const [selectedServerId, setSelectedServerId] = useState('');
+  const [selectedServerIds, setSelectedServerIds] = useState<string[]>([]);
   const [formState, setFormState] = useState<ProfileFormState>(initialProfileFormState);
   const [result, setResult] = useState<ApplyProfileResult | null>(null);
+  const [bulkResult, setBulkResult] = useState<ApplyProfileBulkResult | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isApplying, setIsApplying] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
@@ -130,25 +138,38 @@ export function ProfilesPage() {
 
   async function handleApplyProfile() {
     const profileId = selectedProfile?.id;
-    if (!profileId || !selectedServerId) {
+    if (!profileId || (!selectedServerId && selectedServerIds.length === 0)) {
       return;
     }
 
-    const confirmed = window.confirm(`Apply ${selectedProfile.name} to the selected host?`);
+    const targetCount = selectedServerIds.length || 1;
+    const confirmed = window.confirm(`Apply ${selectedProfile.name} to ${targetCount} host(s)?`);
     if (!confirmed) {
       return;
     }
 
     setIsApplying(true);
     setError(null);
+    setResult(null);
+    setBulkResult(null);
 
     try {
-      setResult(
-        await applyProfile(profileId, {
-          target_server_id: selectedServerId,
-          stop_on_failure: true,
-        }),
-      );
+      if (selectedServerIds.length > 0) {
+        setBulkResult(
+          await applyProfileBulk({
+            profile_id: profileId,
+            target_server_ids: selectedServerIds,
+            stop_on_failure: true,
+          }),
+        );
+      } else {
+        setResult(
+          await applyProfile(profileId, {
+            target_server_id: selectedServerId,
+            stop_on_failure: true,
+          }),
+        );
+      }
     } catch (caughtError) {
       setError(getApiErrorMessage(caughtError));
     } finally {
@@ -173,17 +194,8 @@ export function ProfilesPage() {
 
       {!isLoading && !error ? (
         <>
-          <ProfileBuilder
-            actions={actions}
-            formState={formState}
-            isCreating={isCreating}
-            packages={packages}
-            onCreate={handleCreateProfile}
-            onFieldChange={updateField}
-          />
-
           <section className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm">
-            <div className="grid gap-4 lg:grid-cols-[1fr_1fr_auto] lg:items-end">
+            <div className="grid gap-4 lg:grid-cols-[minmax(220px,0.8fr)_minmax(260px,1fr)_auto] lg:items-end">
               <label className="block">
                 <span className="text-sm font-medium text-zinc-950">Profile</span>
                 <select
@@ -200,7 +212,7 @@ export function ProfilesPage() {
               </label>
 
               <label className="block">
-                <span className="text-sm font-medium text-zinc-950">Target host</span>
+                <span className="text-sm font-medium text-zinc-950">Single target</span>
                 <select
                   className="mt-2 h-10 w-full rounded-md border border-zinc-300 bg-white px-3 text-sm text-zinc-950 shadow-sm outline-none transition focus:border-zinc-950 focus:ring-2 focus:ring-zinc-950/10"
                   value={selectedServerId}
@@ -217,14 +229,64 @@ export function ProfilesPage() {
 
               <button
                 className="inline-flex h-10 items-center justify-center rounded-md bg-zinc-950 px-4 text-sm font-semibold text-white transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:bg-zinc-300"
-                disabled={!selectedProfile || !selectedServerId || isApplying}
+                disabled={!selectedProfile || (!selectedServerId && selectedServerIds.length === 0) || isApplying}
                 type="button"
                 onClick={handleApplyProfile}
               >
-                {isApplying ? 'Applying' : 'Apply profile'}
+                {isApplying ? 'Applying' : selectedServerIds.length > 0 ? `Apply to ${selectedServerIds.length}` : 'Apply profile'}
               </button>
             </div>
+
+            <div className="mt-4">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <h3 className="text-sm font-semibold text-zinc-950">Bulk targets</h3>
+                  <p className="mt-1 text-xs text-zinc-500">Selected hosts override the single target.</p>
+                </div>
+                <button
+                  className="rounded-md border border-zinc-300 px-2.5 py-1.5 text-xs font-semibold text-zinc-700 transition hover:bg-zinc-50"
+                  type="button"
+                  onClick={() => setSelectedServerIds([])}
+                >
+                  Clear
+                </button>
+              </div>
+              <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+                {servers.map((server) => (
+                  <label
+                    key={server.id}
+                    className="flex min-h-11 items-center gap-2 rounded-md border border-zinc-200 px-3 py-2 text-sm text-zinc-700"
+                  >
+                    <input
+                      checked={selectedServerIds.includes(server.id)}
+                      className="h-4 w-4 rounded border-zinc-300 text-zinc-950 focus:ring-zinc-950"
+                      type="checkbox"
+                      onChange={(event) =>
+                        setSelectedServerIds((current) =>
+                          event.target.checked
+                            ? [...current, server.id]
+                            : current.filter((serverId) => serverId !== server.id),
+                        )
+                      }
+                    />
+                    <span className="min-w-0">
+                      <span className="block truncate font-medium text-zinc-950">{server.hostname}</span>
+                      <span className="block truncate font-mono text-xs text-zinc-500">{server.ip_address}</span>
+                    </span>
+                  </label>
+                ))}
+              </div>
+            </div>
           </section>
+
+          <ProfileBuilder
+            actions={actions}
+            formState={formState}
+            isCreating={isCreating}
+            packages={packages}
+            onCreate={handleCreateProfile}
+            onFieldChange={updateField}
+          />
 
           <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(360px,0.8fr)]">
             <div className="grid gap-4">
@@ -238,11 +300,45 @@ export function ProfilesPage() {
                 />
               ))}
             </div>
-            <ProfileResult result={result} />
+            <div className="space-y-4">
+              <ProfileResult result={result} />
+              <BulkProfileResult result={bulkResult} />
+            </div>
           </div>
         </>
       ) : null}
     </div>
+  );
+}
+
+function BulkProfileResult({ result }: { result: ApplyProfileBulkResult | null }) {
+  if (!result) {
+    return null;
+  }
+
+  return (
+    <section className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm">
+      <h3 className="text-base font-semibold text-zinc-950">Bulk profile result</h3>
+      <p className="mt-1 text-sm text-zinc-500">
+        {result.success_count} succeeded, {result.failure_count} failed
+      </p>
+      <div className="mt-4 divide-y divide-zinc-100 rounded-md border border-zinc-200">
+        {result.results.map((item) => (
+          <div key={item.target_server_id} className="px-3 py-2 text-sm">
+            <span className={item.success ? 'font-semibold text-emerald-700' : 'font-semibold text-rose-700'}>
+              {item.success ? 'Success' : 'Failed'}
+            </span>
+            <span className="ml-2 text-zinc-700">{item.target_hostname ?? item.target_server_id}</span>
+            {item.result ? (
+              <p className="mt-1 text-xs text-zinc-500">
+                {item.result.jobs.length} job(s), status {item.result.status}
+              </p>
+            ) : null}
+            {item.error ? <p className="mt-1 font-mono text-xs text-zinc-500">{item.error}</p> : null}
+          </div>
+        ))}
+      </div>
+    </section>
   );
 }
 

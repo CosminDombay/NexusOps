@@ -3,6 +3,7 @@ import { createBrowserRouter } from 'react-router-dom';
 import { AppLayout } from '../components/layout/AppLayout';
 import { DeploymentsPage } from '../features/deployments/DeploymentsPage';
 import { InventoryPage } from '../features/inventory/InventoryPage';
+import { IdentityPage } from '../features/identity/IdentityPage';
 import { JobsPage } from '../features/jobs/JobsPage';
 import { MonitoringPage } from '../features/monitoring/MonitoringPage';
 import { PackagesPage } from '../features/packages/PackagesPage';
@@ -17,6 +18,7 @@ export const router = createBrowserRouter([
     children: [
       { index: true, element: <InventoryPage /> },
       { path: 'infrastructure', element: <InfrastructurePage /> },
+      { path: 'identity', element: <IdentityPage /> },
       { path: 'provisioning', element: <ProvisioningPage /> },
       { path: 'deployments', element: <DeploymentsPage /> },
       { path: 'packages', element: <PackagesPage /> },

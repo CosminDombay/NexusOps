@@ -1,29 +1,17 @@
-from enum import StrEnum
+from datetime import datetime
 
-from sqlalchemy import JSON, Enum, Integer, String, UniqueConstraint
+from sqlalchemy import Boolean, DateTime, JSON, Enum, Integer, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from backend.app.db.base import Base, TimestampMixin, UuidPrimaryKeyMixin
-
-
-class ServerStatus(StrEnum):
-    UNKNOWN = "unknown"
-    ONLINE = "online"
-    OFFLINE = "offline"
-    MAINTENANCE = "maintenance"
-
-
-class ServerEnvironment(StrEnum):
-    DEVELOPMENT = "development"
-    STAGING = "staging"
-    PRODUCTION = "production"
-    TESTING = "testing"
-    LAB = "lab"
-
-
-class ServerSshAuthMethod(StrEnum):
-    KEY = "key"
-    PASSWORD = "password"
+from backend.app.common.constants import (
+    ServerStatus,
+    ServerEnvironment,
+    ServerSshAuthMethod,
+    InventoryLifecycleState,
+    InventorySyncStatus,
+    InventoryHealthStatus,
+)
 
 
 class Server(Base, UuidPrimaryKeyMixin, TimestampMixin):
@@ -62,3 +50,45 @@ class Server(Base, UuidPrimaryKeyMixin, TimestampMixin):
         nullable=False,
     )
     provider: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
+    external_id: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
+    source: Mapped[str] = mapped_column(String(100), default="manual", nullable=False, index=True)
+    managed: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False, index=True)
+    lifecycle_state: Mapped[InventoryLifecycleState] = mapped_column(
+        Enum(
+            InventoryLifecycleState,
+            name="inventory_lifecycle_state",
+            values_callable=lambda enum: [member.value for member in enum],
+        ),
+        default=InventoryLifecycleState.MANAGED,
+        nullable=False,
+        index=True,
+    )
+    sync_status: Mapped[InventorySyncStatus] = mapped_column(
+        Enum(
+            InventorySyncStatus,
+            name="inventory_sync_status",
+            values_callable=lambda enum: [member.value for member in enum],
+        ),
+        default=InventorySyncStatus.UNKNOWN,
+        nullable=False,
+        index=True,
+    )
+    provider_node: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    provider_type: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    provider_metadata: Mapped[dict[str, object]] = mapped_column(JSON, default=dict, nullable=False)
+    last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_health_check_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+    last_health_status: Mapped[InventoryHealthStatus] = mapped_column(
+        Enum(
+            InventoryHealthStatus,
+            name="inventory_health_status",
+            values_callable=lambda enum: [member.value for member in enum],
+        ),
+        default=InventoryHealthStatus.UNKNOWN,
+        nullable=False,
+        index=True,
+    )
+    last_health_error: Mapped[str | None] = mapped_column(String(500), nullable=True)

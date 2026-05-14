@@ -1,12 +1,15 @@
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.adapters.proxmox import (
     HttpProxmoxAdapter,
     ProxmoxConfigurationError,
     ProxmoxConnectionError,
 )
+from backend.app.db.session import get_db_session
+from backend.app.modules.inventory.repository import ServerRepository
 from backend.app.modules.proxmox.schemas import (
     ProxmoxClusterSummaryRead,
     ProxmoxDashboardRead,
@@ -23,8 +26,10 @@ from backend.app.modules.proxmox.service import (
 router = APIRouter()
 
 
-async def get_proxmox_service() -> ProxmoxService:
-    return ProxmoxService(HttpProxmoxAdapter())
+async def get_proxmox_service(
+    session: Annotated[AsyncSession, Depends(get_db_session)],
+) -> ProxmoxService:
+    return ProxmoxService(HttpProxmoxAdapter(), server_repository=ServerRepository(session))
 
 
 def _map_proxmox_error(exc: Exception) -> HTTPException:

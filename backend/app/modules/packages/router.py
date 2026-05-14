@@ -7,13 +7,14 @@ from backend.app.adapters.ssh import ParamikoSshAdapter
 from backend.app.db.session import get_db_session
 from backend.app.modules.inventory.repository import ServerRepository
 from backend.app.modules.jobs.repository import JobRepository
-from backend.app.modules.jobs.schemas import JobRead
-from backend.app.modules.jobs.service import JobService, JobTargetNotFoundError
+from backend.app.modules.jobs.schemas import BulkExecutionRead, JobRead
+from backend.app.modules.jobs.service import JobService, JobTargetNotFoundError, JobTargetNotManagedError
 from backend.app.modules.packages.repository import PackageDefinitionRepository
 from backend.app.modules.packages.schemas import PackageDefinitionRead
 from backend.app.modules.packages.schemas import (
     PackageDefinitionCreate,
     PackageDefinitionUpdate,
+    PackageBulkApplyRequest,
     PackageExecuteRequest,
 )
 from backend.app.modules.packages.service import (
@@ -44,6 +45,17 @@ async def list_package_definitions(
     service: Annotated[PackageAutomationService, Depends(get_package_service)],
 ) -> list[PackageDefinitionRead]:
     return await service.list_definitions()
+
+
+@router.post("/apply/bulk", response_model=BulkExecutionRead, status_code=status.HTTP_201_CREATED)
+async def execute_package_bulk(
+    payload: PackageBulkApplyRequest,
+    service: Annotated[PackageAutomationService, Depends(get_package_service)],
+) -> BulkExecutionRead:
+    try:
+        return await service.execute_definition_bulk(payload)
+    except PackageDefinitionNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
 
 
 @router.post("", response_model=PackageDefinitionRead, status_code=status.HTTP_201_CREATED)
@@ -107,3 +119,7 @@ async def execute_package_definition(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except JobTargetNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except JobTargetNotManagedError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    except JobTargetNotManagedError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc

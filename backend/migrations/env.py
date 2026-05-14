@@ -7,9 +7,16 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from backend.app.core.config import settings
 from backend.app.db.base import Base
-from backend.app.modules.deployments.models import Deployment
+from backend.app.modules.deployments.models import Deployment, DeploymentRevision, DeploymentTarget
 from backend.app.modules.execution.models import CommandExecution
 from backend.app.modules.inventory.models import Server
+from backend.app.modules.identity.models import (
+    IdentityExecution,
+    LinuxGroup,
+    LinuxUser,
+    PermissionTemplate,
+    SSHKey,
+)
 from backend.app.modules.jobs.models import Job
 from backend.app.modules.monitoring.models import MetricSample
 from backend.app.modules.packages.models import PackageDefinitionRecord, PackageInstallation
@@ -27,14 +34,21 @@ target_metadata = Base.metadata
 _models = (
     CommandExecution,
     Deployment,
+    DeploymentRevision,
+    DeploymentTarget,
+    IdentityExecution,
     Job,
+    LinuxGroup,
+    LinuxUser,
     MetricSample,
     PackageDefinitionRecord,
     PackageInstallation,
+    PermissionTemplate,
     InfrastructureProfileRecord,
     ProvisioningRequest,
     Server,
     StandardizationProfile,
+    SSHKey,
     VirtualMachine,
 )
 

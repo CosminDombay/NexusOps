@@ -9,7 +9,7 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     secret_key: str = Field(default="change-me", min_length=8)
     api_v1_prefix: str = "/api/v1"
-    cors_origins: list[str] = ["http://localhost:5173"]
+    cors_origins: list[str] = ["http://localhost:5173", "http://127.0.0.1:5173"]
     database_url: str = "postgresql+asyncpg://nexusops:nexusops@localhost:5432/nexusops"
 
     proxmox_api_url: str | None = None
@@ -22,6 +22,9 @@ class Settings(BaseSettings):
     ssh_connect_timeout_seconds: int = 15
     ssh_command_timeout_seconds: int = Field(default=60, ge=1, le=3600)
     ssh_private_key_path: str | None = None
+    prometheus_api_url: str | None = None
+    grafana_base_url: str | None = None
+    monitoring_timeout_seconds: int = Field(default=10, ge=1, le=60)
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 

@@ -66,11 +66,11 @@ Configuration:
 
 Current safety boundary:
 
-- no VM creation
 - no VM deletion
-- no provisioning
 - no host mutation
 - lifecycle control is limited to start, stop, reboot, and shutdown
+- provisioning is limited to template/cloud-init workflows owned by the provisioning service
+- importing a discovered VM into Inventory does not mutate the VM
 
 ## SSH Adapter
 
@@ -121,6 +121,12 @@ Current Proxmox flow:
 FastAPI router -> ProxmoxService -> ProxmoxAdapter -> Proxmox API
 ```
 
+Inventory synchronization keeps provider discovery separate from orchestration authority:
+
+```text
+ProxmoxAdapter discovers VM -> ProxmoxService normalizes VM -> InventoryService/ServerRepository matches or imports -> Jobs execute only against Inventory records
+```
+
 Current Jobs/SSH flow:
 
 ```text
@@ -131,7 +137,7 @@ Operational actions resolve to commands inside the Jobs module before following 
 
 Package definitions and profiles also resolve to commands before entering the same Jobs/SSH flow. They do not introduce separate execution adapters.
 
-Provisioning extends the Proxmox adapter with template listing, template cloning, cloud-init configuration, disk resize, VM start, and task status polling. Bootstrap still uses the SSH adapter only after the VM is registered in Inventory.
+Provisioning extends the Proxmox adapter with template listing, template cloning, cloud-init configuration, disk resize, VM start, and task status polling. Bootstrap still uses the SSH adapter only after the VM is registered in Inventory with provider linkage and synchronized lifecycle metadata.
 
 The service normalizes provider-specific data into frontend-friendly Pydantic schemas.
 

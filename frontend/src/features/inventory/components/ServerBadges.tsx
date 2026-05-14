@@ -1,5 +1,11 @@
-import type { ServerEnvironment, ServerStatus } from '../types/server';
-import { environmentStyles, formatLabel, statusStyles } from '../utils/options';
+import type {
+  InventoryHealthStatus,
+  InventoryLifecycleState,
+  InventorySyncStatus,
+  ServerEnvironment,
+  ServerStatus,
+} from '../types/server';
+import { environmentStyles, formatLabel, healthStyles, lifecycleStyles, statusStyles, syncStyles } from '../utils/options';
 
 type BadgeProps = {
   children: string;
@@ -20,4 +26,16 @@ export function EnvironmentBadge({ environment }: { environment: ServerEnvironme
 
 export function StatusBadge({ status }: { status: ServerStatus }) {
   return <Badge className={statusStyles[status]}>{formatLabel(status)}</Badge>;
+}
+
+export function LifecycleBadge({ state }: { state: InventoryLifecycleState }) {
+  return <Badge className={lifecycleStyles[state]}>{formatLabel(state)}</Badge>;
+}
+
+export function SyncBadge({ status }: { status: InventorySyncStatus }) {
+  return <Badge className={syncStyles[status]}>{formatLabel(status)}</Badge>;
+}
+
+export function HealthBadge({ status }: { status: InventoryHealthStatus }) {
+  return <Badge className={healthStyles[status]}>{formatLabel(status)}</Badge>;
 }

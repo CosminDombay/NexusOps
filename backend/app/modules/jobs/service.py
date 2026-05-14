@@ -5,12 +5,15 @@ import structlog
 
 from backend.app.adapters.ssh import SshAdapter
 from backend.app.modules.inventory.repository import ServerRepository
-from backend.app.modules.inventory.models import ServerSshAuthMethod
+from backend.app.modules.inventory.models import InventoryLifecycleState, ServerSshAuthMethod
 from backend.app.modules.jobs.actions import get_action, list_actions
 from backend.app.modules.jobs.models import Job, JobStatus
 from backend.app.modules.jobs.repository import JobRepository
 from backend.app.modules.jobs.schemas import (
+    BulkExecutionHostResult,
+    BulkExecutionRead,
     JobActionExecuteRequest,
+    JobBulkExecuteRequest,
     JobExecuteRequest,
     JobRead,
     OperationalActionRead,
@@ -25,6 +28,10 @@ class JobNotFoundError(Exception):
 
 class JobTargetNotFoundError(Exception):
     """Raised when an execution target is missing from inventory."""
+
+
+class JobTargetNotManagedError(Exception):
+    """Raised when an execution target is not a managed inventory host."""
 
 
 class OperationalActionNotFoundError(Exception):
@@ -75,6 +82,8 @@ class JobService:
         server = await self.server_repository.get_by_id(payload.target_server_id)
         if server is None:
             raise JobTargetNotFoundError("Target server not found")
+        if not server.managed or server.lifecycle_state == InventoryLifecycleState.ARCHIVED:
+            raise JobTargetNotManagedError("Target server is not managed")
 
         job = Job(
             target_server_id=server.id,
@@ -131,6 +140,45 @@ class JobService:
             exit_code=job.exit_code,
         )
         return await self._to_read(job)
+
+    async def execute_bulk(self, payload: JobBulkExecuteRequest) -> BulkExecutionRead:
+        results: list[BulkExecutionHostResult] = []
+        for target_server_id in payload.target_server_ids:
+            server = await self.server_repository.get_by_id(target_server_id)
+            try:
+                job = await self.execute(
+                    JobExecuteRequest(
+                        target_server_id=target_server_id,
+                        operation_type=payload.operation_type,
+                        command=payload.command,
+                    )
+                )
+                results.append(
+                    BulkExecutionHostResult(
+                        target_server_id=target_server_id,
+                        target_hostname=job.target_hostname,
+                        success=job.status == JobStatus.SUCCESS,
+                        job=job,
+                        error=job.stderr if job.status == JobStatus.FAILED else None,
+                    )
+                )
+            except Exception as exc:
+                results.append(
+                    BulkExecutionHostResult(
+                        target_server_id=target_server_id,
+                        target_hostname=server.hostname if server else None,
+                        success=False,
+                        error=str(exc),
+                    )
+                )
+
+        success_count = sum(1 for result in results if result.success)
+        return BulkExecutionRead(
+            operation_type=payload.operation_type,
+            success_count=success_count,
+            failure_count=len(results) - success_count,
+            results=results,
+        )
 
     async def cancel_job(self, job_id: UUID) -> JobRead:
         job = await self.job_repository.get_by_id(job_id)

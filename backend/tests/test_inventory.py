@@ -21,6 +21,9 @@ def test_inventory_crud_flow(client) -> None:
     created = create_response.json()
     server_id = created["id"]
     assert created["hostname"] == "app-01"
+    assert created["managed"] is True
+    assert created["lifecycle_state"] == "managed"
+    assert created["sync_status"] == "unknown"
 
     get_response = client.get(f"/api/v1/servers/{server_id}")
     assert get_response.status_code == 200
@@ -133,3 +136,63 @@ def test_inventory_accepts_password_auth_without_echoing_secret(client) -> None:
     payload = response.json()
     assert payload["ssh_auth_method"] == "password"
     assert "ssh_password" not in payload
+
+
+def test_inventory_archives_without_deleting_provider_metadata(client) -> None:
+    create_response = client.post(
+        "/api/v1/servers",
+        json=server_payload(external_id="100", provider_node="hellgate", provider_type="qemu"),
+    )
+    assert create_response.status_code == 201
+    server_id = create_response.json()["id"]
+
+    archive_response = client.post(f"/api/v1/servers/{server_id}/archive")
+    assert archive_response.status_code == 200
+    archived = archive_response.json()
+    assert archived["managed"] is False
+    assert archived["lifecycle_state"] == "archived"
+    assert archived["sync_status"] == "archived"
+    assert archived["external_id"] == "100"
+
+    list_response = client.get("/api/v1/servers")
+    assert list_response.status_code == 200
+    assert list_response.json() == []
+
+
+def test_inventory_import_restores_archived_proxmox_record(client) -> None:
+    create_response = client.post(
+        "/api/v1/servers",
+        json=server_payload(
+            hostname="hds-tool",
+            ip_address="192.168.50.15",
+            provider="proxmox",
+        ),
+    )
+    assert create_response.status_code == 201
+    server_id = create_response.json()["id"]
+    assert client.post(f"/api/v1/servers/{server_id}/archive").status_code == 200
+
+    import_response = client.post(
+        "/api/v1/servers/sync/proxmox/import",
+        json={
+            "vm_id": 106,
+            "node": "hellgate",
+            "vm_type": "qemu",
+            "hostname": "hds-tool",
+            "ip_address": "192.168.50.15",
+            "operating_system": "Ubuntu LTS 24.04",
+            "environment": "development",
+            "tags": ["restored"],
+            "ssh_port": 22,
+            "ssh_username": "cerberus",
+            "ssh_auth_method": "key",
+        },
+    )
+
+    assert import_response.status_code == 201
+    restored = import_response.json()
+    assert restored["id"] == server_id
+    assert restored["lifecycle_state"] == "managed"
+    assert restored["sync_status"] in {"synced", "unknown"}
+    assert restored["external_id"] == "106"
+    assert restored["managed"] is True

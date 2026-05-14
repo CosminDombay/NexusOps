@@ -30,14 +30,15 @@ Current routing pattern:
 
 Current implemented domain routes include:
 
-- `/api/v1/servers` for inventory
+- `/api/v1/servers` for CMDB inventory, lifecycle operations, Proxmox import, and reconciliation
 - `/api/v1/proxmox` for Proxmox visibility and controlled lifecycle actions
 - `/api/v1/vms` for template-based Proxmox provisioning
 - `/api/v1/jobs` for SSH command execution, job history, and operational actions
 - `/api/v1/packages` for reusable package definitions
 - `/api/v1/profiles` for reusable infrastructure profile templates and execution
+- `/api/v1/identity` for Linux user, group, SSH key, sudo, permission, and replication workflows
 
-Placeholder routers exist for future modules such as provisioning, deployments, packages, monitoring, profiles, and execution, but they do not yet implement real workflows.
+Placeholder routers exist for future modules such as deployments, monitoring, and execution, but they do not yet implement real workflows.
 
 ## Module Organization
 
@@ -57,13 +58,21 @@ Not every file is fully implemented yet. Inventory and Jobs are implemented data
 
 ## Repository-Service Pattern
 
-Inventory follows the primary repository-service architecture:
+Inventory follows the primary repository-service architecture and acts as the orchestration source of truth:
 
 - `router.py` handles HTTP concerns and maps domain exceptions to HTTP responses.
-- `service.py` owns workflow orchestration and business rules.
+- `service.py` owns workflow orchestration, lifecycle state, Proxmox import, and reconciliation rules.
 - `repository.py` owns persistence queries.
 - `schemas.py` defines Pydantic request/response contracts.
 - `models.py` defines SQLAlchemy persistence models.
+
+Inventory records carry provider linkage and CMDB state:
+
+- `provider`, `external_id`, and legacy `vmid`
+- `source`, `managed`, and `lifecycle_state`
+- `sync_status`, `provider_node`, `provider_type`, provider metadata, and `last_seen_at`
+
+Deleting or archiving an inventory record never destroys the provider VM.
 
 This keeps HTTP logic, business logic, and database access separate.
 
@@ -102,7 +111,7 @@ Inventory commits are currently performed in the service layer after repository 
 
 Alembic is configured at the repository root through `alembic.ini` and migration code under `backend/migrations`.
 
-Current migrations create the `servers` and `jobs` tables, plus inventory SSH authentication metadata.
+Current migrations create the `servers` and `jobs` tables, inventory SSH authentication metadata, definition tables, provisioning requests, and inventory synchronization metadata.
 
 Important migration characteristics:
 
@@ -167,6 +176,25 @@ sequenceDiagram
   API-->>UI: JSON
 ```
 
+## Inventory Synchronization Flow
+
+```text
+Frontend Infrastructure page
+  -> GET /api/v1/proxmox/dashboard
+  -> ProxmoxService normalizes discovered VMs
+  -> ServerRepository matches provider/external ID, hostname, and IP when available
+  -> VM response includes synced, unmanaged, mismatch, orphaned, or archived status
+
+Operator import
+  -> POST /api/v1/servers/sync/proxmox/import
+  -> InventoryService creates a managed inventory record
+  -> provider=proxmox, external_id=vmid, source=imported, lifecycle_state=managed
+
+Reconciliation
+  -> POST /api/v1/servers/sync/proxmox/reconcile
+  -> InventoryService updates linked records with provider metadata and sync status
+```
+
 ## Jobs and Actions Backend Flow
 
 ```text
@@ -195,6 +223,29 @@ Frontend Profiles page
 
 Package/profile definition CRUD uses module repositories and persists only definitions. Actual execution history remains centralized in Jobs.
 
+## Identity Backend Flow
+
+```text
+Frontend Identity page
+  -> FastAPI /api/v1/identity
+  -> Linux identity services
+  -> IdentityReplicationService
+  -> JobService.execute_bulk()
+  -> SSH adapter
+  -> managed Linux hosts
+```
+
+Identity is operational Linux infrastructure orchestration. It stores reusable Linux users, groups, public SSH keys, and permission templates, then applies them to selected Inventory-managed hosts. It does not implement LDAP, Kerberos, FreeIPA, Active Directory, SSSD, PAM rewriting, or login federation.
+
+Identity also exposes a guided preset layer:
+
+- access profiles for common roles such as Administrator, Deployment Operator, Docker Operator, Log Viewer, Read Only, and Service Account
+- operational group presets for `docker`, administrator access, `adm`, `systemd-journal`, `www-data`, and `libvirt`
+- permission presets for common chmod modes
+- group discovery through `getent group` fanout
+
+Administrator access is resolved during execution with a distro-aware shell expression, choosing `sudo` for Debian/Ubuntu-style hosts and `wheel` for RHEL/CentOS/Fedora-style hosts. This keeps the UI focused on "Administrator Access" while preserving Linux-specific execution behavior.
+
 ## Provisioning Backend Flow
 
 ```text
@@ -209,6 +260,8 @@ Frontend Provisioning page
 ```
 
 Provisioning uses Proxmox templates only. Cloud-init configuration sets identity, SSH credentials, static IP/CIDR, gateway, DNS, CPU, memory, network bridge, on-boot behavior, and description metadata.
+
+Provisioned records are created as managed Inventory assets with `provider=proxmox`, `external_id=<vmid>`, `source=provisioned`, `lifecycle_state=provisioned`, and `sync_status=synced`.
 
 ## Current Backend Boundaries
 

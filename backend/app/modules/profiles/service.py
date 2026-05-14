@@ -12,6 +12,9 @@ from backend.app.modules.profiles.schemas import (
     InfrastructureProfileRead,
     InfrastructureProfileUpdate,
     ProfileApplyRead,
+    ProfileBulkApplyRead,
+    ProfileBulkApplyRequest,
+    ProfileBulkHostResult,
     ProfileApplyRequest,
 )
 
@@ -163,6 +166,45 @@ class ProfileService:
             status=status,
             jobs=jobs,
             message=f"Profile {profile.name} executed {len(jobs)} step(s).",
+        )
+
+    async def apply_profile_bulk(self, payload: ProfileBulkApplyRequest) -> ProfileBulkApplyRead:
+        results: list[ProfileBulkHostResult] = []
+        for target_server_id in payload.target_server_ids:
+            server = await self.job_service.server_repository.get_by_id(target_server_id)
+            try:
+                result = await self.apply_profile(
+                    payload.profile_id,
+                    ProfileApplyRequest(
+                        target_server_id=target_server_id,
+                        stop_on_failure=payload.stop_on_failure,
+                    ),
+                )
+                results.append(
+                    ProfileBulkHostResult(
+                        target_server_id=target_server_id,
+                        target_hostname=result.jobs[0].target_hostname if result.jobs else None,
+                        success=result.status == "success",
+                        result=result,
+                        error=None if result.status == "success" else result.status,
+                    )
+                )
+            except Exception as exc:
+                results.append(
+                    ProfileBulkHostResult(
+                        target_server_id=target_server_id,
+                        target_hostname=server.hostname if server else None,
+                        success=False,
+                        error=str(exc),
+                    )
+                )
+
+        success_count = sum(1 for result in results if result.success)
+        return ProfileBulkApplyRead(
+            profile_id=payload.profile_id,
+            success_count=success_count,
+            failure_count=len(results) - success_count,
+            results=results,
         )
 
     async def _resolve_step_command(self, kind: str, reference_id: str) -> str:

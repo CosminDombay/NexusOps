@@ -22,6 +22,27 @@ export type ExecuteJobPayload = {
   operation_type: string;
 };
 
+export type BulkExecutionResult = {
+  target_server_id: string;
+  target_hostname: string | null;
+  success: boolean;
+  job: Job | null;
+  error: string | null;
+};
+
+export type BulkExecutionResponse = {
+  operation_type: string;
+  success_count: number;
+  failure_count: number;
+  results: BulkExecutionResult[];
+};
+
+export type ExecuteJobBulkPayload = {
+  target_server_ids: string[];
+  command: string;
+  operation_type: string;
+};
+
 export type OperationalAction = {
   id: string;
   name: string;

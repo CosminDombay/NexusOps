@@ -8,13 +8,14 @@ The frontend currently implements:
 
 - inventory dashboard
 - server creation form
-- server list table/card views
+- server list table/card views with edit, archive, and delete actions
 - Proxmox infrastructure dashboard
+- Proxmox import/reconciliation visibility
 - Jobs page with operational actions, raw command execution, history, and result viewer
 - Package definitions page
 - Infrastructure profiles page with apply workflow and execution visibility
 - VM provisioning page with template, cloud-init, static networking, bootstrap, and history sections
-- placeholder pages for future modules
+- placeholder pages for deployments and monitoring
 
 ## Application Shell
 
@@ -31,16 +32,14 @@ Key files:
 Current main routes:
 
 - `/` inventory
-- `/infrastructure` read-only Proxmox visibility
+- `/infrastructure` Proxmox visibility, lifecycle controls, and inventory synchronization
 - `/jobs` SSH-backed operations and job history
+- `/identity` Linux user, group, SSH key, sudo, and permission replication
 - `/packages` package definition catalog
 - `/profiles` reusable infrastructure profile templates
 - `/provisioning` Proxmox template provisioning workflow
-- `/provisioning` placeholder
 - `/deployments` placeholder
-- `/packages` placeholder
 - `/monitoring` placeholder
-- `/profiles` placeholder
 
 ## Feature-Based Structure
 
@@ -98,6 +97,10 @@ The inventory UI includes:
 - password input for password-auth hosts
 - responsive table/cards
 - summary metric cards
+- lifecycle and synchronization badges
+- edit, archive, and delete workflows
+
+Inventory deletion and archival are CMDB operations only. They do not destroy Proxmox VMs.
 
 ## Proxmox Frontend Flow
 
@@ -125,6 +128,11 @@ The Proxmox UI includes:
 - loading state
 - API error state
 - retry action
+- managed/unmanaged synchronization badges
+- import action for unmanaged discovered VMs
+- reconciliation action for linked inventory records
+
+Discovered Proxmox VMs are not automatically imported. Operators supply Inventory execution metadata, including IP address and SSH username, before a VM becomes a managed target.
 
 ## Jobs Frontend Flow
 
@@ -152,6 +160,29 @@ The Jobs UI includes:
 - persisted job history
 - stdout/stderr result viewer
 - responsive table/cards
+
+## Identity Frontend Flow
+
+```text
+IdentityPage
+  -> identityApi
+  -> shared apiClient
+  -> FastAPI /api/v1/identity
+```
+
+The Identity UI includes Linux user creation/replication, group creation/membership replication, SSH public key deployment/revocation, lightweight chmod/chown permission application, and a primary multi-host target selector. Replication results show per-host success/failure details from the Jobs-backed fanout response.
+
+The default Identity experience is guided rather than raw-Linux-first:
+
+- access profile selector configures shell, sudo, and recommended groups
+- shell presets hide raw shell paths unless advanced mode is enabled
+- sudo options are shown as operational choices such as password-required sudo and passwordless admin access
+- group presets explain common operational groups and use cases
+- permission presets and an owner/group/others rwx matrix generate octal chmod values
+- generated command preview panels show the Linux operations before replication
+- replication target selection supports search, select all, clear, and selected host badges
+
+Advanced mode keeps raw shell path, raw group selection, recursive chmod/chown, and raw octal controls available for power users.
 
 ## Packages Frontend Flow
 

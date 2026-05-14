@@ -6,9 +6,25 @@ import { ServerList } from '../components/ServerList';
 import { useServers } from '../hooks/useServers';
 
 export function InventoryDashboardPage() {
-  const { servers, isLoading, isCreating, error, createError, refreshServers, addServer, clearCreateError } = useServers();
+  const {
+    servers,
+    isLoading,
+    isCreating,
+    error,
+    createError,
+    mutationError,
+    isCheckingHealth,
+    refreshServers,
+    addServer,
+    editServer,
+    removeServer,
+    archiveInventoryServer,
+    refreshHealth,
+    clearCreateError,
+    clearMutationError,
+  } = useServers();
 
-  const onlineServers = servers.filter((server) => server.status === 'online').length;
+  const onlineServers = servers.filter((server) => server.last_health_status === 'online').length;
   const productionServers = servers.filter((server) => server.environment === 'production').length;
 
   return (
@@ -31,7 +47,19 @@ export function InventoryDashboardPage() {
         onSubmit={addServer}
       />
 
-      <ServerList error={error} isLoading={isLoading} servers={servers} onRetry={refreshServers} />
+      <ServerList
+        error={error}
+        isLoading={isLoading}
+        mutationError={mutationError}
+        servers={servers}
+        onArchive={archiveInventoryServer}
+        onClearMutationError={clearMutationError}
+        onDelete={removeServer}
+        onEdit={editServer}
+        onHealthCheck={refreshHealth}
+        isCheckingHealth={isCheckingHealth}
+        onRetry={refreshServers}
+      />
     </div>
   );
 }

@@ -40,3 +40,22 @@ export type ApplyProfileResult = {
   jobs: Job[];
   message: string;
 };
+
+export type ApplyProfileBulkPayload = {
+  profile_id: string;
+  target_server_ids: string[];
+  stop_on_failure: boolean;
+};
+
+export type ApplyProfileBulkResult = {
+  profile_id: string;
+  success_count: number;
+  failure_count: number;
+  results: Array<{
+    target_server_id: string;
+    target_hostname: string | null;
+    success: boolean;
+    result: ApplyProfileResult | null;
+    error: string | null;
+  }>;
+};

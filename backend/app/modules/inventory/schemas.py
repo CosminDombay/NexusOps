@@ -5,7 +5,14 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from backend.app.modules.inventory.models import ServerEnvironment, ServerSshAuthMethod, ServerStatus
+from backend.app.common.constants import (
+    InventoryLifecycleState,
+    InventoryHealthStatus,
+    InventorySyncStatus,
+    ServerEnvironment,
+    ServerSshAuthMethod,
+    ServerStatus,
+)
 
 
 class ServerBase(BaseModel):
@@ -22,13 +29,25 @@ class ServerBase(BaseModel):
     ssh_private_key_path: str | None = Field(default=None, max_length=500)
     status: ServerStatus = ServerStatus.UNKNOWN
     provider: str = Field(min_length=1, max_length=100)
+    external_id: str | None = Field(default=None, max_length=100)
+    source: str = Field(default="manual", min_length=1, max_length=100)
+    managed: bool = True
+    lifecycle_state: InventoryLifecycleState = InventoryLifecycleState.MANAGED
+    sync_status: InventorySyncStatus = InventorySyncStatus.UNKNOWN
+    provider_node: str | None = Field(default=None, max_length=100)
+    provider_type: str | None = Field(default=None, max_length=50)
+    provider_metadata: dict[str, object] = Field(default_factory=dict)
+    last_seen_at: datetime | None = None
+    last_health_check_at: datetime | None = None
+    last_health_status: InventoryHealthStatus = InventoryHealthStatus.UNKNOWN
+    last_health_error: str | None = Field(default=None, max_length=500)
 
     @field_validator("ip_address")
     @classmethod
     def validate_ip_address(cls, value: str) -> str:
         return str(ip_address(value))
 
-    @field_validator("hostname", "provider", "ssh_username", "operating_system")
+    @field_validator("hostname", "provider", "ssh_username", "operating_system", "source")
     @classmethod
     def strip_required_strings(cls, value: str) -> str:
         stripped = value.strip()
@@ -81,6 +100,18 @@ class ServerUpdate(BaseModel):
     ssh_private_key_path: str | None = Field(default=None, max_length=500)
     status: ServerStatus | None = None
     provider: str | None = Field(default=None, min_length=1, max_length=100)
+    external_id: str | None = Field(default=None, max_length=100)
+    source: str | None = Field(default=None, min_length=1, max_length=100)
+    managed: bool | None = None
+    lifecycle_state: InventoryLifecycleState | None = None
+    sync_status: InventorySyncStatus | None = None
+    provider_node: str | None = Field(default=None, max_length=100)
+    provider_type: str | None = Field(default=None, max_length=50)
+    provider_metadata: dict[str, object] | None = None
+    last_seen_at: datetime | None = None
+    last_health_check_at: datetime | None = None
+    last_health_status: InventoryHealthStatus | None = None
+    last_health_error: str | None = Field(default=None, max_length=500)
 
     @field_validator("ip_address")
     @classmethod
@@ -89,7 +120,7 @@ class ServerUpdate(BaseModel):
             return None
         return str(ip_address(value))
 
-    @field_validator("hostname", "provider", "ssh_username", "operating_system")
+    @field_validator("hostname", "provider", "ssh_username", "operating_system", "source")
     @classmethod
     def strip_optional_strings(cls, value: str | None) -> str | None:
         if value is None:
@@ -138,7 +169,77 @@ class ServerRead(ServerBase):
     model_config = ConfigDict(from_attributes=True)
 
 
+class InventoryHealthCheckResult(BaseModel):
+    server_id: UUID
+    hostname: str
+    status: InventoryHealthStatus
+    checked_at: datetime
+    error: str | None = None
+
+
+class BulkInventoryHealthCheckRequest(BaseModel):
+    server_ids: list[UUID] | None = None
+
+
+class InventoryHealthSummary(BaseModel):
+    total: int
+    online: int
+    unreachable: int
+    unknown: int
+    provisioning: int
+    archived: int
+    sync_error: int
+    last_checked_at: datetime | None = None
+
+
 class ServerListFilters(BaseModel):
     environment: ServerEnvironment | None = None
     provider: str | None = None
     search: str | None = None
+
+
+class ProxmoxInventoryImport(BaseModel):
+    vm_id: int
+    node: str = Field(min_length=1, max_length=100)
+    vm_type: str = Field(default="qemu", min_length=1, max_length=50)
+    hostname: str = Field(min_length=1, max_length=255)
+    ip_address: str
+    operating_system: str = Field(default="cloud-init Linux", min_length=1, max_length=150)
+    environment: ServerEnvironment = ServerEnvironment.LAB
+    tags: list[str] = Field(default_factory=list)
+    ssh_port: int = Field(default=22, ge=1, le=65535)
+    ssh_username: str = Field(min_length=1, max_length=100)
+    ssh_auth_method: ServerSshAuthMethod = ServerSshAuthMethod.KEY
+    ssh_password: str | None = Field(default=None, max_length=500)
+    ssh_private_key_path: str | None = Field(default=None, max_length=500)
+
+    @field_validator("ip_address")
+    @classmethod
+    def validate_ip_address(cls, value: str) -> str:
+        return str(ip_address(value))
+
+    @field_validator("hostname", "node", "vm_type", "operating_system", "ssh_username")
+    @classmethod
+    def strip_required_strings(cls, value: str) -> str:
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("Value cannot be blank")
+        return stripped
+
+    @field_validator("tags")
+    @classmethod
+    def normalize_tags(cls, value: list[str]) -> list[str]:
+        normalized = []
+        seen = set()
+        for tag in value:
+            clean = tag.strip()
+            if clean and clean not in seen:
+                normalized.append(clean)
+                seen.add(clean)
+        return normalized
+
+    @model_validator(mode="after")
+    def validate_ssh_auth(self) -> Self:
+        if self.ssh_auth_method == ServerSshAuthMethod.PASSWORD and not self.ssh_password:
+            raise ValueError("SSH password is required when password authentication is selected")
+        return self

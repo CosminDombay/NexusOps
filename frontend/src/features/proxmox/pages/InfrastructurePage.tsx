@@ -1,4 +1,4 @@
-import { AlertCircle, RefreshCw } from 'lucide-react';
+import { AlertCircle, GitCompareArrows, RefreshCw } from 'lucide-react';
 
 import { PageHeader } from '../../../components/layout/PageHeader';
 import { NodeCards } from '../components/NodeCards';
@@ -17,6 +17,8 @@ export function InfrastructurePage() {
     notification,
     refreshDashboard,
     runAction,
+    importVm,
+    reconcileInventory,
     clearNotification,
   } = useProxmoxDashboard();
 
@@ -32,6 +34,33 @@ export function InfrastructurePage() {
     }
 
     void runAction(vm.vm_id, action);
+  }
+
+  function handleImportVm(vm: ProxmoxVm) {
+    const ipAddress = window.prompt('Inventory IP address for this VM', vm.ip_address ?? '');
+    if (!ipAddress) {
+      return;
+    }
+    const sshUsername = window.prompt('SSH username', 'ubuntu');
+    if (!sshUsername) {
+      return;
+    }
+
+    void importVm({
+      vm_id: vm.vm_id,
+      node: vm.node,
+      vm_type: vm.type,
+      hostname: vm.name,
+      ip_address: ipAddress.trim(),
+      operating_system: 'cloud-init Linux',
+      environment: 'lab',
+      provider: 'proxmox',
+      ssh_port: 22,
+      ssh_username: sshUsername.trim(),
+      ssh_auth_method: 'key',
+      ssh_password: null,
+      ssh_private_key_path: null,
+    });
   }
 
   return (
@@ -52,12 +81,23 @@ export function InfrastructurePage() {
               onDismiss={clearNotification}
             />
           ) : null}
+          <div className="flex justify-end">
+            <button
+              className="inline-flex items-center gap-2 rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm font-semibold text-zinc-700 transition hover:bg-zinc-50"
+              type="button"
+              onClick={() => void reconcileInventory()}
+            >
+              <GitCompareArrows className="h-4 w-4" aria-hidden="true" />
+              Reconcile Inventory
+            </button>
+          </div>
           <SummaryCards summary={dashboard.summary} />
           <NodeCards nodes={dashboard.nodes} />
           <VmTable
             actionByVmId={actionByVmId}
             vms={dashboard.vms}
             onAction={handleVmAction}
+            onImport={handleImportVm}
           />
         </>
       ) : null}

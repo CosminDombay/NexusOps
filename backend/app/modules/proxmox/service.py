@@ -4,6 +4,8 @@ from typing import Any
 import structlog
 
 from backend.app.adapters.proxmox import ProxmoxAdapter
+from backend.app.modules.inventory.repository import ServerRepository
+from backend.app.modules.inventory.service import InventoryService
 from backend.app.modules.proxmox.schemas import (
     ProxmoxClusterSummaryRead,
     ProxmoxDashboardRead,
@@ -26,8 +28,14 @@ class ProxmoxVmActionNotAllowedError(Exception):
 class ProxmoxService:
     """Application service for Proxmox visibility and controlled VM lifecycle actions."""
 
-    def __init__(self, adapter: ProxmoxAdapter) -> None:
+    def __init__(
+        self,
+        adapter: ProxmoxAdapter,
+        *,
+        server_repository: ServerRepository | None = None,
+    ) -> None:
         self.adapter = adapter
+        self.server_repository = server_repository
 
     async def get_nodes(self) -> list[ProxmoxNodeRead]:
         raw_nodes = await self.adapter.get_nodes()
@@ -39,6 +47,8 @@ class ProxmoxService:
     async def list_vms(self) -> list[ProxmoxVmRead]:
         raw_vms = await self.adapter.list_vms()
         vms = [self._normalize_vm(vm) for vm in raw_vms]
+        if self.server_repository is not None:
+            vms = await self._add_inventory_context(vms)
         logger.info("proxmox_vms_normalized", vm_count=len(vms))
         return vms
 
@@ -191,7 +201,34 @@ class ProxmoxService:
             disk_used=_optional_int(raw_vm.get("disk")),
             disk_total=_optional_int(raw_vm.get("maxdisk")),
             uptime_seconds=_optional_int(raw_vm.get("uptime")),
+            ip_address=_optional_str(
+                raw_vm.get("ip")
+                or raw_vm.get("ip_address")
+                or raw_vm.get("guest_ip")
+                or raw_vm.get("agent_ip")
+            ),
         )
+
+    async def _add_inventory_context(self, vms: list[ProxmoxVmRead]) -> list[ProxmoxVmRead]:
+        if self.server_repository is None:
+            return vms
+
+        inventory = await self.server_repository.list_by_provider("proxmox")
+        enriched: list[ProxmoxVmRead] = []
+        for vm in vms:
+            match, sync_status, notes = InventoryService.match_discovered_vm(vm, inventory)
+            enriched.append(
+                vm.model_copy(
+                    update={
+                        "inventory_server_id": str(match.id) if match else None,
+                        "inventory_hostname": match.hostname if match else None,
+                        "inventory_lifecycle_state": match.lifecycle_state.value if match else None,
+                        "inventory_sync_status": sync_status.value,
+                        "inventory_notes": notes,
+                    }
+                )
+            )
+        return enriched
 
     @staticmethod
     def _build_summary(

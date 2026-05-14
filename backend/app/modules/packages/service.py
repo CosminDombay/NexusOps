@@ -1,6 +1,6 @@
 from sqlalchemy.exc import IntegrityError
 
-from backend.app.modules.jobs.schemas import JobExecuteRequest, JobRead
+from backend.app.modules.jobs.schemas import BulkExecutionRead, JobBulkExecuteRequest, JobExecuteRequest, JobRead
 from backend.app.modules.jobs.service import JobService
 from backend.app.modules.packages.definitions import (
     PackageDefinition,
@@ -13,6 +13,7 @@ from backend.app.modules.packages.schemas import (
     PackageDefinitionCreate,
     PackageDefinitionRead,
     PackageDefinitionUpdate,
+    PackageBulkApplyRequest,
     PackageExecuteRequest,
 )
 
@@ -132,6 +133,20 @@ class PackageAutomationService:
         return await self.job_service.execute(
             JobExecuteRequest(
                 target_server_id=payload.target_server_id,
+                operation_type=f"package:{definition.id}",
+                command=command,
+            )
+        )
+
+    async def execute_definition_bulk(self, payload: PackageBulkApplyRequest) -> BulkExecutionRead:
+        if self.job_service is None:
+            raise RuntimeError("Job service is required")
+
+        definition = await self.get_definition(payload.package_id)
+        command = f"{definition.install_command} && {definition.validation_command}"
+        return await self.job_service.execute_bulk(
+            JobBulkExecuteRequest(
+                target_server_ids=payload.target_server_ids,
                 operation_type=f"package:{definition.id}",
                 command=command,
             )

@@ -8,10 +8,12 @@ type RunCommandPanelProps = {
   isExecuting: boolean;
   operationType: string;
   selectedServerId: string;
+  selectedServerIds: string[];
   servers: Server[];
   onCommandChange: (value: string) => void;
   onOperationTypeChange: (value: string) => void;
   onSelectedServerChange: (value: string) => void;
+  onSelectedServersChange: (value: string[]) => void;
   onSubmit: () => void;
 };
 
@@ -21,13 +23,15 @@ export function RunCommandPanel({
   isExecuting,
   operationType,
   selectedServerId,
+  selectedServerIds,
   servers,
   onCommandChange,
   onOperationTypeChange,
   onSelectedServerChange,
+  onSelectedServersChange,
   onSubmit,
 }: RunCommandPanelProps) {
-  const canSubmit = Boolean(selectedServerId && command.trim()) && !isExecuting;
+  const canSubmit = Boolean((selectedServerId || selectedServerIds.length) && command.trim()) && !isExecuting;
 
   return (
     <section className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm">
@@ -44,6 +48,24 @@ export function RunCommandPanel({
               {servers.map((server) => (
                 <option key={server.id} value={server.id}>
                   {server.hostname} ({server.ip_address})
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="block">
+            <span className="text-sm font-medium text-zinc-950">Bulk targets</span>
+            <select
+              className="mt-2 min-h-10 w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-950 shadow-sm outline-none transition focus:border-zinc-950 focus:ring-2 focus:ring-zinc-950/10"
+              multiple
+              value={selectedServerIds}
+              onChange={(event) =>
+                onSelectedServersChange(Array.from(event.target.selectedOptions, (option) => option.value))
+              }
+            >
+              {servers.map((server) => (
+                <option key={server.id} value={server.id}>
+                  {server.hostname}
                 </option>
               ))}
             </select>

@@ -16,7 +16,7 @@ export function formatBytes(value: number | null): string {
 }
 
 export function formatPercent(value: number | null): string {
-  if (value === null) {
+  if (value === null || value === undefined) {
     return 'Unavailable';
   }
 
@@ -38,7 +38,11 @@ export function formatUptime(seconds: number | null): string {
   return `${hours}h`;
 }
 
-export function statusClassName(status: string): string {
+export function statusClassName(status?: string | null): string {
+  if (!status) {
+    return 'bg-zinc-100 text-zinc-700 ring-zinc-200';
+  }
+
   if (status === 'online' || status === 'running') {
     return 'bg-emerald-50 text-emerald-700 ring-emerald-200';
   }
@@ -50,6 +54,20 @@ export function statusClassName(status: string): string {
   return 'bg-amber-50 text-amber-700 ring-amber-200';
 }
 
-export function titleCase(value: string): string {
+export function titleCase(value?: string | null): string {
+  if (!value) {
+    return 'Unknown';
+  }
   return value.charAt(0).toUpperCase() + value.slice(1);
+}
+
+/**
+ * Get a human-readable display value with fallback to Unknown.
+ * Safely handles undefined, null, and empty strings.
+ */
+export function displayValue(value?: string | null): string {
+  if (!value) {
+    return 'Unknown';
+  }
+  return value;
 }

@@ -94,5 +94,18 @@ class PackageExecuteRequest(BaseModel):
     target_server_id: UUID
 
 
+class PackageBulkApplyRequest(BaseModel):
+    package_id: str = Field(min_length=1, max_length=100)
+    target_server_ids: list[UUID] = Field(min_length=1)
+
+    @field_validator("package_id")
+    @classmethod
+    def strip_package_id(cls, value: str) -> str:
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("Value cannot be blank")
+        return stripped
+
+
 class PackageDefinitionRecordRead(PackageDefinitionRead):
     model_config = ConfigDict(from_attributes=True)

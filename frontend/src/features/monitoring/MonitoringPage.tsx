@@ -1,11 +1,119 @@
+import { useEffect, useState } from 'react';
+import { Activity, Cpu, Database, RefreshCw } from 'lucide-react';
+
 import { PageHeader } from '../../components/layout/PageHeader';
+import { getApiErrorMessage } from '../../lib/api/client';
+import { getMonitoringOverview, getPrometheusHealth } from './api/monitoringApi';
+import type { MonitoringOverview, PrometheusHealth } from './types/monitoring';
 
 export function MonitoringPage() {
+  const [overview, setOverview] = useState<MonitoringOverview | null>(null);
+  const [prometheus, setPrometheus] = useState<PrometheusHealth | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+
+  async function refresh() {
+    setIsLoading(true);
+    setError(null);
+    try {
+      const [nextOverview, nextPrometheus] = await Promise.all([getMonitoringOverview(), getPrometheusHealth()]);
+      setOverview(nextOverview);
+      setPrometheus(nextPrometheus);
+    } catch (caughtError) {
+      setError(getApiErrorMessage(caughtError));
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    void refresh();
+  }, []);
+
   return (
-    <PageHeader
-      title="Monitoring"
-      description="Collected host metrics, health signals, and infrastructure statistics."
-    />
+    <div className="space-y-6">
+      <PageHeader title="Monitoring" description="Prometheus-backed host metrics and inventory health signals." />
+
+      {error ? <div className="rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</div> : null}
+
+      <div className="grid gap-4 md:grid-cols-4">
+        <MetricCard icon={Database} label="Servers" value={overview?.total_servers ?? 0} />
+        <MetricCard icon={Activity} label="Online" value={overview?.online_servers ?? 0} />
+        <MetricCard icon={Activity} label="Offline" value={overview?.offline_servers ?? 0} />
+        <MetricCard icon={Cpu} label="Prometheus" value={prometheus?.reachable ? 'Ready' : 'Unavailable'} />
+      </div>
+
+      {prometheus && !prometheus.reachable ? (
+        <div className="rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-800">
+          {prometheus.configured ? prometheus.error : 'Prometheus API is not configured yet.'}
+        </div>
+      ) : null}
+
+      <section className="rounded-lg border border-zinc-200 bg-white shadow-sm">
+        <div className="flex items-center justify-between border-b border-zinc-200 px-5 py-4">
+          <h3 className="text-base font-semibold text-zinc-950">Server metrics</h3>
+          <button className="inline-flex h-9 items-center gap-2 rounded-md border border-zinc-300 px-3 text-sm font-semibold text-zinc-700" disabled={isLoading} type="button" onClick={() => void refresh()}>
+            <RefreshCw className="h-4 w-4" aria-hidden="true" />
+            Refresh
+          </button>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="min-w-full divide-y divide-zinc-200 text-sm">
+            <thead className="bg-zinc-50">
+              <tr>
+                {['Host', 'State', 'CPU', 'Memory', 'Disk', 'Uptime', 'Grafana'].map((heading) => (
+                  <th key={heading} className="px-5 py-3 text-left text-xs font-semibold uppercase text-zinc-500">{heading}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-zinc-100">
+              {(overview?.servers ?? []).map((server) => (
+                <tr key={server.server_id}>
+                  <td className="px-5 py-4">
+                    <div className="font-medium text-zinc-950">{server.hostname}</div>
+                    <div className="font-mono text-xs text-zinc-500">{server.ip_address}</div>
+                  </td>
+                  <td className="px-5 py-4">{server.online ? 'Online' : 'Offline'}</td>
+                  <td className="px-5 py-4">{formatPercent(server.cpu_usage_percent)}</td>
+                  <td className="px-5 py-4">{formatPercent(server.memory_usage_percent)}</td>
+                  <td className="px-5 py-4">{formatPercent(server.disk_usage_percent)}</td>
+                  <td className="px-5 py-4">{formatDuration(server.uptime_seconds)}</td>
+                  <td className="px-5 py-4">
+                    {server.grafana_url ? <a className="font-semibold text-zinc-950 underline" href={server.grafana_url} rel="noreferrer" target="_blank">Open</a> : 'Not configured'}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {!isLoading && overview?.servers.length === 0 ? <p className="p-5 text-sm text-zinc-500">No inventory servers available.</p> : null}
+        </div>
+      </section>
+    </div>
   );
 }
 
+function MetricCard({ icon: Icon, label, value }: { icon: typeof Activity; label: string; value: string | number }) {
+  return (
+    <div className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm">
+      <div className="flex items-center justify-between">
+        <div>
+          <p className="text-sm font-medium text-zinc-500">{label}</p>
+          <p className="mt-2 text-2xl font-semibold text-zinc-950">{value}</p>
+        </div>
+        <Icon className="h-5 w-5 text-zinc-500" aria-hidden="true" />
+      </div>
+    </div>
+  );
+}
+
+function formatPercent(value: number | null): string {
+  return value === null ? 'No data' : `${value.toFixed(1)}%`;
+}
+
+function formatDuration(value: number | null): string {
+  if (value === null) {
+    return 'No data';
+  }
+  const hours = Math.floor(value / 3600);
+  return `${hours}h`;
+}

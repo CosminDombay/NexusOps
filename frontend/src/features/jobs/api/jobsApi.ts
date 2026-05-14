@@ -1,5 +1,12 @@
 import { apiClient } from '../../../lib/api/client';
-import type { ExecuteActionPayload, ExecuteJobPayload, Job, OperationalAction } from '../types/job';
+import type {
+  BulkExecutionResponse,
+  ExecuteActionPayload,
+  ExecuteJobBulkPayload,
+  ExecuteJobPayload,
+  Job,
+  OperationalAction,
+} from '../types/job';
 
 export async function listJobs(): Promise<Job[]> {
   const response = await apiClient.get<Job[]>('/jobs');
@@ -8,6 +15,11 @@ export async function listJobs(): Promise<Job[]> {
 
 export async function executeJob(payload: ExecuteJobPayload): Promise<Job> {
   const response = await apiClient.post<Job>('/jobs/execute', payload);
+  return response.data;
+}
+
+export async function executeJobBulk(payload: ExecuteJobBulkPayload): Promise<BulkExecutionResponse> {
+  const response = await apiClient.post<BulkExecutionResponse>('/jobs/execute/bulk', payload);
   return response.data;
 }
 

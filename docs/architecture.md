@@ -41,7 +41,7 @@ The frontend is organized by feature rather than technical layer. Pages for inve
 
 ## Suggested Database Entities
 
-- `Server`: Linux host inventory and connection state.
+- `Server`: CMDB inventory record, Linux host connection state, provider linkage, lifecycle state, and synchronization status.
 - `VirtualMachine`: VM request and Proxmox provider mapping.
 - `CommandExecution`: legacy placeholder for command audit concepts.
 - `Deployment`: Docker Compose project definition and state.
@@ -68,3 +68,28 @@ Inventory -> Jobs / Operational Actions -> SSH adapter -> managed Linux host
 ```
 
 Proxmox remains a provider discovery and lifecycle-control layer. Jobs and operational actions execute only against inventory-managed servers.
+
+Identity follows the same orchestration boundary:
+
+```text
+Access profile / group preset / permission preset
+  -> Identity replication
+  -> Jobs
+  -> SSH adapter
+  -> inventory-managed Linux host
+```
+
+Identity is not centralized authentication. It is Linux user, group, SSH key, sudoers.d, and filesystem permission orchestration with guided presets and advanced Linux controls.
+
+## Inventory Synchronization Flow
+
+```text
+Proxmox discovery
+  -> managed/unmanaged synchronization status
+  -> optional operator import
+  -> Inventory provider linkage
+  -> reconciliation status
+  -> Jobs / Packages / Profiles
+```
+
+Inventory lifecycle and infrastructure lifecycle are separate concerns. Deleting or archiving an Inventory record does not destroy a Proxmox VM.

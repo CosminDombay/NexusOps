@@ -2,9 +2,9 @@
 
 ## Implementation Status
 
-NexusOps is currently a modular monolith with a FastAPI backend, a React/Vite frontend, PostgreSQL persistence, and a validated first workflow for server inventory. The platform also includes Proxmox infrastructure visibility, controlled VM lifecycle actions, Proxmox template provisioning, SSH-backed job execution, reusable operational actions, package definitions, and infrastructure profiles.
+NexusOps is currently a modular monolith with a FastAPI backend, a React/Vite frontend, PostgreSQL persistence, and a CMDB-style server inventory. The platform also includes Proxmox infrastructure visibility, controlled VM lifecycle actions, Proxmox template provisioning, Proxmox-to-inventory synchronization, SSH-backed job execution, reusable operational actions, package definitions, and infrastructure profiles.
 
-The implemented system is focused on foundations, visibility, narrowly scoped VM lifecycle control, and the first orchestration layer. It does not yet perform VM creation, VM deletion, provisioning, Docker deployment, monitoring collection, authentication, or workflow chaining.
+The implemented system is focused on foundations, visibility, narrowly scoped VM lifecycle control, template provisioning, inventory synchronization, and the first orchestration layer. It does not yet perform VM deletion, Docker deployment, monitoring collection, authentication, or workflow chaining.
 
 ## Working Functionality
 
@@ -17,7 +17,13 @@ The implemented system is focused on foundations, visibility, narrowly scoped VM
   - create server
   - update server
   - delete server
+  - archive server without destroying provider infrastructure
   - filter/search server inventory
+- Inventory CMDB metadata:
+  - managed/unmanaged state
+  - lifecycle state: discovered, managed, provisioned, unmanaged, archived
+  - synchronization state: unknown, synced, unmanaged, orphaned, mismatch, archived
+  - provider linkage through provider, external ID/VMID, node, type, source, and last-seen metadata
 - PostgreSQL-backed persistence through async SQLAlchemy.
 - Alembic migrations for inventory, jobs, and SSH authentication metadata.
 - React inventory dashboard with create form, responsive server list, loading states, and error handling.
@@ -33,6 +39,9 @@ The implemented system is focused on foundations, visibility, narrowly scoped VM
   - cluster summary
   - frontend infrastructure dashboard
   - controlled VM start, stop, reboot, and shutdown actions
+  - VM inventory synchronization status
+  - import to Inventory workflow for unmanaged discovered VMs
+  - reconciliation for missing, mismatched, and orphaned inventory records
 - Provisioning:
   - Proxmox template selection
   - full clone from cloud-init-capable templates
@@ -49,6 +58,11 @@ The implemented system is focused on foundations, visibility, narrowly scoped VM
   - support key-based and password-based SSH authentication
   - expose reusable operational actions backed by the jobs pipeline
   - frontend Jobs page with action runner, raw command runner, history, and result viewer
+  - bulk command execution foundation for sequential multi-host fanout
+- Inventory health:
+  - lightweight TCP reachability check against SSH port
+  - per-host last health state, timestamp, and error metadata
+  - bulk health refresh and health summary endpoints
 - Package definitions:
   - Docker Engine
   - Tailscale
@@ -66,6 +80,24 @@ The implemented system is focused on foundations, visibility, narrowly scoped VM
   - sequential execution through Jobs
   - custom create/update/delete support
 - ESLint 9 flat configuration, TypeScript build, TailwindCSS, and Prettier configuration.
+- Docker Compose deployments:
+  - deployment definitions with compose/env storage
+  - deployment target and revision persistence
+  - deploy/redeploy/restart/stop/status/log operations through Jobs
+- Monitoring foundation:
+  - Prometheus HTTP API health check
+  - basic per-server CPU, memory, disk, and uptime query support
+  - Grafana deep-link generation when configured
+- Linux identity orchestration:
+  - reusable Linux user and group records
+  - SSH public key records
+  - filesystem permission templates
+  - user/group/key/permission replication across selected inventory hosts
+  - per-host execution history through Jobs and identity execution records
+  - guided access profiles for administrator, deployment, Docker, log viewer, read-only, and service-account workflows
+  - distro-aware administrator group resolution
+  - operational group presets and group discovery
+  - permission presets, rwx matrix UI, and generated command previews
 
 ## Completed Phases
 
@@ -123,6 +155,16 @@ Provisioning request -> Proxmox clone/config/start -> SSH readiness -> Inventory
 
 Provisioned VMs become Inventory records before any bootstrap profile/package execution. This preserves Inventory as the orchestration source of truth.
 
+### Inventory Synchronization and CMDB Lifecycle
+
+Inventory now reconciles provider discovery with orchestration ownership:
+
+```text
+Proxmox discovery -> synchronization status -> optional import -> Inventory authority -> Jobs / Profiles / Packages
+```
+
+Discovered VMs are shown as unmanaged until an operator imports them. Import creates an Inventory record with Proxmox provider linkage, SSH metadata, lifecycle state, source metadata, and synchronization status. Reconciliation updates linked inventory records as synced, mismatched, orphaned, or archived without destroying provider-side infrastructure.
+
 ## Architecture Status
 
 - Backend remains organized as a modular monolith.
@@ -140,7 +182,7 @@ Provisioned VMs become Inventory records before any bootstrap profile/package ex
 
 ## Current Technical Debt
 
-- Provisioning, deployments, monitoring, and execution modules are still placeholders.
+- Execution module is still a placeholder.
 - Authentication and authorization are not implemented.
 - SSH passwords/private key paths are stored as a temporary local MVP, not encrypted or vault-backed.
 - No frontend test framework is configured yet.
@@ -153,8 +195,9 @@ Provisioned VMs become Inventory records before any bootstrap profile/package ex
 - Jobs run synchronously during the API request; no Celery/Redis/background worker exists yet.
 - Profiles run synchronously and sequentially; no DAG engine, rollback, or workflow scheduler exists yet.
 - Provisioning runs synchronously in the API request; no background worker or websocket status streaming exists yet.
+- No centralized authentication or domain identity provider. Identity is Linux orchestration only; LDAP, Kerberos, FreeIPA, Active Directory, SSSD, PAM rewriting, and login federation are intentionally out of scope.
 - Existing `docs/architecture.md` is older and less precise than the newer files in `docs/architecture/`.
 
 ## Current Safety Boundary
 
-The platform can mutate NexusOps-owned inventory data, request controlled Proxmox VM lifecycle actions, provision VMs from Proxmox templates, and execute commands/actions against inventory-managed Linux hosts over SSH. It does not expose VM deletion, ISO installation, Docker Compose deployment workflows, monitoring ingestion, or arbitrary provider-side infrastructure mutation.
+The platform can mutate NexusOps-owned inventory data, import and reconcile discovered Proxmox VMs into Inventory, request controlled Proxmox VM lifecycle actions, provision VMs from Proxmox templates, execute commands/actions against inventory-managed Linux hosts over SSH, deploy Docker Compose projects, query Prometheus metrics, and replicate Linux identity state. Inventory deletion and archival are CMDB operations only; they do not destroy Proxmox VMs. The platform does not expose VM deletion, ISO installation, Kubernetes, Terraform execution, centralized authentication, or arbitrary provider-side infrastructure mutation.

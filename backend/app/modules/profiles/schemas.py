@@ -113,9 +113,38 @@ class ProfileApplyRequest(BaseModel):
     stop_on_failure: bool = True
 
 
+class ProfileBulkApplyRequest(BaseModel):
+    profile_id: str = Field(min_length=1, max_length=100)
+    target_server_ids: list[UUID] = Field(min_length=1)
+    stop_on_failure: bool = True
+
+    @field_validator("profile_id")
+    @classmethod
+    def strip_profile_id(cls, value: str) -> str:
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("Value cannot be blank")
+        return stripped
+
+
 class ProfileApplyRead(BaseModel):
     profile_id: str
     target_server_id: UUID
     status: str
     jobs: list[JobRead]
     message: str
+
+
+class ProfileBulkHostResult(BaseModel):
+    target_server_id: UUID
+    target_hostname: str | None = None
+    success: bool
+    result: ProfileApplyRead | None = None
+    error: str | None = None
+
+
+class ProfileBulkApplyRead(BaseModel):
+    profile_id: str
+    success_count: int
+    failure_count: int
+    results: list[ProfileBulkHostResult]

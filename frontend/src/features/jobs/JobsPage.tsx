@@ -4,7 +4,7 @@ import { PageHeader } from '../../components/layout/PageHeader';
 import { getApiErrorMessage } from '../../lib/api/client';
 import { listServers } from '../inventory/api/serversApi';
 import type { Server } from '../inventory/types/server';
-import { executeJob, executeOperationalAction, listJobs, listOperationalActions } from './api/jobsApi';
+import { executeJob, executeJobBulk, executeOperationalAction, listJobs, listOperationalActions } from './api/jobsApi';
 import { JobResultViewer } from './components/JobResultViewer';
 import { JobsTable } from './components/JobsTable';
 import { OperationalActionsPanel } from './components/OperationalActionsPanel';
@@ -16,6 +16,7 @@ export function JobsPage() {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [actions, setActions] = useState<OperationalAction[]>([]);
   const [selectedServerId, setSelectedServerId] = useState('');
+  const [selectedServerIds, setSelectedServerIds] = useState<string[]>([]);
   const [selectedActionId, setSelectedActionId] = useState('');
   const [operationType, setOperationType] = useState('command');
   const [command, setCommand] = useState('uptime');
@@ -25,6 +26,7 @@ export function JobsPage() {
   const [isExecutingAction, setIsExecutingAction] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [executeError, setExecuteError] = useState<string | null>(null);
+  const [bulkResult, setBulkResult] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
 
   const selectedJob = useMemo(
@@ -55,7 +57,7 @@ export function JobsPage() {
   }, []);
 
   async function handleExecute() {
-    if (!selectedServerId || !command.trim()) {
+    if ((!selectedServerId && selectedServerIds.length === 0) || !command.trim()) {
       return;
     }
 
@@ -63,13 +65,26 @@ export function JobsPage() {
     setExecuteError(null);
 
     try {
-      const job = await executeJob({
-        target_server_id: selectedServerId,
-        operation_type: operationType,
-        command,
-      });
-      setJobs((currentJobs) => [job, ...currentJobs]);
-      setSelectedJobId(job.id);
+      if (selectedServerIds.length > 0) {
+        const result = await executeJobBulk({
+          target_server_ids: selectedServerIds,
+          operation_type: operationType,
+          command,
+        });
+        const resultJobs = result.results.flatMap((item) => (item.job ? [item.job] : []));
+        setJobs((currentJobs) => [...resultJobs, ...currentJobs]);
+        setSelectedJobId(resultJobs[0]?.id ?? null);
+        setBulkResult(`${result.success_count} succeeded, ${result.failure_count} failed`);
+      } else {
+        const job = await executeJob({
+          target_server_id: selectedServerId,
+          operation_type: operationType,
+          command,
+        });
+        setJobs((currentJobs) => [job, ...currentJobs]);
+        setSelectedJobId(job.id);
+        setBulkResult(null);
+      }
     } catch (error) {
       setExecuteError(getApiErrorMessage(error));
     } finally {
@@ -136,12 +151,15 @@ export function JobsPage() {
         isExecuting={isExecuting}
         operationType={operationType}
         selectedServerId={selectedServerId}
+        selectedServerIds={selectedServerIds}
         servers={servers}
         onCommandChange={setCommand}
         onOperationTypeChange={setOperationType}
         onSelectedServerChange={setSelectedServerId}
+        onSelectedServersChange={setSelectedServerIds}
         onSubmit={handleExecute}
       />
+      {bulkResult ? <p className="rounded-md bg-zinc-100 px-3 py-2 text-sm text-zinc-700">{bulkResult}</p> : null}
 
       <div className="grid gap-6 xl:grid-cols-[minmax(0,1.25fr)_minmax(360px,0.75fr)]">
         <JobsTable

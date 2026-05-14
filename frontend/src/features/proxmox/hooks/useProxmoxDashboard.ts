@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
 
 import { getApiErrorMessage } from '../../../lib/api/client';
+import { importProxmoxVm, reconcileProxmoxInventory } from '../../inventory/api/serversApi';
+import type { ImportProxmoxVmPayload } from '../../inventory/types/server';
 import { getProxmoxDashboard, runVmAction } from '../api/proxmoxApi';
 import type { ProxmoxDashboard, ProxmoxVmAction } from '../types/proxmox';
 
@@ -17,6 +19,8 @@ type UseProxmoxDashboardResult = {
   notification: ProxmoxNotification | null;
   refreshDashboard: () => Promise<void>;
   runAction: (vmId: number, action: ProxmoxVmAction) => Promise<void>;
+  importVm: (payload: ImportProxmoxVmPayload) => Promise<void>;
+  reconcileInventory: () => Promise<void>;
   clearNotification: () => void;
 };
 
@@ -66,6 +70,33 @@ export function useProxmoxDashboard(): UseProxmoxDashboardResult {
     [refreshDashboard],
   );
 
+  const importVm = useCallback(
+    async (payload: ImportProxmoxVmPayload) => {
+      setNotification(null);
+
+      try {
+        const server = await importProxmoxVm(payload);
+        setNotification({ tone: 'success', message: `${server.hostname} imported to Inventory.` });
+        await refreshDashboard();
+      } catch (caughtError) {
+        setNotification({ tone: 'error', message: getApiErrorMessage(caughtError) });
+      }
+    },
+    [refreshDashboard],
+  );
+
+  const reconcileInventory = useCallback(async () => {
+    setNotification(null);
+
+    try {
+      await reconcileProxmoxInventory();
+      setNotification({ tone: 'success', message: 'Inventory reconciliation completed.' });
+      await refreshDashboard();
+    } catch (caughtError) {
+      setNotification({ tone: 'error', message: getApiErrorMessage(caughtError) });
+    }
+  }, [refreshDashboard]);
+
   return {
     dashboard,
     isLoading,
@@ -74,6 +105,8 @@ export function useProxmoxDashboard(): UseProxmoxDashboardResult {
     notification,
     refreshDashboard,
     runAction,
+    importVm,
+    reconcileInventory,
     clearNotification: () => setNotification(null),
   };
 }

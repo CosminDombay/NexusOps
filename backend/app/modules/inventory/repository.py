@@ -3,7 +3,7 @@ from uuid import UUID
 from sqlalchemy import delete, or_, select
 
 from backend.app.common.repository import BaseRepository
-from backend.app.modules.inventory.models import Server, ServerEnvironment
+from backend.app.modules.inventory.models import InventoryLifecycleState, Server, ServerEnvironment
 
 
 class ServerRepository(BaseRepository[Server]):
@@ -25,6 +25,16 @@ class ServerRepository(BaseRepository[Server]):
         result = await self.session.execute(select(Server).where(Server.ip_address == ip_address))
         return result.scalar_one_or_none()
 
+    async def get_by_provider_external_id(self, provider: str, external_id: str) -> Server | None:
+        result = await self.session.execute(
+            select(Server).where(Server.provider == provider, Server.external_id == external_id)
+        )
+        return result.scalar_one_or_none()
+
+    async def list_by_provider(self, provider: str) -> list[Server]:
+        result = await self.session.execute(select(Server).where(Server.provider == provider))
+        return list(result.scalars().all())
+
     async def list(
         self,
         *,
@@ -42,7 +52,15 @@ class ServerRepository(BaseRepository[Server]):
 
         if search:
             pattern = f"%{search}%"
-            query = query.where(or_(Server.hostname.ilike(pattern), Server.ip_address.ilike(pattern)))
+            query = query.where(
+                or_(
+                    Server.hostname.ilike(pattern),
+                    Server.ip_address.ilike(pattern),
+                    Server.external_id.ilike(pattern),
+                )
+            )
+
+        query = query.where(Server.lifecycle_state != InventoryLifecycleState.ARCHIVED)
 
         result = await self.session.execute(query)
         return list(result.scalars().all())

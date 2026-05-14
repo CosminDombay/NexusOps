@@ -7,7 +7,7 @@ from backend.app.adapters.ssh import ParamikoSshAdapter
 from backend.app.db.session import get_db_session
 from backend.app.modules.inventory.repository import ServerRepository
 from backend.app.modules.jobs.repository import JobRepository
-from backend.app.modules.jobs.service import JobService, JobTargetNotFoundError
+from backend.app.modules.jobs.service import JobService, JobTargetNotFoundError, JobTargetNotManagedError
 from backend.app.modules.packages.repository import PackageDefinitionRepository
 from backend.app.modules.profiles.repository import InfrastructureProfileRepository
 from backend.app.modules.profiles.schemas import (
@@ -15,6 +15,8 @@ from backend.app.modules.profiles.schemas import (
     InfrastructureProfileRead,
     InfrastructureProfileUpdate,
     ProfileApplyRead,
+    ProfileBulkApplyRead,
+    ProfileBulkApplyRequest,
     ProfileApplyRequest,
 )
 from backend.app.modules.profiles.service import (
@@ -47,6 +49,14 @@ async def list_profiles(
     service: Annotated[ProfileService, Depends(get_profile_service)],
 ) -> list[InfrastructureProfileRead]:
     return await service.list_profiles()
+
+
+@router.post("/apply/bulk", response_model=ProfileBulkApplyRead, status_code=status.HTTP_201_CREATED)
+async def apply_profile_bulk(
+    payload: ProfileBulkApplyRequest,
+    service: Annotated[ProfileService, Depends(get_profile_service)],
+) -> ProfileBulkApplyRead:
+    return await service.apply_profile_bulk(payload)
 
 
 @router.post("", response_model=InfrastructureProfileRead, status_code=status.HTTP_201_CREATED)
@@ -108,5 +118,7 @@ async def apply_profile(
         return await service.apply_profile(profile_id, payload)
     except (ProfileNotFoundError, JobTargetNotFoundError) as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except JobTargetNotManagedError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     except ProfileStepResolutionError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc

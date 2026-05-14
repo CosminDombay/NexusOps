@@ -8,9 +8,9 @@ This repository is scaffolded as a modular monolith:
 - `frontend/` contains the React/Vite/TypeScript application organized by features.
 - `infra/` contains local development infrastructure such as Docker Compose and database initialization scripts.
 
-The current implementation includes the platform foundation, inventory CRUD,
+The current implementation includes the platform foundation, CMDB-style inventory CRUD,
 Proxmox visibility/lifecycle control, template-based VM provisioning,
-SSH-backed job execution, reusable operational actions, package definitions,
+Proxmox-to-inventory synchronization, SSH-backed job execution, reusable operational actions, package definitions,
 and infrastructure profiles.
 
 ## MVP Domains
@@ -19,13 +19,19 @@ and infrastructure profiles.
 - Proxmox template cloning with cloud-init configuration
 - Static IP provisioning and inventory auto-registration
 - Server inventory management
+- Proxmox discovery-to-inventory import
+- Managed/unmanaged/orphaned inventory reconciliation
 - SSH-based remote execution
 - Operational action execution through Jobs
 - Package definition catalog
 - Reusable infrastructure profiles
-- Docker Compose deployments
+- SSH-backed Docker Compose deployment workflows
 - Package installation automation
-- Monitoring/statistics collection
+- Prometheus-backed monitoring/statistics foundations
+- Linux identity orchestration and replication
+- guided access profiles for Linux identity operations
+- distro-aware administrator group abstraction
+- built-in operational group and permission presets
 - User/group standardization profiles
 - Job execution tracking and logging
 
@@ -41,12 +47,21 @@ Backend API docs will be available at `http://localhost:8000/docs`.
 ## Implemented Workflows
 
 - Inventory records define managed execution targets.
-- Proxmox integration discovers nodes, VMs/containers, cluster summary data, and supports guarded VM lifecycle actions.
+- Inventory is the orchestration source of truth and tracks provider linkage, lifecycle state, synchronization state, and SSH execution metadata.
+- Proxmox integration discovers nodes, VMs/containers, cluster summary data, import status, and supports guarded VM lifecycle actions.
+- Discovered Proxmox assets can be imported into Inventory, but NexusOps does not blindly auto-import every VM.
 - Provisioning clones cloud-init-capable Proxmox templates, configures static networking, starts VMs, waits for SSH, and registers inventory records.
 - Jobs execute SSH commands against inventory targets and persist status, stdout, stderr, exit code, and timestamps.
+- Inventory health checks perform lightweight TCP reachability checks against SSH ports without logging in on each refresh.
 - Operational actions provide predefined workflows such as uptime, disk usage, memory usage, Docker checks, Docker restart, and simple installation actions.
 - Package definitions describe reusable install/validation commands for common infrastructure packages and can be extended with custom definitions.
 - Infrastructure profiles orchestrate ordered package/action workflows through Jobs and can be built from built-in or custom steps.
+- Docker Compose deployments store compose/env definitions and execute deploy/redeploy/restart/stop/status/logs through the Jobs -> SSH pipeline.
+- Monitoring reads metrics from the Prometheus HTTP API when configured and links to Grafana when configured.
+- Identity orchestration stores Linux users, groups, SSH public keys, and permission templates, then replicates user/group/access/permission changes across selected Inventory-managed hosts through Jobs and SSH.
+- Identity includes guided access profiles such as Administrator, Deployment Operator, Docker Operator, Log Viewer, Read Only, and Service Account. These profiles configure shell, sudo behavior, recommended groups, and defaults while preserving advanced Linux controls.
+- Identity resolves administrator access through a distro-aware abstraction, using `sudo` on Debian/Ubuntu style hosts and `wheel` on RHEL/CentOS/Fedora style hosts during replicated execution.
+- Permission workflows include presets and a human-friendly read/write/execute matrix that generates octal modes while retaining advanced raw mode controls.
 
 Current orchestration flow:
 
@@ -54,5 +69,8 @@ Current orchestration flow:
 Provisioning -> Proxmox template/cloud-init -> Inventory -> Profiles / Packages / Actions -> Jobs -> SSH adapter -> managed Linux host
 ```
 
-Proxmox remains a provider/discovery layer. Remote execution intentionally runs
-through Inventory-managed targets.
+Proxmox remains a provider/discovery layer. Inventory deletion or archival does
+not destroy provider infrastructure. Remote execution intentionally runs through
+Inventory-managed targets. Identity is Linux access orchestration and replication,
+not centralized authentication; NexusOps does not implement LDAP, Kerberos,
+FreeIPA, Active Directory, or SSSD.

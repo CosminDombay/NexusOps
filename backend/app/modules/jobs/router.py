@@ -9,7 +9,9 @@ from backend.app.db.session import get_db_session
 from backend.app.modules.inventory.repository import ServerRepository
 from backend.app.modules.jobs.repository import JobRepository
 from backend.app.modules.jobs.schemas import (
+    BulkExecutionRead,
     JobActionExecuteRequest,
+    JobBulkExecuteRequest,
     JobExecuteRequest,
     JobRead,
     OperationalActionRead,
@@ -18,6 +20,7 @@ from backend.app.modules.jobs.service import (
     JobNotFoundError,
     JobService,
     JobTargetNotFoundError,
+    JobTargetNotManagedError,
     OperationalActionNotFoundError,
 )
 
@@ -57,8 +60,18 @@ async def execute_action(
         return await service.execute_action(payload)
     except JobTargetNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except JobTargetNotManagedError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     except OperationalActionNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+
+@router.post("/execute/bulk", response_model=BulkExecutionRead, status_code=status.HTTP_201_CREATED)
+async def execute_job_bulk(
+    payload: JobBulkExecuteRequest,
+    service: Annotated[JobService, Depends(get_job_service)],
+) -> BulkExecutionRead:
+    return await service.execute_bulk(payload)
 
 
 @router.get("/{job_id}", response_model=JobRead)
@@ -81,6 +94,8 @@ async def execute_job(
         return await service.execute(payload)
     except JobTargetNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except JobTargetNotManagedError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
 
 
 @router.post("/{job_id}/cancel", response_model=JobRead)

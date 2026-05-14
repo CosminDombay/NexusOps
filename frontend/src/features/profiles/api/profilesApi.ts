@@ -1,6 +1,8 @@
 import { apiClient } from '../../../lib/api/client';
 import type {
   ApplyProfilePayload,
+  ApplyProfileBulkPayload,
+  ApplyProfileBulkResult,
   ApplyProfileResult,
   CreateInfrastructureProfilePayload,
   InfrastructureProfile,
@@ -16,6 +18,11 @@ export async function applyProfile(
   payload: ApplyProfilePayload,
 ): Promise<ApplyProfileResult> {
   const response = await apiClient.post<ApplyProfileResult>(`/profiles/${profileId}/apply`, payload);
+  return response.data;
+}
+
+export async function applyProfileBulk(payload: ApplyProfileBulkPayload): Promise<ApplyProfileBulkResult> {
+  const response = await apiClient.post<ApplyProfileBulkResult>('/profiles/apply/bulk', payload);
   return response.data;
 }
 

@@ -1,6 +1,6 @@
 import { apiClient } from '../../../lib/api/client';
 import type { CreatePackageDefinitionPayload, PackageDefinition } from '../types/package';
-import type { Job } from '../../jobs/types/job';
+import type { BulkExecutionResponse, Job } from '../../jobs/types/job';
 
 export async function listPackageDefinitions(): Promise<PackageDefinition[]> {
   const response = await apiClient.get<PackageDefinition[]>('/packages');
@@ -24,6 +24,17 @@ export async function executePackageDefinition(
 ): Promise<Job> {
   const response = await apiClient.post<Job>(`/packages/${packageId}/execute`, {
     target_server_id: targetServerId,
+  });
+  return response.data;
+}
+
+export async function executePackageDefinitionBulk(
+  packageId: string,
+  targetServerIds: string[],
+): Promise<BulkExecutionResponse> {
+  const response = await apiClient.post<BulkExecutionResponse>('/packages/apply/bulk', {
+    package_id: packageId,
+    target_server_ids: targetServerIds,
   });
   return response.data;
 }

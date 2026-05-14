@@ -6,7 +6,12 @@ import structlog
 
 from backend.app.adapters.proxmox import ProxmoxAdapter
 from backend.app.adapters.ssh import SshAdapter
-from backend.app.modules.inventory.models import ServerSshAuthMethod, ServerStatus
+from backend.app.common.constants import (
+    InventoryLifecycleState,
+    InventorySyncStatus,
+    ServerSshAuthMethod,
+    ServerStatus,
+)
 from backend.app.modules.inventory.repository import ServerRepository
 from backend.app.modules.inventory.schemas import ServerCreate
 from backend.app.modules.inventory.service import InventoryConflictError, InventoryService
@@ -188,6 +193,14 @@ class ProvisioningService:
                     ssh_password=payload.cloud_init_password,
                     status=ServerStatus.ONLINE,
                     provider="proxmox",
+                    external_id=str(payload.new_vm_id),
+                    source="provisioned",
+                    managed=True,
+                    lifecycle_state=InventoryLifecycleState.PROVISIONED,
+                    sync_status=InventorySyncStatus.SYNCED,
+                    provider_node=payload.target_node,
+                    provider_type="qemu",
+                    provider_metadata={"template_id": payload.template_id, "vm_name": payload.vm_name},
                 )
             )
             request.server_id = server.id
@@ -296,5 +309,3 @@ class ProvisioningService:
 
         request.bootstrap_job_ids = job_ids
         await self.repository.session.commit()
-
-    pass

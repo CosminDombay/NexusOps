@@ -144,11 +144,22 @@ backend/app/adapters/
 - cloud-init
 - Docker deployment execution
 - monitoring collection
+- Linux identity orchestration:
+  - user creation/deletion
+  - user lock/unlock
+  - group creation/membership
+  - SSH authorized_keys deployment/revocation
+  - sudoers.d snippet management
+  - filesystem chmod/chown templates
+  - multi-host replication through Jobs
+  - guided access profiles
+  - distro-aware administrator group abstraction
+  - operational group presets
+  - permission presets and rwx matrix UX
 - realtime updates
 - background workers
 - infrastructure action audit persistence
 - ISO installation workflows
-- Proxmox-to-inventory sync/import
 - Ansible integration
 - credential vault/encrypted secret storage
 - workflow chaining
@@ -163,6 +174,9 @@ backend/app/adapters/
 - Inventory remains the orchestration abstraction layer. Jobs and operational actions execute only against inventory-managed servers, not raw Proxmox VM records.
 - Operational actions must reuse the Jobs -> SSH -> persistence pipeline instead of creating standalone execution logic.
 - Packages and Profiles must resolve into Jobs; they must not bypass the Jobs -> SSH -> persistence pipeline.
+- Identity operations must resolve into Jobs; they must not bypass the Jobs -> SSH -> persistence pipeline.
+- Identity is Linux infrastructure orchestration and replication, not centralized authentication. Do not add LDAP, Kerberos, FreeIPA, Active Directory, SSSD, PAM rewriting, or login federation.
+- Default Identity UX should be guided and operational. Preserve advanced Linux controls behind advanced mode rather than removing them.
 - Provisioning must use Proxmox templates and cloud-init only; do not add ISO/raw installer provisioning.
 - Provisioning must register Inventory before profile/package/bootstrap execution.
 - Built-in package/profile templates may be listed and executed, but only custom persisted definitions should be editable/deletable.
