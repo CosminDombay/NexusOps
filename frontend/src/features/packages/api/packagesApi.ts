@@ -43,10 +43,12 @@ export async function executePackageDefinition(
   packageId: string,
   targetServerId: string,
   variables: Record<string, string> = {},
+  credentialRefs: Record<string, string> = {},
 ): Promise<Job> {
   const response = await apiClient.post<Job>(`/packages/${packageId}/execute`, {
     target_server_id: targetServerId,
     variables,
+    credential_refs: credentialRefs,
   });
   return response.data;
 }
@@ -55,11 +57,13 @@ export async function executePackageDefinitionBulk(
   packageId: string,
   targetServerIds: string[],
   variables: Record<string, string> = {},
+  credentialRefs: Record<string, string> = {},
 ): Promise<BulkExecutionResponse> {
   const response = await apiClient.post<BulkExecutionResponse>('/packages/apply/bulk', {
     package_id: packageId,
     target_server_ids: targetServerIds,
     variables,
+    credential_refs: credentialRefs,
   });
   return response.data;
 }

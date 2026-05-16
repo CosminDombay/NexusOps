@@ -92,7 +92,7 @@ class ProfileService:
             category=payload.category,
             description=payload.description,
             tags=payload.tags,
-            steps=[step.model_dump() for step in payload.steps],
+            steps=[self._normalize_step(step.model_dump()) for step in payload.steps],
             variables=[variable.model_dump() for variable in payload.variables],
             is_builtin=False,
         )
@@ -122,7 +122,7 @@ class ProfileService:
         update_data = payload.model_dump(exclude_unset=True)
         if "steps" in update_data and update_data["steps"] is not None:
             update_data["steps"] = [
-                step.model_dump() if hasattr(step, "model_dump") else step
+                self._normalize_step(step.model_dump() if hasattr(step, "model_dump") else step)
                 for step in payload.steps or []
             ]
         if "variables" in update_data and update_data["variables"] is not None:
@@ -166,7 +166,7 @@ class ProfileService:
             category=source.category,
             description=source.description,
             tags=[*source.tags, "cloned"],
-            steps=[step.model_dump() for step in source.steps],
+            steps=[self._normalize_step(step.model_dump()) for step in source.steps],
             variables=[variable.model_dump() for variable in source.variables],
             is_builtin=False,
             is_modified=False,
@@ -198,10 +198,14 @@ class ProfileService:
         jobs = []
         status = "success"
         for step in profile.steps:
-            command = await self._resolve_step_command(
+            if getattr(step, "enabled", True) is False:
+                continue
+            credential_ref = getattr(step, "credential_ref", None)
+            command, redacted_command = await self._resolve_step_commands(
                 step.kind,
                 step.reference_id,
                 variables=payload.variables,
+                credential_refs=payload.credential_refs,
                 command=step.command,
                 profile_variables=[variable.model_dump() for variable in profile.variables],
             )
@@ -210,6 +214,8 @@ class ProfileService:
                     target_server_id=payload.target_server_id,
                     operation_type=f"profile:{profile.id}:{step.id}",
                     command=command,
+                    redacted_command=redacted_command,
+                    credential_ref=credential_ref,
                 )
             )
             jobs.append(job)
@@ -239,6 +245,7 @@ class ProfileService:
                         target_server_id=target_server_id,
                         stop_on_failure=payload.stop_on_failure,
                         variables=payload.variables,
+                        credential_refs=payload.credential_refs,
                     ),
                 )
                 results.append(
@@ -284,6 +291,9 @@ class ProfileService:
                 variables=variables,
             )
 
+        if kind in {"deployment", "script"}:
+            raise ProfileStepResolutionError(f"Unsupported profile step kind: {kind}")
+
         if kind == "action":
             action = get_action(reference_id)
             if action is None:
@@ -317,6 +327,125 @@ class ProfileService:
 
         raise ProfileStepResolutionError(f"Unsupported profile step kind: {kind}")
 
+    async def _resolve_step_commands(
+        self,
+        kind: str,
+        reference_id: str,
+        *,
+        variables: dict[str, str],
+        credential_refs: dict[str, str],
+        profile_variables: list[dict],
+        command: str | None = None,
+    ) -> tuple[str, str]:
+        if kind == "command":
+            return await self._resolve_text_pair(command or "", profile_variables, variables, credential_refs)
+
+        if kind == "action":
+            action = get_action(reference_id)
+            if action is None:
+                raise ProfileStepResolutionError(f"Unknown action reference: {reference_id}")
+            return await self._resolve_text_pair(action.command, profile_variables, variables, credential_refs)
+
+        if kind == "package":
+            package_read = None
+            if self.package_repository is not None:
+                package_service = PackageAutomationService(
+                    repository=self.package_repository,
+                    credential_service=self.job_service.credential_service,
+                )
+                try:
+                    package_read = await package_service.get_definition(reference_id)
+                except Exception:
+                    package_read = None
+            if package_read is None:
+                package = get_package_definition(reference_id)
+                if package is None:
+                    raise ProfileStepResolutionError(f"Unknown package reference: {reference_id}")
+                definitions = [*profile_variables, *package.variables]
+                install, redacted_install = await self._resolve_text_pair(
+                    package.install_command,
+                    definitions,
+                    variables,
+                    credential_refs,
+                )
+                validation, redacted_validation = await self._resolve_text_pair(
+                    package.validation_command,
+                    definitions,
+                    variables,
+                    credential_refs,
+                )
+                return f"{install} && {validation}", f"{redacted_install} && {redacted_validation}"
+
+            definitions = [*profile_variables, *[variable.model_dump() for variable in package_read.variables]]
+            install, redacted_install = await self._resolve_text_pair(
+                package_read.install_command,
+                definitions,
+                variables,
+                credential_refs,
+            )
+            validation, redacted_validation = await self._resolve_text_pair(
+                package_read.validation_command,
+                definitions,
+                variables,
+                credential_refs,
+            )
+            return f"{install} && {validation}", f"{redacted_install} && {redacted_validation}"
+
+        raise ProfileStepResolutionError(f"Unsupported profile step kind: {kind}")
+
+    async def _resolve_text_pair(
+        self,
+        text: str,
+        definitions: list[dict],
+        variables: dict[str, str],
+        credential_refs: dict[str, str],
+    ) -> tuple[str, str]:
+        secret_values = await self._resolve_secret_variables(definitions, credential_refs)
+        safe_variables = self._without_sensitive_plaintext(definitions, variables, credential_refs)
+        runtime_variables = {**safe_variables, **secret_values}
+        redacted_variables = {**safe_variables, **{name: "********" for name in secret_values}}
+        return (
+            self.variable_service.resolve_text(text, definitions=definitions, variables=runtime_variables),
+            self.variable_service.resolve_text(text, definitions=definitions, variables=redacted_variables),
+        )
+
+    async def _resolve_secret_variables(
+        self,
+        definitions: list[dict],
+        credential_refs: dict[str, str],
+    ) -> dict[str, str]:
+        secret_values: dict[str, str] = {}
+        sensitive_names = [str(item["name"]) for item in definitions if item.get("name") and item.get("sensitive")]
+        for name in sensitive_names:
+            credential_ref = credential_refs.get(name)
+            if not credential_ref:
+                definition = next(item for item in definitions if item.get("name") == name)
+                if definition.get("required"):
+                    raise VariableResolutionError(f"Sensitive variable {name} requires a credential reference")
+                continue
+            if self.job_service.credential_service is None:
+                raise VariableResolutionError("Credential service is required for sensitive profile variables")
+            credential = await self.job_service.credential_service.resolve_credential(credential_ref)
+            secret = credential.secret or credential.private_key
+            if not secret:
+                raise VariableResolutionError(f"Credential reference for {name} has no usable secret value")
+            secret_values[name] = secret
+        return secret_values
+
+    @staticmethod
+    def _without_sensitive_plaintext(
+        definitions: list[dict],
+        variables: dict[str, str],
+        credential_refs: dict[str, str],
+    ) -> dict[str, str]:
+        sensitive_names = {str(item["name"]) for item in definitions if item.get("name") and item.get("sensitive")}
+        unsafe = sorted(name for name in sensitive_names if variables.get(name) and not credential_refs.get(name))
+        if unsafe:
+            raise VariableResolutionError(
+                "Sensitive variable(s) must use credential references: " + ", ".join(unsafe)
+            )
+        return {name: value for name, value in variables.items() if name not in sensitive_names}
+
     @staticmethod
     def _builtin_to_read(profile: InfrastructureProfile) -> InfrastructureProfileRead:
         return InfrastructureProfileRead(
@@ -325,7 +454,7 @@ class ProfileService:
             category=profile.category,
             description=profile.description,
             tags=profile.tags,
-            steps=[step.__dict__ for step in profile.steps],
+            steps=[ProfileService._normalize_step(step.__dict__) for step in profile.steps],
             variables=profile.variables,
             is_builtin=True,
             is_modified=False,
@@ -340,7 +469,7 @@ class ProfileService:
             category=record.category,
             description=record.description,
             tags=record.tags,
-            steps=record.steps,
+            steps=[ProfileService._normalize_step(step) for step in record.steps],
             variables=record.variables,
             is_builtin=record.is_builtin,
             is_modified=record.is_modified,
@@ -359,7 +488,7 @@ class ProfileService:
             category=profile.category,
             description=profile.description,
             tags=profile.tags,
-            steps=[step.__dict__ for step in profile.steps],
+            steps=[ProfileService._normalize_step(step.__dict__) for step in profile.steps],
             variables=profile.variables,
             is_builtin=True,
             is_modified=False,
@@ -369,3 +498,20 @@ class ProfileService:
         record = await self.repository.create(record)
         await self.repository.session.flush()
         return record
+
+    @staticmethod
+    def _normalize_step(step: dict) -> dict:
+        kind = step.get("kind") or ("command" if step.get("type") == "script" else step.get("type"))
+        reference_id = step.get("reference_id") or step.get("target") or step.get("id") or ""
+        step_type = "script" if kind == "command" else kind
+        return {
+            **step,
+            "id": step.get("id") or f"{kind}-{reference_id}",
+            "name": step.get("name") or reference_id,
+            "kind": kind,
+            "reference_id": reference_id,
+            "type": step.get("type") or step_type,
+            "target": step.get("target") or reference_id,
+            "enabled": step.get("enabled", True),
+            "credential_ref": step.get("credential_ref"),
+        }

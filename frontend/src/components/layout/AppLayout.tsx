@@ -1,16 +1,32 @@
 import { NavLink, Outlet } from 'react-router-dom';
 
-const navItems = [
-  { to: '/', label: 'Inventory' },
-  { to: '/infrastructure', label: 'Infrastructure' },
-  { to: '/identity', label: 'Identity' },
-  { to: '/provisioning', label: 'VMs' },
-  { to: '/deployments', label: 'Deployments' },
-  { to: '/packages', label: 'Packages' },
-  { to: '/monitoring', label: 'Monitoring' },
-  { to: '/profiles', label: 'Profiles' },
-  { to: '/jobs', label: 'Jobs' },
-  { to: '/settings/integrations', label: 'Integrations' },
+const navGroups = [
+  {
+    label: 'Core',
+    items: [
+      { to: '/', label: 'Inventory' },
+      { to: '/infrastructure', label: 'Infrastructure' },
+      { to: '/infrastructure/credentials', label: 'Credentials' },
+      { to: '/provisioning', label: 'VMs' },
+    ],
+  },
+  {
+    label: 'Orchestration',
+    items: [
+      { to: '/jobs', label: 'Jobs' },
+      { to: '/packages', label: 'Packages' },
+      { to: '/profiles', label: 'Profiles' },
+      { to: '/deployments', label: 'Deployments' },
+    ],
+  },
+  {
+    label: 'Operations',
+    items: [
+      { to: '/monitoring', label: 'Monitoring' },
+      { to: '/identity', label: 'Identity' },
+      { to: '/settings/integrations', label: 'Integrations' },
+    ],
+  },
 ];
 
 export function AppLayout() {
@@ -21,21 +37,28 @@ export function AppLayout() {
           <h1 className="text-lg font-semibold">NexusOps</h1>
           <p className="text-sm text-zinc-500">Infrastructure orchestration</p>
         </div>
-        <nav className="flex gap-1 overflow-x-auto p-3 lg:flex-col lg:overflow-visible">
-          {navItems.map((item) => (
-            <NavLink
-              key={item.to}
-              to={item.to}
-              end={item.to === '/'}
-              className={({ isActive }) =>
-                [
-                  'whitespace-nowrap rounded-md px-3 py-2 text-sm font-medium',
-                  isActive ? 'bg-zinc-900 text-white' : 'text-zinc-600 hover:bg-zinc-100',
-                ].join(' ')
-              }
-            >
-              {item.label}
-            </NavLink>
+        <nav className="flex gap-3 overflow-x-auto p-3 lg:flex-col lg:overflow-visible">
+          {navGroups.map((group) => (
+            <div key={group.label} className="flex shrink-0 gap-1 lg:flex-col">
+              <div className="hidden px-3 pb-1 pt-2 text-xs font-semibold uppercase tracking-normal text-zinc-400 lg:block">
+                {group.label}
+              </div>
+              {group.items.map((item) => (
+                <NavLink
+                  key={item.to}
+                  to={item.to}
+                  end
+                  className={({ isActive }) =>
+                    [
+                      'whitespace-nowrap rounded-md px-3 py-2 text-sm font-medium',
+                      isActive ? 'bg-zinc-900 text-white' : 'text-zinc-600 hover:bg-zinc-100',
+                    ].join(' ')
+                  }
+                >
+                  {item.label}
+                </NavLink>
+              ))}
+            </div>
           ))}
         </nav>
       </aside>

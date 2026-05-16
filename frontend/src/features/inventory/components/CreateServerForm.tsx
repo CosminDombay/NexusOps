@@ -1,6 +1,8 @@
 import { AlertCircle, Loader2, Plus } from 'lucide-react';
-import { FormEvent, useMemo, useState } from 'react';
+import { FormEvent, useEffect, useMemo, useState } from 'react';
 
+import { listCredentials } from '../../credentials/api/credentialsApi';
+import type { Credential } from '../../credentials/types/credential';
 import type { CreateServerPayload, ServerEnvironment, ServerSshAuthMethod } from '../types/server';
 import { environmentOptions, sshAuthMethodOptions } from '../utils/options';
 
@@ -13,6 +15,7 @@ type FormState = {
   ssh_port: string;
   ssh_username: string;
   ssh_auth_method: ServerSshAuthMethod;
+  credential_id: string;
   ssh_password: string;
   ssh_private_key_path: string;
 };
@@ -33,6 +36,7 @@ const initialFormState: FormState = {
   ssh_port: '22',
   ssh_username: '',
   ssh_auth_method: 'key',
+  credential_id: '',
   ssh_password: '',
   ssh_private_key_path: '',
 };
@@ -56,12 +60,17 @@ const textFields: Array<{
 
 export function CreateServerForm({ isSubmitting, apiError, onSubmit, onFieldChange }: CreateServerFormProps) {
   const [formState, setFormState] = useState<FormState>(initialFormState);
+  const [credentials, setCredentials] = useState<Credential[]>([]);
   const [validationError, setValidationError] = useState<string | null>(null);
 
   const requiredFields = useMemo(
     () => textFields.filter((field) => field.name !== 'ssh_port').map((field) => field.name),
     [],
   );
+
+  useEffect(() => {
+    listCredentials().then(setCredentials).catch(() => setCredentials([]));
+  }, []);
 
   function updateField(name: keyof FormState, value: string) {
     setFormState((current) => ({ ...current, [name]: value }));
@@ -84,7 +93,7 @@ export function CreateServerForm({ isSubmitting, apiError, onSubmit, onFieldChan
       return;
     }
 
-    if (formState.ssh_auth_method === 'password' && !formState.ssh_password.trim()) {
+    if (!formState.credential_id && formState.ssh_auth_method === 'password' && !formState.ssh_password.trim()) {
       setValidationError('SSH password is required when password authentication is selected.');
       return;
     }
@@ -98,10 +107,11 @@ export function CreateServerForm({ isSubmitting, apiError, onSubmit, onFieldChan
       ssh_port: sshPort,
       ssh_username: formState.ssh_username.trim(),
       ssh_auth_method: formState.ssh_auth_method,
+      credential_id: formState.credential_id || null,
       ssh_password:
-        formState.ssh_auth_method === 'password' ? formState.ssh_password.trim() : null,
+        !formState.credential_id && formState.ssh_auth_method === 'password' ? formState.ssh_password.trim() : null,
       ssh_private_key_path:
-        formState.ssh_auth_method === 'key' && formState.ssh_private_key_path.trim()
+        !formState.credential_id && formState.ssh_auth_method === 'key' && formState.ssh_private_key_path.trim()
           ? formState.ssh_private_key_path.trim()
           : null,
     });
@@ -161,6 +171,22 @@ export function CreateServerForm({ isSubmitting, apiError, onSubmit, onFieldChan
         </label>
 
         <label className="text-sm font-medium text-zinc-700">
+          Shared credential
+          <select
+            className="mt-1 w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-950 shadow-sm outline-none transition focus:border-zinc-900 focus:ring-2 focus:ring-zinc-900/10"
+            value={formState.credential_id}
+            onChange={(event) => updateField('credential_id', event.target.value)}
+          >
+            <option value="">Inline SSH metadata</option>
+            {credentials.map((credential) => (
+              <option key={credential.id} value={credential.id}>
+                {credential.name}{credential.username ? ` (${credential.username})` : ''}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <label className="text-sm font-medium text-zinc-700">
           SSH authentication
           <select
             className="mt-1 w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-950 shadow-sm outline-none transition focus:border-zinc-900 focus:ring-2 focus:ring-zinc-900/10"
@@ -175,7 +201,11 @@ export function CreateServerForm({ isSubmitting, apiError, onSubmit, onFieldChan
           </select>
         </label>
 
-        {formState.ssh_auth_method === 'key' ? (
+        {formState.credential_id ? (
+          <div className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700 xl:col-span-2">
+            This server will resolve SSH secret material from the selected credential at runtime.
+          </div>
+        ) : formState.ssh_auth_method === 'key' ? (
           <label className="text-sm font-medium text-zinc-700 xl:col-span-2">
             SSH private key path
             <input

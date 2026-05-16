@@ -1,5 +1,7 @@
-import { useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import { X } from 'lucide-react';
+import { listCredentials } from '../../credentials/api/credentialsApi';
+import type { Credential } from '../../credentials/types/credential';
 import type { Server, UpdateServerPayload } from '../types/server';
 import { environmentOptions, sshAuthMethodOptions } from '../utils/options';
 
@@ -27,6 +29,7 @@ export function EditServerModal({
     ssh_port: server.ssh_port,
     ssh_username: server.ssh_username,
     ssh_auth_method: server.ssh_auth_method,
+    credential_id: server.credential_id,
     environment: server.environment,
     provider: server.provider,
     tags: server.tags,
@@ -34,6 +37,13 @@ export function EditServerModal({
   });
 
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [credentials, setCredentials] = useState<Credential[]>([]);
+
+  useEffect(() => {
+    if (isOpen) {
+      listCredentials().then(setCredentials).catch(() => setCredentials([]));
+    }
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
@@ -209,6 +219,23 @@ export function EditServerModal({
             </div>
 
             {/* SSH Auth Method */}
+            <div>
+              <label className="block text-xs font-medium text-zinc-700">Shared credential</label>
+              <select
+                value={formData.credential_id || ''}
+                onChange={(e) => handleInputChange('credential_id', e.target.value || null)}
+                disabled={isSaving}
+                className="mt-1 w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-xs transition focus:outline-none focus:ring-2 focus:ring-zinc-500"
+              >
+                <option value="">Inline SSH metadata</option>
+                {credentials.map((credential) => (
+                  <option key={credential.id} value={credential.id}>
+                    {credential.name}{credential.username ? ` (${credential.username})` : ''}
+                  </option>
+                ))}
+              </select>
+            </div>
+
             <div>
               <label className="block text-xs font-medium text-zinc-700">Auth method</label>
               <select

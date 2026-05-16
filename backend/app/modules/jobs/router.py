@@ -6,6 +6,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.adapters.ssh import ParamikoSshAdapter
 from backend.app.db.session import get_db_session
+from backend.app.modules.credentials.repository import CredentialRepository
+from backend.app.modules.credentials.service import CredentialService
 from backend.app.modules.inventory.repository import ServerRepository
 from backend.app.modules.jobs.repository import JobRepository
 from backend.app.modules.jobs.schemas import (
@@ -34,6 +36,7 @@ async def get_job_service(
         job_repository=JobRepository(session),
         server_repository=ServerRepository(session),
         ssh_adapter=ParamikoSshAdapter(),
+        credential_service=CredentialService(repository=CredentialRepository(session)),
     )
 
 

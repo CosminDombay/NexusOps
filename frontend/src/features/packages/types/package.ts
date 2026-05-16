@@ -24,6 +24,7 @@ export type TemplateVariable = {
   default_value: string | null;
   required: boolean;
   sensitive: boolean;
+  credential_type?: string | null;
 };
 
 export type CreatePackageDefinitionPayload = {

@@ -1,6 +1,7 @@
 import { createBrowserRouter } from 'react-router-dom';
 
 import { AppLayout } from '../components/layout/AppLayout';
+import { CredentialsPage } from '../features/credentials/CredentialsPage';
 import { DeploymentsPage } from '../features/deployments/DeploymentsPage';
 import { InventoryPage } from '../features/inventory/InventoryPage';
 import { HostDetailPage } from '../features/inventory/pages/HostDetailPage';
@@ -22,6 +23,7 @@ export const router = createBrowserRouter([
       { index: true, element: <InventoryPage /> },
       { path: 'inventory/:id', element: <HostDetailPage /> },
       { path: 'infrastructure', element: <InfrastructurePage /> },
+      { path: 'infrastructure/credentials', element: <CredentialsPage /> },
       { path: 'infrastructure/nodes/:id', element: <InfrastructureNodeDetailPage /> },
       { path: 'identity', element: <IdentityPage /> },
       { path: 'provisioning', element: <ProvisioningPage /> },

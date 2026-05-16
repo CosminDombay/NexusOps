@@ -11,6 +11,7 @@ class VariableDefinitionRead(BaseModel):
     default_value: str | None = None
     required: bool = False
     sensitive: bool = False
+    credential_type: str | None = None
 
 
 class PackageDefinitionRead(BaseModel):
@@ -111,6 +112,7 @@ class PackageDefinitionUpdate(BaseModel):
 class PackageExecuteRequest(BaseModel):
     target_server_id: UUID
     variables: dict[str, str] = Field(default_factory=dict)
+    credential_refs: dict[str, str] = Field(default_factory=dict)
 
 
 class PackageCloneRequest(BaseModel):
@@ -132,6 +134,7 @@ class PackageBulkApplyRequest(BaseModel):
     package_id: str = Field(min_length=1, max_length=100)
     target_server_ids: list[UUID] = Field(min_length=1)
     variables: dict[str, str] = Field(default_factory=dict)
+    credential_refs: dict[str, str] = Field(default_factory=dict)
 
     @field_validator("package_id")
     @classmethod

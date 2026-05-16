@@ -25,6 +25,7 @@ class Settings(BaseSettings):
     prometheus_api_url: str | None = None
     grafana_base_url: str | None = None
     monitoring_timeout_seconds: int = Field(default=10, ge=1, le=60)
+    nexusops_master_key: str | None = None
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 

@@ -11,7 +11,7 @@ This repository is scaffolded as a modular monolith:
 The current implementation includes the platform foundation, CMDB-style inventory CRUD,
 Proxmox visibility/lifecycle control, template-based VM provisioning,
 Proxmox-to-inventory synchronization, SSH-backed job execution, reusable operational actions, package definitions,
-infrastructure profiles, editable operational templates, and simple variable-driven execution.
+infrastructure profiles, editable operational templates, credential-backed secret injection, and simple variable-driven execution.
 
 ## MVP Domains
 
@@ -19,6 +19,7 @@ infrastructure profiles, editable operational templates, and simple variable-dri
 - Proxmox template cloning with cloud-init configuration
 - Static IP provisioning and inventory auto-registration
 - Server inventory management
+- Credential Manager for reusable SSH accounts, API tokens, and environment secrets
 - Proxmox discovery-to-inventory import
 - Managed/unmanaged/orphaned inventory reconciliation
 - SSH-based remote execution
@@ -28,6 +29,8 @@ infrastructure profiles, editable operational templates, and simple variable-dri
 - Reusable infrastructure profiles
 - Editable built-in profile templates with clone, step ordering, and reset-to-default workflows
 - Simple `{{ variable_name }}` parameterization for package/profile execution
+- Credential-backed sensitive package/profile variables with redacted job history
+- Variable Manager foundations for reusable runtime values
 - Integration records for provider and monitoring connection settings
 - SSH-backed Docker Compose deployment workflows
 - Package installation automation
@@ -56,12 +59,15 @@ Backend API docs will be available at `http://localhost:8000/docs`.
 - Discovered Proxmox assets can be imported into Inventory, but NexusOps does not blindly auto-import every VM.
 - Provisioning clones cloud-init-capable Proxmox templates, configures static networking, starts VMs, waits for SSH, and registers inventory records.
 - Jobs execute SSH commands against inventory targets and persist status, stdout, stderr, exit code, and timestamps.
+- Jobs resolve node credentials and execution credential references server-side. Sensitive values are never returned to the frontend, and commands persisted to job history are redacted when runtime secrets are injected.
 - Inventory health checks perform lightweight TCP reachability checks against SSH ports without logging in on each refresh.
+- Credential records store reusable secret material encrypted with Fernet using `NEXUSOPS_MASTER_KEY`. API responses expose only masked secret status.
+- Inventory records can reference a shared `credential_id` for SSH execution while retaining inline SSH metadata for backward-compatible local MVP use.
 - Operational actions provide predefined workflows such as uptime, disk usage, memory usage, Docker checks, Docker restart, and simple installation actions.
 - Package definitions describe reusable install/validation commands for common infrastructure packages and can be extended with custom definitions.
 - Built-in package definitions can be edited as persisted working copies, cloned into custom templates, or restored to the system default.
-- Package variables use simple `{{ variable_name }}` placeholders and are resolved before execution from defaults and execution-time inputs.
-- Infrastructure profiles orchestrate ordered package/action/command workflows through Jobs and can be built from built-in or custom steps.
+- Package variables use simple `{{ variable_name }}` placeholders and are resolved before execution from defaults, runtime inputs, and credential references for sensitive values.
+- Infrastructure profiles orchestrate ordered package/action/command workflows through Jobs and can be built from built-in or custom structured steps.
 - Built-in profiles can be edited as persisted working copies, cloned into user-managed templates, reordered, or restored to the system default.
 - Integration records provide a central place to store and test provider/monitoring connection metadata while runtime adapters still primarily use local environment configuration.
 - Docker Compose deployments store compose/env definitions and execute deploy/redeploy/restart/stop/status/logs through the Jobs -> SSH pipeline.

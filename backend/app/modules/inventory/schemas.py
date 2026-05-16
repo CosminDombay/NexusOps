@@ -27,6 +27,7 @@ class ServerBase(BaseModel):
     ssh_auth_method: ServerSshAuthMethod = ServerSshAuthMethod.KEY
     ssh_password: str | None = Field(default=None, max_length=500)
     ssh_private_key_path: str | None = Field(default=None, max_length=500)
+    credential_id: UUID | None = None
     status: ServerStatus = ServerStatus.UNKNOWN
     provider: str = Field(min_length=1, max_length=100)
     external_id: str | None = Field(default=None, max_length=100)
@@ -77,6 +78,8 @@ class ServerBase(BaseModel):
 
     @model_validator(mode="after")
     def validate_ssh_auth(self) -> Self:
+        if self.credential_id is not None:
+            return self
         if self.ssh_auth_method == ServerSshAuthMethod.PASSWORD and not self.ssh_password:
             raise ValueError("SSH password is required when password authentication is selected")
         return self
@@ -98,6 +101,7 @@ class ServerUpdate(BaseModel):
     ssh_auth_method: ServerSshAuthMethod | None = None
     ssh_password: str | None = Field(default=None, max_length=500)
     ssh_private_key_path: str | None = Field(default=None, max_length=500)
+    credential_id: UUID | None = None
     status: ServerStatus | None = None
     provider: str | None = Field(default=None, min_length=1, max_length=100)
     external_id: str | None = Field(default=None, max_length=100)
@@ -277,6 +281,7 @@ class ProxmoxInventoryImport(BaseModel):
     ssh_auth_method: ServerSshAuthMethod = ServerSshAuthMethod.KEY
     ssh_password: str | None = Field(default=None, max_length=500)
     ssh_private_key_path: str | None = Field(default=None, max_length=500)
+    credential_id: UUID | None = None
 
     @field_validator("ip_address")
     @classmethod
@@ -305,6 +310,8 @@ class ProxmoxInventoryImport(BaseModel):
 
     @model_validator(mode="after")
     def validate_ssh_auth(self) -> Self:
+        if self.credential_id is not None:
+            return self
         if self.ssh_auth_method == ServerSshAuthMethod.PASSWORD and not self.ssh_password:
             raise ValueError("SSH password is required when password authentication is selected")
         return self

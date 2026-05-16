@@ -22,6 +22,7 @@ export type Server = {
   ssh_username: string;
   ssh_auth_method: ServerSshAuthMethod;
   ssh_private_key_path: string | null;
+  credential_id: string | null;
   status: ServerStatus;
   provider: string;
   external_id: string | null;
@@ -52,6 +53,7 @@ export type CreateServerPayload = {
   ssh_auth_method: ServerSshAuthMethod;
   ssh_password?: string | null;
   ssh_private_key_path?: string | null;
+  credential_id?: string | null;
   external_id?: string | null;
   source?: string;
   managed?: boolean;

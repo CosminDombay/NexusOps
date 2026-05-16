@@ -161,7 +161,7 @@ export function JobsPage() {
       />
       {bulkResult ? <p className="rounded-md bg-zinc-100 px-3 py-2 text-sm text-zinc-700">{bulkResult}</p> : null}
 
-      <div className="grid gap-6 xl:grid-cols-[minmax(0,1.25fr)_minmax(360px,0.75fr)]">
+      <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(480px,1fr)]">
         <JobsTable
           error={loadError}
           isLoading={isLoading}

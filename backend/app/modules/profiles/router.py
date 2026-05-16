@@ -5,6 +5,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.adapters.ssh import ParamikoSshAdapter
 from backend.app.db.session import get_db_session
+from backend.app.modules.credentials.repository import CredentialRepository
+from backend.app.modules.credentials.service import CredentialNotFoundError, CredentialService
 from backend.app.modules.inventory.repository import ServerRepository
 from backend.app.modules.jobs.repository import JobRepository
 from backend.app.modules.jobs.service import JobService, JobTargetNotFoundError, JobTargetNotManagedError
@@ -40,6 +42,7 @@ async def get_profile_service(
             job_repository=JobRepository(session),
             server_repository=ServerRepository(session),
             ssh_adapter=ParamikoSshAdapter(),
+            credential_service=CredentialService(repository=CredentialRepository(session)),
         ),
         repository=InfrastructureProfileRepository(session),
         package_repository=PackageDefinitionRepository(session),
@@ -151,3 +154,5 @@ async def apply_profile(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     except VariableResolutionError as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+    except CredentialNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc

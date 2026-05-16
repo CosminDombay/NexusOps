@@ -9,11 +9,15 @@ from backend.app.modules.jobs.models import JobStatus
 class JobExecuteRequest(BaseModel):
     target_server_id: UUID
     command: str = Field(min_length=1, max_length=20000)
+    redacted_command: str | None = Field(default=None, min_length=1, max_length=20000)
     operation_type: str = Field(default="command", min_length=1, max_length=100)
+    credential_ref: str | None = Field(default=None, max_length=255)
 
-    @field_validator("command", "operation_type")
+    @field_validator("command", "redacted_command", "operation_type")
     @classmethod
     def strip_required_strings(cls, value: str) -> str:
+        if value is None:
+            return value
         stripped = value.strip()
         if not stripped:
             raise ValueError("Value cannot be blank")
@@ -23,11 +27,15 @@ class JobExecuteRequest(BaseModel):
 class JobBulkExecuteRequest(BaseModel):
     target_server_ids: list[UUID] = Field(min_length=1)
     command: str = Field(min_length=1, max_length=20000)
+    redacted_command: str | None = Field(default=None, min_length=1, max_length=20000)
     operation_type: str = Field(default="command", min_length=1, max_length=100)
+    credential_ref: str | None = Field(default=None, max_length=255)
 
-    @field_validator("command", "operation_type")
+    @field_validator("command", "redacted_command", "operation_type")
     @classmethod
     def strip_bulk_required_strings(cls, value: str) -> str:
+        if value is None:
+            return value
         stripped = value.strip()
         if not stripped:
             raise ValueError("Value cannot be blank")
@@ -46,6 +54,7 @@ class OperationalActionRead(BaseModel):
 class JobActionExecuteRequest(BaseModel):
     target_server_id: UUID
     action_id: str = Field(min_length=1, max_length=100)
+    credential_ref: str | None = Field(default=None, max_length=255)
 
     @field_validator("action_id")
     @classmethod

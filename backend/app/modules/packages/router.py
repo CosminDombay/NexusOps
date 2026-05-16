@@ -5,6 +5,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.adapters.ssh import ParamikoSshAdapter
 from backend.app.db.session import get_db_session
+from backend.app.modules.credentials.repository import CredentialRepository
+from backend.app.modules.credentials.service import CredentialNotFoundError, CredentialService
 from backend.app.modules.inventory.repository import ServerRepository
 from backend.app.modules.jobs.repository import JobRepository
 from backend.app.modules.jobs.schemas import BulkExecutionRead, JobRead
@@ -38,7 +40,9 @@ async def get_package_service(
             job_repository=JobRepository(session),
             server_repository=ServerRepository(session),
             ssh_adapter=ParamikoSshAdapter(),
+            credential_service=CredentialService(repository=CredentialRepository(session)),
         ),
+        credential_service=CredentialService(repository=CredentialRepository(session)),
     )
 
 
@@ -60,6 +64,8 @@ async def execute_package_bulk(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except VariableResolutionError as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+    except CredentialNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
 
 
 @router.post("", response_model=PackageDefinitionRead, status_code=status.HTTP_201_CREATED)
@@ -148,6 +154,8 @@ async def execute_package_definition(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except VariableResolutionError as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+    except CredentialNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except JobTargetNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except JobTargetNotManagedError as exc:

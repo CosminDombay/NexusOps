@@ -95,6 +95,7 @@ class InventoryService:
             ssh_auth_method=payload.ssh_auth_method,
             ssh_password=payload.ssh_password,
             ssh_private_key_path=payload.ssh_private_key_path,
+            credential_id=payload.credential_id,
             status=self._server_status_from_vm(discovered_vm.status if discovered_vm else "unknown"),
             provider="proxmox",
             external_id=str(payload.vm_id),
@@ -145,6 +146,7 @@ class InventoryService:
         server.ssh_auth_method = payload.ssh_auth_method
         server.ssh_password = payload.ssh_password
         server.ssh_private_key_path = payload.ssh_private_key_path
+        server.credential_id = payload.credential_id
         server.status = self._server_status_from_vm(discovered_vm.status if discovered_vm else "unknown")
         server.provider = "proxmox"
         server.external_id = str(payload.vm_id)

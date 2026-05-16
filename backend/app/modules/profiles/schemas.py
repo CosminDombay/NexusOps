@@ -11,9 +11,13 @@ from backend.app.modules.packages.schemas import VariableDefinitionRead
 class ProfileStepRead(BaseModel):
     id: str
     name: str
-    kind: Literal["action", "package", "command"]
+    kind: Literal["action", "package", "command", "deployment", "script"]
     reference_id: str
     command: str | None = None
+    type: Literal["action", "package", "deployment", "script"] | None = None
+    target: str | None = None
+    enabled: bool = True
+    credential_ref: str | None = None
 
 
 class InfrastructureProfileRead(BaseModel):
@@ -34,10 +38,14 @@ class InfrastructureProfileRead(BaseModel):
 
 
 class ProfileStepWrite(BaseModel):
-    id: str = Field(min_length=1, max_length=100)
-    name: str = Field(min_length=1, max_length=255)
-    kind: Literal["action", "package", "command"]
+    id: str | None = Field(default=None, min_length=1, max_length=100)
+    name: str | None = Field(default=None, min_length=1, max_length=255)
+    kind: Literal["action", "package", "command", "deployment", "script"] | None = None
+    type: Literal["action", "package", "deployment", "script"] | None = None
     reference_id: str = Field(default="", max_length=100)
+    target: str | None = Field(default=None, max_length=100)
+    enabled: bool = True
+    credential_ref: str | None = Field(default=None, max_length=255)
     command: str | None = Field(default=None, max_length=8000)
 
     @field_validator("id", "name")
@@ -50,15 +58,25 @@ class ProfileStepWrite(BaseModel):
 
     @model_validator(mode="after")
     def require_reference_or_command(self) -> Self:
-        if self.kind == "command":
+        self.kind = self.kind or ("command" if self.type == "script" else self.type)
+        self.reference_id = (self.reference_id or self.target or "").strip()
+        if self.kind in {"command", "script"}:
             if not self.command or not self.command.strip():
-                raise ValueError("Command steps require a command")
-            self.reference_id = self.reference_id.strip() or self.id
+                raise ValueError("Script steps require a command")
+            self.id = self.id or f"script-{abs(hash(self.command))}"
+            self.name = self.name or "Script"
+            self.reference_id = self.reference_id or self.id
             self.command = self.command.strip()
+            self.kind = "command"
+            self.type = "script"
             return self
-        self.reference_id = self.reference_id.strip()
+        if self.kind not in {"action", "package", "deployment"}:
+            raise ValueError("Step type is required")
         if not self.reference_id:
-            raise ValueError("Action and package steps require a reference_id")
+            raise ValueError("Package, action, and deployment steps require a target")
+        self.id = self.id or f"{self.kind}-{self.reference_id}"
+        self.name = self.name or self.reference_id
+        self.type = self.kind
         return self
 
 
@@ -135,6 +153,7 @@ class ProfileApplyRequest(BaseModel):
     target_server_id: UUID
     stop_on_failure: bool = True
     variables: dict[str, str] = Field(default_factory=dict)
+    credential_refs: dict[str, str] = Field(default_factory=dict)
 
 
 class ProfileCloneRequest(BaseModel):
@@ -157,6 +176,7 @@ class ProfileBulkApplyRequest(BaseModel):
     target_server_ids: list[UUID] = Field(min_length=1)
     stop_on_failure: bool = True
     variables: dict[str, str] = Field(default_factory=dict)
+    credential_refs: dict[str, str] = Field(default_factory=dict)
 
     @field_validator("profile_id")
     @classmethod

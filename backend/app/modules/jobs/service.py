@@ -4,6 +4,7 @@ from uuid import UUID
 import structlog
 
 from backend.app.adapters.ssh import SshAdapter
+from backend.app.modules.credentials.service import CredentialNotFoundError, CredentialService
 from backend.app.modules.inventory.repository import ServerRepository
 from backend.app.modules.inventory.models import InventoryLifecycleState, ServerSshAuthMethod
 from backend.app.modules.jobs.actions import get_action, list_actions
@@ -47,10 +48,12 @@ class JobService:
         job_repository: JobRepository,
         server_repository: ServerRepository,
         ssh_adapter: SshAdapter,
+        credential_service: CredentialService | None = None,
     ) -> None:
         self.job_repository = job_repository
         self.server_repository = server_repository
         self.ssh_adapter = ssh_adapter
+        self.credential_service = credential_service
 
     async def list_jobs(self) -> list[JobRead]:
         jobs = await self.job_repository.list()
@@ -75,6 +78,7 @@ class JobService:
                 target_server_id=payload.target_server_id,
                 operation_type=f"action:{action.id}",
                 command=action.command,
+                credential_ref=payload.credential_ref,
             )
         )
 
@@ -88,7 +92,7 @@ class JobService:
         job = Job(
             target_server_id=server.id,
             operation_type=payload.operation_type,
-            command=payload.command,
+            command=payload.redacted_command or payload.command,
             status=JobStatus.PENDING,
         )
         job = await self.job_repository.create(job)
@@ -107,17 +111,33 @@ class JobService:
         await self.job_repository.session.refresh(job)
 
         try:
+            ssh_user = server.ssh_username
+            ssh_password = (
+                server.ssh_password if server.ssh_auth_method == ServerSshAuthMethod.PASSWORD else None
+            )
+            ssh_private_key_path = (
+                server.ssh_private_key_path if server.ssh_auth_method == ServerSshAuthMethod.KEY else None
+            )
+            credential_ref = payload.credential_ref or (str(server.credential_id) if server.credential_id is not None else None)
+            if credential_ref:
+                if self.credential_service is None:
+                    raise CredentialNotFoundError("Credential service is required for credential-backed execution")
+                credential = await self.credential_service.resolve_credential(credential_ref)
+                ssh_user = credential.username or ssh_user
+                if credential.credential_type in {"password", "ssh_password"}:
+                    ssh_password = credential.secret
+                    ssh_private_key_path = None
+                elif credential.credential_type == "ssh_key":
+                    ssh_password = None
+                    ssh_private_key_path = server.ssh_private_key_path
+
             result = await self.ssh_adapter.run_command(
                 host=server.ip_address,
                 port=server.ssh_port,
                 command=payload.command,
-                user=server.ssh_username,
-                password=server.ssh_password
-                if server.ssh_auth_method == ServerSshAuthMethod.PASSWORD
-                else None,
-                private_key_path=server.ssh_private_key_path
-                if server.ssh_auth_method == ServerSshAuthMethod.KEY
-                else None,
+                user=ssh_user,
+                password=ssh_password,
+                private_key_path=ssh_private_key_path,
             )
             job.stdout = result.stdout
             job.stderr = result.stderr
@@ -151,6 +171,8 @@ class JobService:
                         target_server_id=target_server_id,
                         operation_type=payload.operation_type,
                         command=payload.command,
+                        redacted_command=payload.redacted_command,
+                        credential_ref=payload.credential_ref,
                     )
                 )
                 results.append(

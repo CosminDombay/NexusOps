@@ -20,6 +20,7 @@ export type ExecuteJobPayload = {
   target_server_id: string;
   command: string;
   operation_type: string;
+  credential_ref?: string | null;
 };
 
 export type BulkExecutionResult = {
@@ -41,6 +42,7 @@ export type ExecuteJobBulkPayload = {
   target_server_ids: string[];
   command: string;
   operation_type: string;
+  credential_ref?: string | null;
 };
 
 export type OperationalAction = {
@@ -55,4 +57,5 @@ export type OperationalAction = {
 export type ExecuteActionPayload = {
   target_server_id: string;
   action_id: string;
+  credential_ref?: string | null;
 };

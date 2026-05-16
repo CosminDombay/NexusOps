@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from backend.app.core.config import settings
 from backend.app.db.base import Base
+from backend.app.modules.credentials.models import Credential, CredentialUsage
 from backend.app.modules.deployments.models import Deployment, DeploymentRevision, DeploymentTarget
 from backend.app.modules.execution.models import CommandExecution
 from backend.app.modules.inventory.models import Server
@@ -23,6 +24,7 @@ from backend.app.modules.monitoring.models import MetricSample
 from backend.app.modules.packages.models import PackageDefinitionRecord, PackageInstallation
 from backend.app.modules.profiles.models import InfrastructureProfileRecord, StandardizationProfile
 from backend.app.modules.provisioning.models import ProvisioningRequest, VirtualMachine
+from backend.app.modules.variables.models import Variable
 
 config = context.config
 config.set_main_option("sqlalchemy.url", settings.database_url)
@@ -34,6 +36,8 @@ target_metadata = Base.metadata
 
 _models = (
     CommandExecution,
+    Credential,
+    CredentialUsage,
     Deployment,
     DeploymentRevision,
     DeploymentTarget,
@@ -52,6 +56,7 @@ _models = (
     StandardizationProfile,
     SSHKey,
     VirtualMachine,
+    Variable,
 )
 
 

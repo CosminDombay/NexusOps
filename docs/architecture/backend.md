@@ -36,6 +36,8 @@ Current implemented domain routes include:
 - `/api/v1/jobs` for SSH command execution, job history, and operational actions
 - `/api/v1/packages` for reusable package definitions
 - `/api/v1/profiles` for reusable infrastructure profile templates and execution
+- `/api/v1/credentials` for encrypted reusable credentials and shared accounts
+- `/api/v1/variables` for variable-manager foundations
 - `/api/v1/integrations` for persisted provider and monitoring integration records
 - `/api/v1/identity` for Linux user, group, SSH key, sudo, permission, and replication workflows
 
@@ -85,7 +87,7 @@ Jobs follow the same architecture:
 - `actions.py` defines the predefined operational action registry.
 - `schemas.py` defines command, action, and job response contracts.
 
-Operational actions do not duplicate execution logic. They resolve an action into a command and call the same Jobs execution flow used by raw commands.
+Operational actions do not duplicate execution logic. They resolve an action into a command and call the same Jobs execution flow used by raw commands. Jobs can resolve SSH authentication from legacy inline inventory metadata, a node-level `credential_id`, or an explicit execution `credential_ref`. When package/profile execution injects sensitive runtime values, Jobs persist the redacted command instead of the in-memory command sent to SSH.
 
 Packages and Profiles are lightweight orchestration definitions:
 
@@ -96,6 +98,7 @@ Packages and Profiles are lightweight orchestration definitions:
 - Custom profiles are persisted and can be created, edited, deleted, cloned, and applied.
 - Built-in profiles can be edited through persisted overrides while preserving reset-to-default capability.
 - Applying a profile resolves each step into a command and calls `JobService.execute()` sequentially.
+- Sensitive package/profile variables are supplied as `credential_refs`, resolved through the Credential Manager at runtime, and redacted from persisted job command history.
 
 Template metadata fields track override and clone state:
 
@@ -105,7 +108,19 @@ Template metadata fields track override and clone state:
 - `source_template_id`
 - `modified_at`
 
-Variable resolution lives in `backend/app/common/variables.py`. It supports only simple `{{ variable_name }}` placeholder substitution from defaults and execution-time variables. It intentionally does not implement Jinja, arbitrary Python, or a workflow engine.
+Variable resolution lives in `backend/app/common/variables.py`. It supports only simple `{{ variable_name }}` placeholder substitution from defaults, execution-time variables, and backend-resolved credential values. It intentionally does not implement Jinja, arbitrary Python, or a workflow engine.
+
+Credential Manager is implemented as a separate module:
+
+- `models.py` defines `Credential` and `CredentialUsage`
+- `schemas.py` exposes create/update/read contracts that never return decrypted values
+- `encryption_service.py` encrypts and decrypts values with Fernet
+- `service.py` owns duplicate-name protection, encryption, masking, and runtime resolution
+- `router.py` exposes CRUD under `/api/v1/credentials`
+
+Credential records are encrypted using `NEXUSOPS_MASTER_KEY`. API responses expose `masked_secret` only. Decrypted values are used only inside backend runtime execution paths.
+
+Variable Manager foundations are implemented under `backend/app/modules/variables/`. Secret variables must reference credentials instead of storing plaintext values.
 
 Integrations are persisted separately from runtime adapter configuration. They provide a UI/API foundation for testing Proxmox, Prometheus, and Grafana connection details, but the current runtime adapters still primarily use local environment settings.
 
@@ -126,7 +141,7 @@ Inventory commits are currently performed in the service layer after repository 
 
 Alembic is configured at the repository root through `alembic.ini` and migration code under `backend/migrations`.
 
-Current migrations create the `servers` and `jobs` tables, inventory SSH authentication metadata, definition tables, provisioning requests, inventory synchronization metadata, integration records, and template override/variable metadata.
+Current migrations create the `servers` and `jobs` tables, inventory SSH authentication metadata, definition tables, provisioning requests, inventory synchronization metadata, integration records, template override/variable metadata, encrypted credentials, credential usages, variables, and inventory credential references.
 
 Important migration characteristics:
 
@@ -158,10 +173,11 @@ Important settings include:
 - `SSH_CONNECT_TIMEOUT_SECONDS`
 - `SSH_COMMAND_TIMEOUT_SECONDS`
 - `SSH_PRIVATE_KEY_PATH`
+- `NEXUSOPS_MASTER_KEY`
 
 Proxmox secrets are not committed. They should be supplied by local environment variables or an ignored `.env`.
 
-SSH passwords and private key paths are part of the current local MVP and are not encrypted yet. They should be treated as temporary development/lab metadata until a vault or encryption layer is added.
+Legacy inline SSH passwords and private key paths remain for backward compatibility and local MVP metadata. Shared credentials should use the Credential Manager so reusable secrets are encrypted and resolved server-side.
 
 ## Structured Logging
 
@@ -217,6 +233,7 @@ Frontend Jobs page
   -> FastAPI /api/v1/jobs/actions/execute or /api/v1/jobs/execute
   -> JobService
   -> ServerRepository resolves inventory target
+  -> CredentialService resolves node credential_id or execution credential_ref when present
   -> JobRepository creates pending/running job
   -> ParamikoSshAdapter executes command
   -> JobRepository persists stdout/stderr/exit_code/status
@@ -231,10 +248,10 @@ Frontend Profiles page
   -> FastAPI /api/v1/profiles/{profile_id}/apply
   -> ProfileService
   -> resolve action/package/command step
-  -> resolve simple template variables
+  -> resolve simple template variables and sensitive credential_refs
   -> JobService.execute()
   -> SSH adapter
-  -> persisted job result
+  -> persisted job result with redacted command when secrets were injected
 ```
 
 Package/profile definition CRUD uses module repositories and persists only definitions and template override metadata. Actual execution history remains centralized in Jobs. Resetting a built-in template removes the persisted override and leaves job history untouched.
@@ -246,10 +263,10 @@ Frontend Packages page
   -> FastAPI /api/v1/packages/{package_id}/execute
   -> PackageAutomationService
   -> load built-in/default/override/custom package definition
-  -> resolve `{{ variable_name }}` placeholders
+  -> resolve `{{ variable_name }}` placeholders and sensitive credential_refs
   -> JobService.execute()
   -> SSH adapter
-  -> persisted job result
+  -> persisted job result with redacted command when secrets were injected
 ```
 
 ## Identity Backend Flow

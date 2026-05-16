@@ -1,8 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { DragEvent } from 'react';
+import { ArrowDown, ArrowUp, Package, Play, Plus, Trash2, Terminal } from 'lucide-react';
 
 import { PageHeader } from '../../components/layout/PageHeader';
+import { ExecutionVariablesModal, type ExecutionVariableValues } from '../../components/ExecutionVariablesModal';
+import { VariableDefinitionEditor } from '../../components/VariableDefinitionEditor';
 import { getApiErrorMessage } from '../../lib/api/client';
+import { listCredentials } from '../credentials/api/credentialsApi';
+import type { Credential } from '../credentials/types/credential';
 import { listServers } from '../inventory/api/serversApi';
 import type { Server } from '../inventory/types/server';
 import { listOperationalActions } from '../jobs/api/jobsApi';
@@ -21,8 +26,8 @@ import type {
 
 type ProfileFormState = Omit<CreateInfrastructureProfilePayload, 'tags' | 'steps' | 'variables'> & {
   tags_text: string;
-  steps_text: string;
-  variables_text: string;
+  steps: ProfileStep[];
+  variables: CreateInfrastructureProfilePayload['variables'];
 };
 
 const initialProfileFormState: ProfileFormState = {
@@ -31,8 +36,11 @@ const initialProfileFormState: ProfileFormState = {
   category: '',
   description: '',
   tags_text: '',
-  steps_text: 'package:docker-engine:Install Docker Engine\naction:docker-status:Check Docker Service',
-  variables_text: '[]',
+  steps: [
+    { id: 'package-docker-engine-1', kind: 'package', type: 'package', reference_id: 'docker-engine', target: 'docker-engine', name: 'Install Docker Engine', enabled: true },
+    { id: 'action-docker-status-2', kind: 'action', type: 'action', reference_id: 'docker-status', target: 'docker-status', name: 'Check Docker Service', enabled: true },
+  ],
+  variables: [],
 };
 
 export function ProfilesPage() {
@@ -40,12 +48,14 @@ export function ProfilesPage() {
   const [servers, setServers] = useState<Server[]>([]);
   const [packages, setPackages] = useState<PackageDefinition[]>([]);
   const [actions, setActions] = useState<OperationalAction[]>([]);
+  const [credentials, setCredentials] = useState<Credential[]>([]);
   const [selectedProfileId, setSelectedProfileId] = useState('');
   const [selectedServerId, setSelectedServerId] = useState('');
   const [selectedServerIds, setSelectedServerIds] = useState<string[]>([]);
   const [formState, setFormState] = useState<ProfileFormState>(initialProfileFormState);
   const [result, setResult] = useState<ApplyProfileResult | null>(null);
   const [bulkResult, setBulkResult] = useState<ApplyProfileBulkResult | null>(null);
+  const [isExecutionModalOpen, setIsExecutionModalOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [isApplying, setIsApplying] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
@@ -63,16 +73,18 @@ export function ProfilesPage() {
     setError(null);
 
     try {
-      const [nextProfiles, nextServers, nextPackages, nextActions] = await Promise.all([
+      const [nextProfiles, nextServers, nextPackages, nextActions, nextCredentials] = await Promise.all([
         listProfiles(),
         listServers(),
         listPackageDefinitions(),
         listOperationalActions(),
+        listCredentials(),
       ]);
       setProfiles(nextProfiles);
       setServers(nextServers);
       setPackages(nextPackages);
       setActions(nextActions);
+      setCredentials(nextCredentials);
       setSelectedProfileId((current) => current || nextProfiles[0]?.id || '');
       setSelectedServerId((current) => current || nextServers[0]?.id || '');
     } catch (caughtError) {
@@ -96,8 +108,8 @@ export function ProfilesPage() {
       category: profile.category,
       description: profile.description,
       tags_text: profile.tags.join(','),
-      steps_text: formatSteps(profile.steps),
-      variables_text: JSON.stringify(profile.variables, null, 2),
+      steps: normalizeProfileSteps(profile.steps),
+      variables: profile.variables,
     });
     setError(null);
     setSuccess(null);
@@ -114,7 +126,7 @@ export function ProfilesPage() {
       return;
     }
 
-    const steps = parseSteps(formState.steps_text);
+    const steps = normalizeProfileSteps(formState.steps);
     if (steps.length === 0) {
       setError('Add at least one profile step.');
       return;
@@ -131,7 +143,11 @@ export function ProfilesPage() {
         description: formState.description.trim() || 'Custom infrastructure profile.',
         tags: splitCsv(formState.tags_text),
         steps,
-        variables: JSON.parse(formState.variables_text),
+        variables: formState.variables.filter((variable) => variable.name.trim()).map((variable) => ({
+          ...variable,
+          name: variable.name.trim(),
+          description: variable.description.trim(),
+        })),
       };
       if (editingProfileId) {
         const updated = await updateProfile(editingProfileId, payload);
@@ -198,22 +214,19 @@ export function ProfilesPage() {
     }
   }
 
-  async function handleApplyProfile() {
+  function handleApplyProfile() {
     const profileId = selectedProfile?.id;
     if (!profileId || (!selectedServerId && selectedServerIds.length === 0)) {
       return;
     }
+    setIsExecutionModalOpen(true);
+  }
 
-    const targetCount = selectedServerIds.length || 1;
-    const variables = promptProfileVariables(selectedProfile);
-    if (variables === null) {
+  async function runProfile(executionVariables: ExecutionVariableValues) {
+    const profileId = selectedProfile?.id;
+    if (!profileId) {
       return;
     }
-    const confirmed = window.confirm(`Apply ${selectedProfile.name} to ${targetCount} host(s)?`);
-    if (!confirmed) {
-      return;
-    }
-
     setIsApplying(true);
     setError(null);
     setResult(null);
@@ -226,7 +239,8 @@ export function ProfilesPage() {
             profile_id: profileId,
             target_server_ids: selectedServerIds,
             stop_on_failure: true,
-            variables,
+            variables: executionVariables.variables,
+            credential_refs: executionVariables.credential_refs,
           }),
         );
       } else {
@@ -234,10 +248,12 @@ export function ProfilesPage() {
           await applyProfile(profileId, {
             target_server_id: selectedServerId,
             stop_on_failure: true,
-            variables,
+            variables: executionVariables.variables,
+            credential_refs: executionVariables.credential_refs,
           }),
         );
       }
+      setIsExecutionModalOpen(false);
     } catch (caughtError) {
       setError(getApiErrorMessage(caughtError));
     } finally {
@@ -350,12 +366,15 @@ export function ProfilesPage() {
           <ProfileBuilder
             actions={actions}
             formState={formState}
+            credentials={credentials}
             editingProfileId={editingProfileId}
             isCreating={isCreating}
             packages={packages}
             onCreate={handleCreateProfile}
             onCancel={resetEditor}
             onFieldChange={updateField}
+            onStepsChange={(steps) => setFormState((current) => ({ ...current, steps }))}
+            onVariablesChange={(variables) => setFormState((current) => ({ ...current, variables }))}
           />
 
           <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(360px,0.8fr)]">
@@ -380,6 +399,21 @@ export function ProfilesPage() {
           </div>
         </>
       ) : null}
+      <ExecutionVariablesModal
+        credentials={credentials}
+        isLoading={isApplying}
+        isOpen={isExecutionModalOpen && selectedProfile !== null}
+        previewItems={
+          selectedProfile?.steps
+            .filter((step) => step.enabled !== false)
+            .map((step) => step.name) ?? []
+        }
+        targetLabel={`${selectedServerIds.length || 1} host(s) selected`}
+        title={selectedProfile ? `Apply ${selectedProfile.name}` : 'Apply profile'}
+        variables={selectedProfile?.variables ?? []}
+        onCancel={() => setIsExecutionModalOpen(false)}
+        onConfirm={runProfile}
+      />
     </div>
   );
 }
@@ -433,11 +467,11 @@ function ProfileCard({
   onSelect: () => void;
 }) {
   return (
-    <article className={`rounded-lg border bg-white p-5 shadow-sm ${isSelected ? 'border-zinc-950' : 'border-zinc-200'}`}>
+    <article className={`rounded-lg border bg-white p-5 shadow-sm transition hover:border-zinc-300 hover:shadow-md ${isSelected ? 'border-zinc-950 ring-1 ring-zinc-950' : 'border-zinc-200'}`}>
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div>
-          <h3 className="text-base font-semibold text-zinc-950">{profile.name}</h3>
-          <p className="mt-1 text-sm text-zinc-500">{profile.description}</p>
+        <div className="min-w-0">
+          <h3 className="text-lg font-semibold text-zinc-950">{profile.name}</h3>
+          <p className="mt-2 max-w-3xl text-sm leading-6 text-zinc-600">{profile.description}</p>
         </div>
         <div className="flex flex-wrap gap-2">
           <span className="inline-flex w-fit rounded-full bg-zinc-100 px-2.5 py-1 text-xs font-medium text-zinc-700 ring-1 ring-inset ring-zinc-200">
@@ -451,9 +485,9 @@ function ProfileCard({
         </div>
       </div>
 
-      <ol className="mt-5 space-y-2">
+      <ol className="mt-5 space-y-2 rounded-md border border-zinc-200 bg-zinc-50 p-3">
         {profile.steps.map((step, index) => (
-          <li key={step.id} className="flex items-center gap-3 text-sm text-zinc-700">
+          <li key={step.id} className="flex items-center gap-3 rounded-md bg-white px-2 py-2 text-sm text-zinc-700 ring-1 ring-zinc-100">
             <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-zinc-950 text-xs font-semibold text-white">
               {index + 1}
             </span>
@@ -509,6 +543,7 @@ function ProfileCard({
 
 function ProfileBuilder({
   actions,
+  credentials,
   formState,
   editingProfileId,
   isCreating,
@@ -516,8 +551,11 @@ function ProfileBuilder({
   onCreate,
   onCancel,
   onFieldChange,
+  onStepsChange,
+  onVariablesChange,
 }: {
   actions: OperationalAction[];
+  credentials: Credential[];
   formState: ProfileFormState;
   editingProfileId: string | null;
   isCreating: boolean;
@@ -525,8 +563,10 @@ function ProfileBuilder({
   onCreate: () => void;
   onCancel: () => void;
   onFieldChange: (name: keyof ProfileFormState, value: string) => void;
+  onStepsChange: (steps: ProfileStep[]) => void;
+  onVariablesChange: (variables: ProfileFormState['variables']) => void;
 }) {
-  const previewSteps = parseSteps(formState.steps_text);
+  const previewSteps = normalizeProfileSteps(formState.steps);
 
   function reorderSteps(from: number, to: number) {
     if (from === to) {
@@ -535,7 +575,44 @@ function ProfileBuilder({
     const next = [...previewSteps];
     const [moved] = next.splice(from, 1);
     next.splice(to, 0, moved);
-    onFieldChange('steps_text', formatSteps(next));
+    onStepsChange(next);
+  }
+
+  function updateStep(index: number, patch: Partial<ProfileStep>) {
+    const next = [...previewSteps];
+    const current = next[index];
+    const kind = (patch.kind ?? current.kind) as ProfileStep['kind'];
+    const referenceId = patch.reference_id ?? patch.target ?? current.reference_id;
+    next[index] = {
+      ...current,
+      ...patch,
+      kind,
+      type: kind === 'command' ? 'script' : kind === 'script' ? 'script' : kind,
+      reference_id: referenceId,
+      target: referenceId,
+      id: patch.id ?? current.id,
+    };
+    onStepsChange(next);
+  }
+
+  function addStep() {
+    const index = previewSteps.length + 1;
+    onStepsChange([
+      ...previewSteps,
+      {
+        id: `package-${index}`,
+        kind: 'package',
+        type: 'package',
+        reference_id: packages[0]?.id ?? '',
+        target: packages[0]?.id ?? '',
+        name: packages[0]?.name ?? 'Package step',
+        enabled: true,
+      },
+    ]);
+  }
+
+  function removeStep(index: number) {
+    onStepsChange(previewSteps.filter((_, currentIndex) => currentIndex !== index));
   }
 
   return (
@@ -547,48 +624,32 @@ function ProfileBuilder({
         <TextInput label="Category" name="category" placeholder="Baseline" value={formState.category} onChange={onFieldChange} />
         <TextInput label="Tags" name="tags_text" placeholder="baseline,linux" value={formState.tags_text} onChange={onFieldChange} />
         <TextInput label="Description" name="description" placeholder="Reusable host standard" value={formState.description} onChange={onFieldChange} />
-        <label className="text-sm font-medium text-zinc-700 xl:col-span-3">
-          Steps
-          <textarea
-            className="mt-1 min-h-32 w-full rounded-md border border-zinc-300 bg-white px-3 py-2 font-mono text-sm text-zinc-950 shadow-sm outline-none transition focus:border-zinc-900 focus:ring-2 focus:ring-zinc-900/10"
-            value={formState.steps_text}
-            onChange={(event) => onFieldChange('steps_text', event.target.value)}
-          />
-        </label>
-        {previewSteps.length ? (
-          <div className="xl:col-span-3">
-            <p className="text-xs font-semibold uppercase text-zinc-500">Execution order</p>
-            <ol className="mt-2 space-y-2">
-              {previewSteps.map((step, index) => (
-                <li
-                  key={`${step.id}-${index}`}
-                  className="flex cursor-move items-center gap-3 rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-700"
-                  draggable
-                  onDragStart={(event: DragEvent<HTMLLIElement>) => event.dataTransfer.setData('text/plain', String(index))}
-                  onDragOver={(event) => event.preventDefault()}
-                  onDrop={(event) => {
-                    event.preventDefault();
-                    reorderSteps(Number(event.dataTransfer.getData('text/plain')), index);
-                  }}
-                >
-                  <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-zinc-950 text-xs font-semibold text-white">
-                    {index + 1}
-                  </span>
-                  <span className="min-w-0 flex-1 truncate">{step.name}</span>
-                  <span className="rounded-full bg-zinc-50 px-2 py-0.5 text-xs text-zinc-500 ring-1 ring-zinc-200">{step.kind}</span>
-                </li>
-              ))}
-            </ol>
+        <div className="xl:col-span-3">
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-xs font-semibold uppercase text-zinc-500">Execution steps</p>
+            <button className="inline-flex items-center gap-2 rounded-md border border-zinc-300 px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50" type="button" onClick={addStep}>
+              <Plus className="h-4 w-4" aria-hidden="true" />
+              Add step
+            </button>
           </div>
-        ) : null}
-        <label className="text-sm font-medium text-zinc-700 xl:col-span-3">
-          Variables JSON
-          <textarea
-            className="mt-1 min-h-24 w-full rounded-md border border-zinc-300 bg-white px-3 py-2 font-mono text-sm text-zinc-950 shadow-sm outline-none transition focus:border-zinc-900 focus:ring-2 focus:ring-zinc-900/10"
-            value={formState.variables_text}
-            onChange={(event) => onFieldChange('variables_text', event.target.value)}
-          />
-        </label>
+          <ol className="mt-3 space-y-3">
+            {previewSteps.map((step, index) => (
+              <ProfileStepCard
+                key={`${step.id}-${index}`}
+                actions={actions}
+                credentials={credentials}
+                index={index}
+                packages={packages}
+                step={step}
+                total={previewSteps.length}
+                onMove={reorderSteps}
+                onRemove={() => removeStep(index)}
+                onUpdate={(patch) => updateStep(index, patch)}
+              />
+            ))}
+          </ol>
+        </div>
+        <VariableDefinitionEditor variables={formState.variables} onChange={onVariablesChange} />
       </div>
       <div className="mt-4 grid gap-4 text-xs text-zinc-500 lg:grid-cols-2">
         <ReferenceList label="Package refs" values={packages.map((packageDefinition) => packageDefinition.id)} />
@@ -625,6 +686,131 @@ function ReferenceList({ label, values }: { label: string; values: string[] }) {
         ))}
       </div>
     </div>
+  );
+}
+
+function ProfileStepCard({
+  actions,
+  credentials,
+  index,
+  packages,
+  step,
+  total,
+  onMove,
+  onRemove,
+  onUpdate,
+}: {
+  actions: OperationalAction[];
+  credentials: Credential[];
+  index: number;
+  packages: PackageDefinition[];
+  step: ProfileStep;
+  total: number;
+  onMove: (from: number, to: number) => void;
+  onRemove: () => void;
+  onUpdate: (patch: Partial<ProfileStep>) => void;
+}) {
+  const stepType = step.kind === 'command' ? 'script' : step.kind;
+  const options = stepType === 'action' ? actions : packages;
+  const Icon = stepType === 'package' ? Package : stepType === 'action' ? Play : Terminal;
+
+  function handleTypeChange(value: string) {
+    const nextKind = value === 'script' ? 'command' : (value as ProfileStep['kind']);
+    const nextOptions = value === 'action' ? actions : packages;
+    const first = nextOptions[0];
+    onUpdate({
+      kind: nextKind,
+      type: value as ProfileStep['type'],
+      reference_id: value === 'script' ? step.id : first?.id ?? '',
+      target: value === 'script' ? step.id : first?.id ?? '',
+      name: value === 'script' ? 'Script step' : first?.name ?? '',
+      command: value === 'script' ? (step.command ?? '') : null,
+    });
+  }
+
+  function handleTargetChange(value: string) {
+    const selected = options.find((option) => option.id === value);
+    onUpdate({ reference_id: value, target: value, name: selected?.name ?? value });
+  }
+
+  return (
+    <li
+      className={`rounded-md border bg-white p-4 ${step.enabled === false ? 'border-zinc-200 opacity-60' : 'border-zinc-300'}`}
+      draggable
+      onDragStart={(event: DragEvent<HTMLLIElement>) => event.dataTransfer.setData('text/plain', String(index))}
+      onDragOver={(event) => event.preventDefault()}
+      onDrop={(event) => {
+        event.preventDefault();
+        onMove(Number(event.dataTransfer.getData('text/plain')), index);
+      }}
+    >
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-start">
+        <div className="flex items-center gap-3 lg:w-56">
+          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-zinc-950 text-white">
+            <Icon className="h-4 w-4" aria-hidden="true" />
+          </span>
+          <div className="min-w-0">
+            <p className="truncate text-sm font-semibold text-zinc-950">{step.name}</p>
+            <p className="text-xs text-zinc-500">Step {index + 1}</p>
+          </div>
+        </div>
+
+        <div className="grid flex-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+          <label className="text-xs font-medium text-zinc-700">
+            Type
+            <select className="mt-1 w-full rounded-md border border-zinc-300 bg-white px-2 py-2 text-sm" value={stepType} onChange={(event) => handleTypeChange(event.target.value)}>
+              <option value="package">Package</option>
+              <option value="action">Action</option>
+              <option value="deployment">Deployment</option>
+              <option value="script">Script</option>
+            </select>
+          </label>
+
+          {stepType === 'script' ? (
+            <label className="text-xs font-medium text-zinc-700 md:col-span-2">
+              Command
+              <input className="mt-1 w-full rounded-md border border-zinc-300 bg-white px-2 py-2 font-mono text-sm" value={step.command ?? ''} onChange={(event) => onUpdate({ command: event.target.value, name: 'Script step' })} />
+            </label>
+          ) : stepType === 'deployment' ? (
+            <label className="text-xs font-medium text-zinc-700 md:col-span-2">
+              Deployment target
+              <input className="mt-1 w-full rounded-md border border-zinc-300 bg-white px-2 py-2 text-sm" placeholder="Future deployment id" value={step.reference_id} onChange={(event) => onUpdate({ reference_id: event.target.value, target: event.target.value, name: event.target.value || 'Deployment step' })} />
+            </label>
+          ) : (
+            <label className="text-xs font-medium text-zinc-700 md:col-span-2">
+              Target
+              <select className="mt-1 w-full rounded-md border border-zinc-300 bg-white px-2 py-2 text-sm" value={step.reference_id} onChange={(event) => handleTargetChange(event.target.value)}>
+                {options.map((option) => <option key={option.id} value={option.id}>{option.name}</option>)}
+              </select>
+            </label>
+          )}
+
+          <label className="text-xs font-medium text-zinc-700">
+            Credential
+            <select className="mt-1 w-full rounded-md border border-zinc-300 bg-white px-2 py-2 text-sm" value={step.credential_ref ?? ''} onChange={(event) => onUpdate({ credential_ref: event.target.value || null })}>
+              <option value="">None</option>
+              {credentials.map((credential) => <option key={credential.id} value={credential.id}>{credential.name}</option>)}
+            </select>
+          </label>
+        </div>
+
+        <div className="flex flex-wrap justify-end gap-2">
+          <label className="inline-flex h-9 items-center gap-2 rounded-md border border-zinc-300 px-3 text-sm font-medium text-zinc-700">
+            <input checked={step.enabled !== false} type="checkbox" onChange={(event) => onUpdate({ enabled: event.target.checked })} />
+            Enabled
+          </label>
+          <button className="rounded-md border border-zinc-300 p-2 text-zinc-700 disabled:opacity-40" disabled={index === 0} type="button" onClick={() => onMove(index, index - 1)} title="Move up">
+            <ArrowUp className="h-4 w-4" aria-hidden="true" />
+          </button>
+          <button className="rounded-md border border-zinc-300 p-2 text-zinc-700 disabled:opacity-40" disabled={index === total - 1} type="button" onClick={() => onMove(index, index + 1)} title="Move down">
+            <ArrowDown className="h-4 w-4" aria-hidden="true" />
+          </button>
+          <button className="rounded-md border border-rose-300 p-2 text-rose-700 hover:bg-rose-50" type="button" onClick={onRemove} title="Remove step">
+            <Trash2 className="h-4 w-4" aria-hidden="true" />
+          </button>
+        </div>
+      </div>
+    </li>
   );
 }
 
@@ -715,61 +901,20 @@ function splitCsv(value: string): string[] {
     .filter(Boolean);
 }
 
-function parseSteps(value: string): ProfileStep[] {
-  return value
-    .split('\n')
-    .map<ProfileStep | null>((line, index) => {
-      const [kind, referenceId, name] = line.split(':').map((part) => part.trim());
-      if (kind === 'command') {
-        const command = line.split(':').slice(1).join(':').trim();
-        if (!command) {
-          return null;
-        }
-        return {
-          id: `command-${index + 1}`,
-          kind,
-          reference_id: `command-${index + 1}`,
-          name: name || `Command ${index + 1}`,
-          command,
-        };
-      }
-      if ((kind !== 'action' && kind !== 'package') || !referenceId) {
-        return null;
-      }
-      return {
-        id: `${kind}-${referenceId}-${index + 1}`,
-        kind,
-        reference_id: referenceId,
-        name: name || referenceId,
-      };
-    })
-    .filter((step): step is ProfileStep => step !== null);
-}
-
-function formatSteps(steps: ProfileStep[]): string {
-  return steps
-    .map((step) => {
-      if (step.kind === 'command') {
-        return `command:${step.command ?? ''}`;
-      }
-      return `${step.kind}:${step.reference_id}:${step.name}`;
-    })
-    .join('\n');
-}
-
-function promptProfileVariables(profile: InfrastructureProfile): Record<string, string> | null {
-  const values: Record<string, string> = {};
-  for (const variable of profile.variables) {
-    const label = `${variable.name}${variable.description ? ` - ${variable.description}` : ''}`;
-    const value = window.prompt(label, variable.default_value ?? '');
-    if (value === null) {
-      return null;
-    }
-    if (variable.required && !value.trim()) {
-      window.alert(`${variable.name} is required.`);
-      return null;
-    }
-    values[variable.name] = value;
-  }
-  return values;
+function normalizeProfileSteps(steps: ProfileStep[]): ProfileStep[] {
+  return steps.map((step, index) => {
+    const kind = step.kind === 'script' ? 'command' : step.kind;
+    const referenceId = step.reference_id || step.target || step.id || `${kind}-${index + 1}`;
+    return {
+      ...step,
+      id: step.id || `${kind}-${referenceId}-${index + 1}`,
+      kind,
+      type: step.type ?? (kind === 'command' ? 'script' : kind),
+      reference_id: referenceId,
+      target: step.target ?? referenceId,
+      name: step.name || referenceId,
+      enabled: step.enabled ?? true,
+      credential_ref: step.credential_ref ?? null,
+    };
+  });
 }

@@ -1,7 +1,11 @@
 import { useEffect, useState } from 'react';
 
 import { PageHeader } from '../../components/layout/PageHeader';
+import { ExecutionVariablesModal, type ExecutionVariableValues } from '../../components/ExecutionVariablesModal';
+import { VariableDefinitionEditor } from '../../components/VariableDefinitionEditor';
 import { getApiErrorMessage } from '../../lib/api/client';
+import { listCredentials } from '../credentials/api/credentialsApi';
+import type { Credential } from '../credentials/types/credential';
 import { listServers } from '../inventory/api/serversApi';
 import type { Server } from '../inventory/types/server';
 import {
@@ -40,6 +44,7 @@ const initialFormState: FormState = {
 export function PackagesPage() {
   const [packages, setPackages] = useState<PackageDefinition[]>([]);
   const [servers, setServers] = useState<Server[]>([]);
+  const [credentials, setCredentials] = useState<Credential[]>([]);
   const [selectedServerId, setSelectedServerId] = useState('');
   const [selectedServerIds, setSelectedServerIds] = useState<string[]>([]);
   const [formState, setFormState] = useState<FormState>(initialFormState);
@@ -48,9 +53,9 @@ export function PackagesPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isCreating, setIsCreating] = useState(false);
   const [executingPackageId, setExecutingPackageId] = useState<string | null>(null);
+  const [pendingPackage, setPendingPackage] = useState<PackageDefinition | null>(null);
   const [bulkResult, setBulkResult] = useState<BulkExecutionResponse | null>(null);
   const [editingPackageId, setEditingPackageId] = useState<string | null>(null);
-  const [variablesText, setVariablesText] = useState('[]');
 
   useEffect(() => {
     async function loadPackages() {
@@ -58,9 +63,14 @@ export function PackagesPage() {
       setError(null);
 
       try {
-        const [nextPackages, nextServers] = await Promise.all([listPackageDefinitions(), listServers()]);
+        const [nextPackages, nextServers, nextCredentials] = await Promise.all([
+          listPackageDefinitions(),
+          listServers(),
+          listCredentials(),
+        ]);
         setPackages(nextPackages);
         setServers(nextServers);
+        setCredentials(nextCredentials);
         setSelectedServerId((current) => current || nextServers[0]?.id || '');
       } catch (caughtError) {
         setError(getApiErrorMessage(caughtError));
@@ -94,7 +104,6 @@ export function PackagesPage() {
       tags_text: packageDefinition.tags.join(','),
       description: packageDefinition.description,
     });
-    setVariablesText(JSON.stringify(packageDefinition.variables, null, 2));
     setError(null);
     setSuccess(null);
   }
@@ -102,7 +111,6 @@ export function PackagesPage() {
   function resetEditor() {
     setEditingPackageId(null);
     setFormState(initialFormState);
-    setVariablesText('[]');
   }
 
   async function handleCreatePackage() {
@@ -123,7 +131,11 @@ export function PackagesPage() {
         install_command: formState.install_command.trim(),
         uninstall_command: formState.uninstall_command.trim(),
         validation_command: formState.validation_command.trim() || 'true',
-        variables: JSON.parse(variablesText),
+        variables: formState.variables.filter((variable) => variable.name.trim()).map((variable) => ({
+          ...variable,
+          name: variable.name.trim(),
+          description: variable.description.trim(),
+        })),
         tags: splitCsv(formState.tags_text),
         description: formState.description.trim() || 'Custom package definition.',
       };
@@ -187,36 +199,42 @@ export function PackagesPage() {
     }
   }
 
-  async function handleExecutePackage(packageDefinition: PackageDefinition) {
+  function handleExecutePackage(packageDefinition: PackageDefinition) {
     if (!selectedServerId && selectedServerIds.length === 0) {
       setError('Select one or more target hosts before running a package.');
       return;
     }
+    setPendingPackage(packageDefinition);
+    setError(null);
+    setSuccess(null);
+  }
 
-    const targetCount = selectedServerIds.length || 1;
-    const variables = promptVariables(packageDefinition);
-    if (variables === null) {
-      return;
-    }
-    const confirmed = window.confirm(`Run ${packageDefinition.name} on ${targetCount} host(s)?`);
-    if (!confirmed) {
-      return;
-    }
-
-      setExecutingPackageId(packageDefinition.id);
-      setError(null);
-      setSuccess(null);
-      setBulkResult(null);
+  async function runPackage(packageDefinition: PackageDefinition, executionVariables: ExecutionVariableValues) {
+    setExecutingPackageId(packageDefinition.id);
+    setError(null);
+    setSuccess(null);
+    setBulkResult(null);
 
     try {
       if (selectedServerIds.length > 0) {
-        const result = await executePackageDefinitionBulk(packageDefinition.id, selectedServerIds, variables);
+        const result = await executePackageDefinitionBulk(
+          packageDefinition.id,
+          selectedServerIds,
+          executionVariables.variables,
+          executionVariables.credential_refs,
+        );
         setBulkResult(result);
         setSuccess(`Package ${packageDefinition.name}: ${result.success_count} succeeded, ${result.failure_count} failed.`);
       } else {
-        const job = await executePackageDefinition(packageDefinition.id, selectedServerId, variables);
+        const job = await executePackageDefinition(
+          packageDefinition.id,
+          selectedServerId,
+          executionVariables.variables,
+          executionVariables.credential_refs,
+        );
         setSuccess(`Started package ${packageDefinition.name}. Job status: ${job.status}.`);
       }
+      setPendingPackage(null);
     } catch (caughtError) {
       setError(getApiErrorMessage(caughtError));
     } finally {
@@ -275,11 +293,10 @@ export function PackagesPage() {
         formState={formState}
         editingPackageId={editingPackageId}
         isCreating={isCreating}
-        variablesText={variablesText}
         onCreate={handleCreatePackage}
         onCancel={resetEditor}
         onFieldChange={updateField}
-        onVariablesChange={setVariablesText}
+        onVariablesChange={(variables) => setFormState((current) => ({ ...current, variables }))}
       />
 
       {success ? <p className="rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-700">{success}</p> : null}
@@ -302,6 +319,17 @@ export function PackagesPage() {
           ))}
         </div>
       ) : null}
+      <ExecutionVariablesModal
+        credentials={credentials}
+        isLoading={executingPackageId === pendingPackage?.id}
+        isOpen={pendingPackage !== null}
+        previewItems={pendingPackage ? [`Install ${pendingPackage.name}`, `Validate ${pendingPackage.name}`] : []}
+        targetLabel={`${selectedServerIds.length || 1} host(s) selected`}
+        title={pendingPackage ? `Run ${pendingPackage.name}` : 'Run package'}
+        variables={pendingPackage?.variables ?? []}
+        onCancel={() => setPendingPackage(null)}
+        onConfirm={(values) => pendingPackage ? runPackage(pendingPackage, values) : undefined}
+      />
     </div>
   );
 }
@@ -332,7 +360,6 @@ function PackageBuilder({
   formState,
   editingPackageId,
   isCreating,
-  variablesText,
   onCreate,
   onCancel,
   onFieldChange,
@@ -341,11 +368,10 @@ function PackageBuilder({
   formState: FormState;
   editingPackageId: string | null;
   isCreating: boolean;
-  variablesText: string;
   onCreate: () => void;
   onCancel: () => void;
   onFieldChange: (name: keyof FormState, value: string) => void;
-  onVariablesChange: (value: string) => void;
+  onVariablesChange: (variables: FormState['variables']) => void;
 }) {
   return (
     <section className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm">
@@ -360,14 +386,7 @@ function PackageBuilder({
         <TextArea label="Install command" name="install_command" value={formState.install_command} onChange={onFieldChange} />
         <TextArea label="Uninstall command" name="uninstall_command" value={formState.uninstall_command} onChange={onFieldChange} />
         <TextArea label="Validation command" name="validation_command" value={formState.validation_command} onChange={onFieldChange} />
-        <label className="text-sm font-medium text-zinc-700 xl:col-span-3">
-          Variables JSON
-          <textarea
-            className="mt-1 min-h-24 w-full rounded-md border border-zinc-300 bg-white px-3 py-2 font-mono text-sm text-zinc-950 shadow-sm outline-none transition focus:border-zinc-900 focus:ring-2 focus:ring-zinc-900/10"
-            value={variablesText}
-            onChange={(event) => onVariablesChange(event.target.value)}
-          />
-        </label>
+        <VariableDefinitionEditor variables={formState.variables} onChange={onVariablesChange} />
       </div>
       <div className="mt-4 flex justify-end gap-2">
         {editingPackageId ? (
@@ -406,11 +425,11 @@ function PackageCard({
   onReset: (packageDefinition: PackageDefinition) => void;
 }) {
   return (
-    <article className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm">
+    <article className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm ring-1 ring-transparent transition hover:border-zinc-300 hover:shadow-md">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div>
-          <h3 className="text-base font-semibold text-zinc-950">{packageDefinition.name}</h3>
-          <p className="mt-1 text-sm text-zinc-500">{packageDefinition.description}</p>
+        <div className="min-w-0">
+          <h3 className="text-lg font-semibold text-zinc-950">{packageDefinition.name}</h3>
+          <p className="mt-2 max-w-3xl text-sm leading-6 text-zinc-600">{packageDefinition.description}</p>
         </div>
         <div className="flex flex-wrap gap-2">
           <span className="inline-flex w-fit rounded-full bg-zinc-100 px-2.5 py-1 text-xs font-medium text-zinc-700 ring-1 ring-inset ring-zinc-200">
@@ -432,13 +451,13 @@ function PackageCard({
         ))}
       </div>
 
-      <dl className="mt-5 space-y-4">
+      <dl className="mt-5 space-y-4 rounded-md border border-zinc-200 bg-zinc-50 p-3">
         <CommandBlock label="Install" value={packageDefinition.install_command} />
         {packageDefinition.uninstall_command ? <CommandBlock label="Uninstall" value={packageDefinition.uninstall_command} /> : null}
         <CommandBlock label="Validate" value={packageDefinition.validation_command} />
       </dl>
       {packageDefinition.variables.length ? (
-        <div className="mt-4 rounded-md border border-zinc-200 p-3">
+        <div className="mt-4 rounded-md border border-zinc-200 bg-white p-3">
           <p className="text-xs font-semibold uppercase text-zinc-500">Variables</p>
           <div className="mt-2 flex flex-wrap gap-2">
             {packageDefinition.variables.map((variable) => (
@@ -561,23 +580,6 @@ function splitCsv(value: string): string[] {
     .split(',')
     .map((item) => item.trim())
     .filter(Boolean);
-}
-
-function promptVariables(packageDefinition: PackageDefinition): Record<string, string> | null {
-  const values: Record<string, string> = {};
-  for (const variable of packageDefinition.variables) {
-    const label = `${variable.name}${variable.description ? ` - ${variable.description}` : ''}`;
-    const value = window.prompt(label, variable.default_value ?? '');
-    if (value === null) {
-      return null;
-    }
-    if (variable.required && !value.trim()) {
-      window.alert(`${variable.name} is required.`);
-      return null;
-    }
-    values[variable.name] = value;
-  }
-  return values;
 }
 
 function LoadingGrid() {

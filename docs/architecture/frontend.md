@@ -14,6 +14,9 @@ The frontend currently implements:
 - Jobs page with operational actions, raw command execution, history, and result viewer
 - Package definitions page
 - Infrastructure profiles page with apply workflow and execution visibility
+- Credential Manager page for reusable encrypted secrets and shared SSH accounts
+- shared execution variable modal for normal inputs and credential-backed sensitive inputs
+- visual variable definition editor for packages and profiles
 - VM provisioning page with template, cloud-init, static networking, bootstrap, and history sections
 - host detail and Proxmox node detail pages
 - integrations settings page
@@ -36,6 +39,7 @@ Current main routes:
 - `/` inventory
 - `/inventory/:id` host detail
 - `/infrastructure` Proxmox visibility, lifecycle controls, and inventory synchronization
+- `/infrastructure/credentials` credential manager
 - `/infrastructure/nodes/:id` Proxmox node detail
 - `/jobs` SSH-backed operations and job history
 - `/identity` Linux user, group, SSH key, sudo, and permission replication
@@ -100,6 +104,7 @@ The inventory UI includes:
 - SSH authentication method selection
 - optional private key path input
 - password input for password-auth hosts
+- shared credential selector for credential-backed SSH execution
 - responsive table/cards
 - summary metric cards
 - lifecycle and synchronization badges
@@ -163,7 +168,9 @@ The Jobs UI includes:
 - destructive action confirmation
 - raw command execution form
 - persisted job history
-- stdout/stderr result viewer
+- tabbed stdout/stderr/command/metadata result viewer
+- larger expandable output inspector
+- copy and wrap controls for command output
 - responsive table/cards
 
 ## Identity Frontend Flow
@@ -200,7 +207,7 @@ PackagesPage
 
 The Packages UI displays reusable package definitions with install, uninstall, validation, variable, tag, category, and supported OS metadata. It supports adding custom package definitions, editing built-in working copies, cloning templates, restoring modified built-ins to defaults, deleting custom definitions, selecting target hosts, bulk execution, and running packages through Jobs.
 
-Package variable definitions are shown on package cards. Before execution, the UI prompts for required/defaulted variables and sends them with the execution request. Sensitive variables are flagged in the UI, but this is not yet a secrets vault.
+Package variable definitions are edited through a visual editor instead of raw JSON. Before execution, a modal displays the execution preview, normal runtime inputs, and credential dropdowns for sensitive variables. Sensitive values are sent as `credential_refs`, not plaintext.
 
 ## Profiles Frontend Flow
 
@@ -215,25 +222,36 @@ The Profiles UI includes:
 
 - profile cards
 - ordered step display
-- profile builder using package/action/command references
+- profile builder using visual step cards for package/action/deployment/script step types
 - editable built-in working copies
 - clone and restore-default workflows
-- drag-and-drop step ordering preview
-- variable definition editor through JSON
-- execution-time variable prompts
+- move up/down and drag-and-drop step ordering preview
+- visual variable definition editor
+- execution modal with runtime inputs and credential dropdowns for sensitive variables
 - target inventory host selector
 - apply profile action
 - generated job sequence visibility
 
-Profile steps are still authored in a compact text format for this phase:
+Profile steps are authored as structured JSON through visual cards. The frontend still preserves backend compatibility with older `kind/reference_id` step shape, but operators no longer edit compact step text directly.
+
+## Credentials Frontend Flow
 
 ```text
-package:docker-engine:Install Docker Engine
-action:docker-status:Check Docker Service
-command:sudo systemctl daemon-reload
+CredentialsPage
+  -> credentialsApi
+  -> shared apiClient
+  -> FastAPI /api/v1/credentials
 ```
 
-The drag-and-drop preview rewrites this text order and keeps the execution sequence visible.
+The Credentials UI includes:
+
+- credential list with type and scope badges
+- create credential form
+- type-aware username behavior
+- masked secret display only
+- delete credential action
+
+Secret material is submitted once and never shown again after creation.
 
 ## Integrations Frontend Flow
 
@@ -293,6 +311,11 @@ Tailwind is configured through:
 - `frontend/src/styles/global.css`
 
 The UI uses utility classes directly. Shared visual primitives are minimal and feature components remain explicit.
+
+Shared UI components now include:
+
+- `ExecutionVariablesModal` for package/profile execution inputs and credential selection
+- `VariableDefinitionEditor` for visual variable definition editing
 
 ## Tooling
 

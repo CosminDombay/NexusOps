@@ -3,6 +3,7 @@ from datetime import UTC, datetime
 from sqlalchemy.exc import IntegrityError
 
 from backend.app.common.variables import VariableResolutionError, VariableResolutionService
+from backend.app.modules.credentials.service import CredentialService
 from backend.app.modules.jobs.schemas import BulkExecutionRead, JobBulkExecuteRequest, JobExecuteRequest, JobRead
 from backend.app.modules.jobs.service import JobService
 from backend.app.modules.packages.definitions import (
@@ -45,9 +46,11 @@ class PackageAutomationService:
         *,
         repository: PackageDefinitionRepository | None = None,
         job_service: JobService | None = None,
+        credential_service: CredentialService | None = None,
     ) -> None:
         self.repository = repository
         self.job_service = job_service
+        self.credential_service = credential_service
         self.variable_service = VariableResolutionService()
 
     async def list_definitions(self) -> list[PackageDefinitionRead]:
@@ -185,12 +188,17 @@ class PackageAutomationService:
             raise RuntimeError("Job service is required")
 
         definition = await self.get_definition(package_id)
-        command = self._resolve_definition_command(definition, payload.variables)
+        command, redacted_command = await self._resolve_definition_commands(
+            definition,
+            payload.variables,
+            payload.credential_refs,
+        )
         return await self.job_service.execute(
             JobExecuteRequest(
                 target_server_id=payload.target_server_id,
                 operation_type=f"package:{definition.id}",
                 command=command,
+                redacted_command=redacted_command,
             )
         )
 
@@ -199,12 +207,17 @@ class PackageAutomationService:
             raise RuntimeError("Job service is required")
 
         definition = await self.get_definition(payload.package_id)
-        command = self._resolve_definition_command(definition, payload.variables)
+        command, redacted_command = await self._resolve_definition_commands(
+            definition,
+            payload.variables,
+            payload.credential_refs,
+        )
         return await self.job_service.execute_bulk(
             JobBulkExecuteRequest(
                 target_server_ids=payload.target_server_ids,
                 operation_type=f"package:{definition.id}",
                 command=command,
+                redacted_command=redacted_command,
             )
         )
 
@@ -280,3 +293,74 @@ class PackageAutomationService:
         except VariableResolutionError:
             raise
         return f"{install} && {validation}"
+
+    async def _resolve_definition_commands(
+        self,
+        definition: PackageDefinitionRead,
+        variables: dict[str, str],
+        credential_refs: dict[str, str],
+    ) -> tuple[str, str]:
+        definitions = [variable.model_dump() for variable in definition.variables]
+        secret_values = await self._resolve_secret_variables(definitions, credential_refs)
+        safe_variables = self._without_sensitive_plaintext(definitions, variables, credential_refs)
+        runtime_variables = {**safe_variables, **secret_values}
+        redacted_variables = {**safe_variables, **{name: "********" for name in secret_values}}
+
+        install = self.variable_service.resolve_text(
+            definition.install_command,
+            definitions=definitions,
+            variables=runtime_variables,
+        )
+        validation = self.variable_service.resolve_text(
+            definition.validation_command,
+            definitions=definitions,
+            variables=runtime_variables,
+        )
+        redacted_install = self.variable_service.resolve_text(
+            definition.install_command,
+            definitions=definitions,
+            variables=redacted_variables,
+        )
+        redacted_validation = self.variable_service.resolve_text(
+            definition.validation_command,
+            definitions=definitions,
+            variables=redacted_variables,
+        )
+        return f"{install} && {validation}", f"{redacted_install} && {redacted_validation}"
+
+    async def _resolve_secret_variables(
+        self,
+        definitions: list[dict],
+        credential_refs: dict[str, str],
+    ) -> dict[str, str]:
+        secret_values: dict[str, str] = {}
+        sensitive_names = [str(item["name"]) for item in definitions if item.get("name") and item.get("sensitive")]
+        for name in sensitive_names:
+            credential_ref = credential_refs.get(name)
+            if not credential_ref:
+                definition = next(item for item in definitions if item.get("name") == name)
+                if definition.get("required"):
+                    raise VariableResolutionError(f"Sensitive variable {name} requires a credential reference")
+                continue
+            if self.credential_service is None:
+                raise VariableResolutionError("Credential service is required for sensitive package variables")
+            credential = await self.credential_service.resolve_credential(credential_ref)
+            secret = credential.secret or credential.private_key
+            if not secret:
+                raise VariableResolutionError(f"Credential reference for {name} has no usable secret value")
+            secret_values[name] = secret
+        return secret_values
+
+    @staticmethod
+    def _without_sensitive_plaintext(
+        definitions: list[dict],
+        variables: dict[str, str],
+        credential_refs: dict[str, str],
+    ) -> dict[str, str]:
+        sensitive_names = {str(item["name"]) for item in definitions if item.get("name") and item.get("sensitive")}
+        unsafe = sorted(name for name in sensitive_names if variables.get(name) and not credential_refs.get(name))
+        if unsafe:
+            raise VariableResolutionError(
+                "Sensitive variable(s) must use credential references: " + ", ".join(unsafe)
+            )
+        return {name: value for name, value in variables.items() if name not in sensitive_names}
