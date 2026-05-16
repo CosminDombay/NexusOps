@@ -2,9 +2,9 @@
 
 ## Implementation Status
 
-NexusOps is currently a modular monolith with a FastAPI backend, a React/Vite frontend, PostgreSQL persistence, and a CMDB-style server inventory. The platform also includes Proxmox infrastructure visibility, controlled VM lifecycle actions, Proxmox template provisioning, Proxmox-to-inventory synchronization, SSH-backed job execution, reusable operational actions, package definitions, and infrastructure profiles.
+NexusOps is currently a modular monolith with a FastAPI backend, a React/Vite frontend, PostgreSQL persistence, and a CMDB-style server inventory. The platform also includes Proxmox infrastructure visibility, controlled VM lifecycle actions, Proxmox template provisioning, Proxmox-to-inventory synchronization, SSH-backed job execution, reusable operational actions, package definitions, infrastructure profiles, editable built-in operational templates, integration records, and simple variable-driven execution.
 
-The implemented system is focused on foundations, visibility, narrowly scoped VM lifecycle control, template provisioning, inventory synchronization, and the first orchestration layer. It does not yet perform VM deletion, Docker deployment, monitoring collection, authentication, or workflow chaining.
+The implemented system is focused on foundations, visibility, narrowly scoped VM lifecycle control, template provisioning, inventory synchronization, reusable automation templates, and the first orchestration layer. It does not yet perform VM deletion, full secrets vaulting, Terraform execution, Ansible execution, authentication, authorization, or workflow chaining.
 
 ## Working Functionality
 
@@ -42,6 +42,8 @@ The implemented system is focused on foundations, visibility, narrowly scoped VM
   - VM inventory synchronization status
   - import to Inventory workflow for unmanaged discovered VMs
   - reconciliation for missing, mismatched, and orphaned inventory records
+  - guest-agent IP discovery for QEMU VMs when the agent is available
+  - node detail page with per-node VM visibility
 - Provisioning:
   - Proxmox template selection
   - full clone from cloud-init-capable templates
@@ -72,6 +74,11 @@ The implemented system is focused on foundations, visibility, narrowly scoped VM
   - UFW
   - custom create/update/delete support
   - direct package execution through Jobs
+  - editable built-in working copies that preserve recoverable system defaults
+  - clone workflow for deriving user-managed templates from built-ins or custom records
+  - restore-default workflow for built-in package overrides
+  - install, uninstall, validation, variable, tag, category, and description editing
+  - simple `{{ variable_name }}` command parameterization with execution-time inputs
 - Infrastructure profiles:
   - Base Linux Server
   - Docker Host
@@ -79,6 +86,16 @@ The implemented system is focused on foundations, visibility, narrowly scoped VM
   - Development VM
   - sequential execution through Jobs
   - custom create/update/delete support
+  - editable built-in working copies that preserve recoverable system defaults
+  - clone workflow for deriving user-managed profiles from built-ins or custom records
+  - restore-default workflow for built-in profile overrides
+  - action, package, and raw command steps
+  - variable definitions and execution-time variable prompts
+  - drag-and-drop step reordering in the editor
+- Integrations:
+  - persisted integration records for infrastructure providers, monitoring, networking, and database integrations
+  - connection test support for Proxmox, Prometheus, and Grafana
+  - Settings page for integration visibility and basic create/toggle/test workflows
 - ESLint 9 flat configuration, TypeScript build, TailwindCSS, and Prettier configuration.
 - Docker Compose deployments:
   - deployment definitions with compose/env storage
@@ -137,13 +154,27 @@ Inventory remains the source of managed execution targets. Jobs persist every co
 
 ### Package Definitions and Profiles
 
-Package definitions describe reusable install and validation commands. Built-in package definitions provide starter standards, and custom definitions can be created for local workflows. Profiles compose ordered package/action steps and apply them to inventory-managed hosts through the Jobs pipeline:
+Package definitions describe reusable install, uninstall, validation, variable, and metadata fields. Built-in package definitions provide starter standards, and custom definitions can be created for local workflows. Built-ins can also be edited as persisted working copies: the original code-defined template remains recoverable, while the persisted record carries `is_builtin`, `is_modified`, `base_version`, `source_template_id`, and `modified_at` metadata.
+
+Profiles compose ordered package/action/command steps and apply them to inventory-managed hosts through the Jobs pipeline:
 
 ```text
 Profile -> Package/Action step -> Job -> SSH adapter -> managed Linux host
 ```
 
-Profile execution is synchronous and sequential for the MVP. Each step creates a persisted job. Profiles can be built from built-in actions, built-in packages, and custom package definitions.
+Profile execution is synchronous and sequential for the MVP. Each step creates a persisted job. Profiles can be built from built-in actions, built-in packages, custom package definitions, and raw command steps. Built-in profiles can be edited as persisted working copies, cloned into user-managed templates, or reset to the code-defined default.
+
+Template variables use the intentionally small syntax `{{ variable_name }}`. Variables are resolved before Jobs execution using definition defaults plus execution-time inputs. This is not a full templating engine: NexusOps does not execute Jinja, Python, or arbitrary template logic.
+
+Clone behavior intentionally breaks system update linkage. A cloned package/profile stores `source_template_id` for traceability but becomes user-managed and is no longer reset by built-in template changes.
+
+Reset-to-default behavior applies only to built-in templates. It discards the persisted override while preserving execution history in Jobs.
+
+### Integrations and Settings
+
+Integration records provide a persisted configuration surface for provider and monitoring systems. They currently support basic creation, enable/disable toggling, and connection tests for Proxmox, Prometheus, and Grafana.
+
+Runtime Proxmox, Prometheus, and Grafana services still primarily read local environment configuration. Integration records are the foundation for later runtime adapter selection and secret management, not a production-grade vault.
 
 ### Proxmox Template Provisioning
 
@@ -174,6 +205,8 @@ Discovered VMs are shown as unmanaged until an operator imports them. Import cre
 - Proxmox uses service-adapter separation because it talks to an external API rather than local persistence.
 - Operational actions are a lightweight registry in the Jobs module and execute through the existing Jobs service.
 - Package definitions and profiles combine built-in registries with persisted custom definitions and reuse Jobs for execution.
+- Built-in packages and profiles are code-defined system templates with persisted editable overrides.
+- Variable resolution lives in `backend/app/common/variables.py` and intentionally supports placeholder substitution only.
 - Provisioning orchestrates Proxmox, Inventory, and bootstrap Jobs without creating a separate execution path.
 - Adapter packages are canonicalized under `backend/app/adapters/`.
 - SSH has a concrete Paramiko adapter for key/password command execution.
@@ -185,6 +218,7 @@ Discovered VMs are shown as unmanaged until an operator imports them. Import cre
 - Execution module is still a placeholder.
 - Authentication and authorization are not implemented.
 - SSH passwords/private key paths are stored as a temporary local MVP, not encrypted or vault-backed.
+- Integration configs and template variable values are not a secrets vault; sensitive values are masked in intent only and should remain local MVP metadata until vault/encryption work lands.
 - No frontend test framework is configured yet.
 - No CI pipeline is defined in the repo.
 - Inventory tests use SQLite fixtures; PostgreSQL migration behavior is validated manually, not in automated CI.
@@ -197,7 +231,9 @@ Discovered VMs are shown as unmanaged until an operator imports them. Import cre
 - Provisioning runs synchronously in the API request; no background worker or websocket status streaming exists yet.
 - No centralized authentication or domain identity provider. Identity is Linux orchestration only; LDAP, Kerberos, FreeIPA, Active Directory, SSSD, PAM rewriting, and login federation are intentionally out of scope.
 - Existing `docs/architecture.md` is older and less precise than the newer files in `docs/architecture/`.
+- Runtime adapters do not yet load active integration records as their source of truth.
+- Variable prompting in the frontend is intentionally basic and should become a dedicated execution dialog.
 
 ## Current Safety Boundary
 
-The platform can mutate NexusOps-owned inventory data, import and reconcile discovered Proxmox VMs into Inventory, request controlled Proxmox VM lifecycle actions, provision VMs from Proxmox templates, execute commands/actions against inventory-managed Linux hosts over SSH, deploy Docker Compose projects, query Prometheus metrics, and replicate Linux identity state. Inventory deletion and archival are CMDB operations only; they do not destroy Proxmox VMs. The platform does not expose VM deletion, ISO installation, Kubernetes, Terraform execution, centralized authentication, or arbitrary provider-side infrastructure mutation.
+The platform can mutate NexusOps-owned inventory data, import and reconcile discovered Proxmox VMs into Inventory, request controlled Proxmox VM lifecycle actions, provision VMs from Proxmox templates, edit reusable automation templates, execute commands/actions/packages/profiles against inventory-managed Linux hosts over SSH, deploy Docker Compose projects, query Prometheus metrics, and replicate Linux identity state. Inventory deletion and archival are CMDB operations only; they do not destroy Proxmox VMs. Template reset restores NexusOps defaults only; it does not alter historical Jobs. The platform does not expose VM deletion, ISO installation, Kubernetes, Terraform execution, centralized authentication, or arbitrary provider-side infrastructure mutation.

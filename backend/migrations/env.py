@@ -10,6 +10,7 @@ from backend.app.db.base import Base
 from backend.app.modules.deployments.models import Deployment, DeploymentRevision, DeploymentTarget
 from backend.app.modules.execution.models import CommandExecution
 from backend.app.modules.inventory.models import Server
+from backend.app.modules.integrations.models import Integration
 from backend.app.modules.identity.models import (
     IdentityExecution,
     LinuxGroup,
@@ -37,6 +38,7 @@ _models = (
     DeploymentRevision,
     DeploymentTarget,
     IdentityExecution,
+    Integration,
     Job,
     LinuxGroup,
     LinuxUser,

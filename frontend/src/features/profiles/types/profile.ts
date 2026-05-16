@@ -3,8 +3,17 @@ import type { Job } from '../../jobs/types/job';
 export type ProfileStep = {
   id: string;
   name: string;
-  kind: 'action' | 'package';
+  kind: 'action' | 'package' | 'command';
   reference_id: string;
+  command?: string | null;
+};
+
+export type TemplateVariable = {
+  name: string;
+  description: string;
+  default_value: string | null;
+  required: boolean;
+  sensitive: boolean;
 };
 
 export type InfrastructureProfile = {
@@ -14,7 +23,12 @@ export type InfrastructureProfile = {
   description: string;
   tags: string[];
   steps: ProfileStep[];
+  variables: TemplateVariable[];
   is_builtin: boolean;
+  is_modified: boolean;
+  base_version: string | null;
+  source_template_id: string | null;
+  modified_at: string | null;
   created_at: string | null;
   updated_at: string | null;
 };
@@ -26,11 +40,13 @@ export type CreateInfrastructureProfilePayload = {
   description: string;
   tags: string[];
   steps: ProfileStep[];
+  variables: TemplateVariable[];
 };
 
 export type ApplyProfilePayload = {
   target_server_id: string;
   stop_on_failure: boolean;
+  variables?: Record<string, string>;
 };
 
 export type ApplyProfileResult = {
@@ -45,6 +61,7 @@ export type ApplyProfileBulkPayload = {
   profile_id: string;
   target_server_ids: string[];
   stop_on_failure: boolean;
+  variables?: Record<string, string>;
 };
 
 export type ApplyProfileBulkResult = {

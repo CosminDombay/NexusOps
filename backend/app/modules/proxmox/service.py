@@ -9,6 +9,7 @@ from backend.app.modules.inventory.service import InventoryService
 from backend.app.modules.proxmox.schemas import (
     ProxmoxClusterSummaryRead,
     ProxmoxDashboardRead,
+    ProxmoxNodeDetailRead,
     ProxmoxNodeRead,
     ProxmoxVmActionRead,
     ProxmoxVmRead,
@@ -46,7 +47,14 @@ class ProxmoxService:
 
     async def list_vms(self) -> list[ProxmoxVmRead]:
         raw_vms = await self.adapter.list_vms()
-        vms = [self._normalize_vm(vm) for vm in raw_vms]
+        vms = []
+        for raw_vm in raw_vms:
+            vm = self._normalize_vm(raw_vm)
+            if vm.ip_address is None:
+                detected_ip = await self._detect_guest_ip(vm)
+                if detected_ip:
+                    vm = vm.model_copy(update={"ip_address": detected_ip})
+            vms.append(vm)
         if self.server_repository is not None:
             vms = await self._add_inventory_context(vms)
         logger.info("proxmox_vms_normalized", vm_count=len(vms))
@@ -70,6 +78,19 @@ class ProxmoxService:
             summary=self._build_summary(nodes=nodes, vms=vms),
             nodes=nodes,
             vms=vms,
+        )
+
+    async def get_node_detail(self, node_name: str) -> ProxmoxNodeDetailRead:
+        raw_nodes = await self.adapter.get_nodes()
+        vms = await self.list_vms()
+        nodes = self._normalize_nodes(raw_nodes=raw_nodes, vms=vms)
+        node = next((candidate for candidate in nodes if candidate.name == node_name), None)
+        if node is None:
+            raise ProxmoxVmNotFoundError("Node not found")
+        return ProxmoxNodeDetailRead(
+            node=node,
+            vms=[vm for vm in vms if vm.node == node_name],
+            storage_usage=[],
         )
 
     async def start_vm(self, vm_id: int) -> ProxmoxVmActionRead:
@@ -230,6 +251,17 @@ class ProxmoxService:
             )
         return enriched
 
+    async def _detect_guest_ip(self, vm: ProxmoxVmRead) -> str | None:
+        try:
+            interfaces = await self.adapter.get_vm_network_interfaces(
+                node=vm.node,
+                vm_id=vm.vm_id,
+                vm_type=vm.type,
+            )
+        except Exception:
+            return None
+        return _first_guest_ip(interfaces)
+
     @staticmethod
     def _build_summary(
         *,
@@ -274,3 +306,19 @@ def _optional_str(value: Any) -> str | None:
     if value is None:
         return None
     return str(value)
+
+
+def _first_guest_ip(interfaces: list[dict[str, Any]]) -> str | None:
+    for interface in interfaces:
+        addresses = interface.get("ip-addresses") or interface.get("ip_addresses") or []
+        if not isinstance(addresses, list):
+            continue
+        for address in addresses:
+            if not isinstance(address, dict):
+                continue
+            ip_address = _optional_str(address.get("ip-address") or address.get("ip_address"))
+            ip_type = _optional_str(address.get("ip-address-type") or address.get("ip_address_type"))
+            if not ip_address or ip_type == "ipv6" or ip_address.startswith("127."):
+                continue
+            return ip_address
+    return None

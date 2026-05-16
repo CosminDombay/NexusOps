@@ -122,6 +122,10 @@ backend/app/adapters/
   - Fail2Ban
   - UFW
   - custom package create/update/delete
+  - editable built-in package working copies
+  - package clone workflow
+  - built-in package reset-to-default workflow
+  - package variable definitions and execution-time variable injection
   - package execution through Jobs
 - Infrastructure profiles:
   - Base Linux Server
@@ -130,7 +134,14 @@ backend/app/adapters/
   - Development VM
   - sequential package/action execution through Jobs
   - custom profile create/update/delete
+  - editable built-in profile working copies
+  - profile clone workflow
+  - built-in profile reset-to-default workflow
+  - profile variable definitions and execution-time variable injection
+  - raw command profile steps
+  - frontend step reordering preview
 - Packages and Profiles frontend pages
+- Integration records and frontend Integrations settings page
 - Provisioning frontend page
 - ESLint, Prettier, Tailwind, and TypeScript tooling
 - persistent docs under `docs/architecture/` and `docs/sprints/`
@@ -174,6 +185,9 @@ backend/app/adapters/
 - Inventory remains the orchestration abstraction layer. Jobs and operational actions execute only against inventory-managed servers, not raw Proxmox VM records.
 - Operational actions must reuse the Jobs -> SSH -> persistence pipeline instead of creating standalone execution logic.
 - Packages and Profiles must resolve into Jobs; they must not bypass the Jobs -> SSH -> persistence pipeline.
+- Built-in package/profile defaults must remain recoverable through reset-to-default behavior.
+- Cloned package/profile templates are user-managed and should not be implicitly changed by system template updates.
+- Template variables use simple `{{ variable_name }}` substitution only; do not add Jinja, arbitrary Python execution, or a workflow engine.
 - Identity operations must resolve into Jobs; they must not bypass the Jobs -> SSH -> persistence pipeline.
 - Identity is Linux infrastructure orchestration and replication, not centralized authentication. Do not add LDAP, Kerberos, FreeIPA, Active Directory, SSSD, PAM rewriting, or login federation.
 - Default Identity UX should be guided and operational. Preserve advanced Linux controls behind advanced mode rather than removing them.

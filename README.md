@@ -11,7 +11,7 @@ This repository is scaffolded as a modular monolith:
 The current implementation includes the platform foundation, CMDB-style inventory CRUD,
 Proxmox visibility/lifecycle control, template-based VM provisioning,
 Proxmox-to-inventory synchronization, SSH-backed job execution, reusable operational actions, package definitions,
-and infrastructure profiles.
+infrastructure profiles, editable operational templates, and simple variable-driven execution.
 
 ## MVP Domains
 
@@ -24,7 +24,11 @@ and infrastructure profiles.
 - SSH-based remote execution
 - Operational action execution through Jobs
 - Package definition catalog
+- Editable built-in package templates with clone and reset-to-default workflows
 - Reusable infrastructure profiles
+- Editable built-in profile templates with clone, step ordering, and reset-to-default workflows
+- Simple `{{ variable_name }}` parameterization for package/profile execution
+- Integration records for provider and monitoring connection settings
 - SSH-backed Docker Compose deployment workflows
 - Package installation automation
 - Prometheus-backed monitoring/statistics foundations
@@ -55,7 +59,11 @@ Backend API docs will be available at `http://localhost:8000/docs`.
 - Inventory health checks perform lightweight TCP reachability checks against SSH ports without logging in on each refresh.
 - Operational actions provide predefined workflows such as uptime, disk usage, memory usage, Docker checks, Docker restart, and simple installation actions.
 - Package definitions describe reusable install/validation commands for common infrastructure packages and can be extended with custom definitions.
-- Infrastructure profiles orchestrate ordered package/action workflows through Jobs and can be built from built-in or custom steps.
+- Built-in package definitions can be edited as persisted working copies, cloned into custom templates, or restored to the system default.
+- Package variables use simple `{{ variable_name }}` placeholders and are resolved before execution from defaults and execution-time inputs.
+- Infrastructure profiles orchestrate ordered package/action/command workflows through Jobs and can be built from built-in or custom steps.
+- Built-in profiles can be edited as persisted working copies, cloned into user-managed templates, reordered, or restored to the system default.
+- Integration records provide a central place to store and test provider/monitoring connection metadata while runtime adapters still primarily use local environment configuration.
 - Docker Compose deployments store compose/env definitions and execute deploy/redeploy/restart/stop/status/logs through the Jobs -> SSH pipeline.
 - Monitoring reads metrics from the Prometheus HTTP API when configured and links to Grafana when configured.
 - Identity orchestration stores Linux users, groups, SSH public keys, and permission templates, then replicates user/group/access/permission changes across selected Inventory-managed hosts through Jobs and SSH.

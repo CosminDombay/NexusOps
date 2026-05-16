@@ -10,6 +10,7 @@ const navItems = [
   { to: '/monitoring', label: 'Monitoring' },
   { to: '/profiles', label: 'Profiles' },
   { to: '/jobs', label: 'Jobs' },
+  { to: '/settings/integrations', label: 'Integrations' },
 ];
 
 export function AppLayout() {

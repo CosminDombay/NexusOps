@@ -1,3 +1,5 @@
+import { Link } from 'react-router-dom';
+
 import type { ProxmoxNode } from '../types/proxmox';
 import { formatBytes, formatPercent, formatUptime } from '../utils/format';
 import { StatusBadge } from './StatusBadge';
@@ -18,7 +20,9 @@ export function NodeCards({ nodes }: NodeCardsProps) {
           <article key={node.name} className="rounded-lg border border-zinc-200 p-4">
             <div className="flex items-start justify-between gap-3">
               <div>
-                <h4 className="font-semibold text-zinc-950">{node.name}</h4>
+                <Link className="font-semibold text-zinc-950 hover:text-zinc-700" to={`/infrastructure/nodes/${node.name}`}>
+                  {node.name}
+                </Link>
                 <p className="mt-1 text-sm text-zinc-500">{node.vm_count} VMs</p>
               </div>
               <StatusBadge status={node.status} />

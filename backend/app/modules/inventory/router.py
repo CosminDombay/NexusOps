@@ -5,11 +5,16 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.adapters.proxmox import HttpProxmoxAdapter
+from backend.app.adapters.ssh import ParamikoSshAdapter
 from backend.app.db.session import get_db_session
+from backend.app.modules.inventory.discovery import HostDiscoveryError, HostDiscoveryService
 from backend.app.modules.inventory.models import ServerEnvironment
 from backend.app.modules.inventory.health import InventoryHealthService
 from backend.app.modules.inventory.repository import ServerRepository
 from backend.app.modules.inventory.schemas import (
+    HostDockerRead,
+    HostNetworkRead,
+    HostSystemRead,
     BulkInventoryHealthCheckRequest,
     InventoryHealthCheckResult,
     InventoryHealthSummary,
@@ -38,6 +43,10 @@ async def get_inventory_health_service(
     session: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> InventoryHealthService:
     return InventoryHealthService(ServerRepository(session))
+
+
+async def get_host_discovery_service() -> HostDiscoveryService:
+    return HostDiscoveryService(ParamikoSshAdapter())
 
 
 @router.get("", response_model=list[ServerRead])
@@ -74,6 +83,51 @@ async def get_server(
         return await service.get_server(server_id)
     except ServerNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+
+@router.get("/{server_id}/system", response_model=HostSystemRead)
+async def get_server_system(
+    server_id: UUID,
+    inventory_service: Annotated[InventoryService, Depends(get_inventory_service)],
+    discovery_service: Annotated[HostDiscoveryService, Depends(get_host_discovery_service)],
+) -> HostSystemRead:
+    try:
+        server = await inventory_service.get_server(server_id)
+        return await discovery_service.system(server)
+    except ServerNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except HostDiscoveryError as exc:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
+
+
+@router.get("/{server_id}/network", response_model=HostNetworkRead)
+async def get_server_network(
+    server_id: UUID,
+    inventory_service: Annotated[InventoryService, Depends(get_inventory_service)],
+    discovery_service: Annotated[HostDiscoveryService, Depends(get_host_discovery_service)],
+) -> HostNetworkRead:
+    try:
+        server = await inventory_service.get_server(server_id)
+        return await discovery_service.network(server)
+    except ServerNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except HostDiscoveryError as exc:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
+
+
+@router.get("/{server_id}/docker", response_model=HostDockerRead)
+async def get_server_docker(
+    server_id: UUID,
+    inventory_service: Annotated[InventoryService, Depends(get_inventory_service)],
+    discovery_service: Annotated[HostDiscoveryService, Depends(get_host_discovery_service)],
+) -> HostDockerRead:
+    try:
+        server = await inventory_service.get_server(server_id)
+        return await discovery_service.docker(server)
+    except ServerNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except HostDiscoveryError as exc:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
 
 
 @router.post("/{server_id}/health-check", response_model=InventoryHealthCheckResult)

@@ -12,11 +12,13 @@ from backend.app.modules.jobs.service import JobService, JobTargetNotFoundError,
 from backend.app.modules.packages.repository import PackageDefinitionRepository
 from backend.app.modules.packages.schemas import PackageDefinitionRead
 from backend.app.modules.packages.schemas import (
+    PackageCloneRequest,
     PackageDefinitionCreate,
     PackageDefinitionUpdate,
     PackageBulkApplyRequest,
     PackageExecuteRequest,
 )
+from backend.app.common.variables import VariableResolutionError
 from backend.app.modules.packages.service import (
     BuiltinPackageDefinitionError,
     PackageAutomationService,
@@ -56,6 +58,8 @@ async def execute_package_bulk(
         return await service.execute_definition_bulk(payload)
     except PackageDefinitionNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except VariableResolutionError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
 
 
 @router.post("", response_model=PackageDefinitionRead, status_code=status.HTTP_201_CREATED)
@@ -94,6 +98,31 @@ async def update_package_definition(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
 
 
+@router.post("/{package_id}/clone", response_model=PackageDefinitionRead, status_code=status.HTTP_201_CREATED)
+async def clone_package_definition(
+    package_id: str,
+    payload: PackageCloneRequest,
+    service: Annotated[PackageAutomationService, Depends(get_package_service)],
+) -> PackageDefinitionRead:
+    try:
+        return await service.clone_definition(package_id, payload)
+    except PackageDefinitionNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except PackageDefinitionConflictError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+
+
+@router.post("/{package_id}/reset", response_model=PackageDefinitionRead)
+async def reset_package_definition(
+    package_id: str,
+    service: Annotated[PackageAutomationService, Depends(get_package_service)],
+) -> PackageDefinitionRead:
+    try:
+        return await service.reset_definition(package_id)
+    except (PackageDefinitionNotFoundError, BuiltinPackageDefinitionError) as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+
 @router.delete("/{package_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_package_definition(
     package_id: str,
@@ -117,6 +146,8 @@ async def execute_package_definition(
         return await service.execute_definition(package_id, payload)
     except PackageDefinitionNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except VariableResolutionError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
     except JobTargetNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except JobTargetNotManagedError as exc:

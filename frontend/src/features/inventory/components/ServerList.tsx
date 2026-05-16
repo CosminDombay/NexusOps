@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { AlertCircle, Archive, CheckSquare, Pencil, RefreshCw, ServerIcon, Trash2 } from 'lucide-react';
 
 import type { Server, UpdateServerPayload } from '../types/server';
@@ -150,7 +151,9 @@ export function ServerList({
                   />
                 </td>
                 <td className="px-5 py-4">
-                  <div className="font-medium text-zinc-950">{server.hostname}</div>
+                  <Link className="font-medium text-zinc-950 hover:text-zinc-700" to={`/inventory/${server.id}`}>
+                    {server.hostname}
+                  </Link>
                   <div className="mt-1 text-xs text-zinc-500">{server.operating_system}</div>
                 </td>
                 <td className="px-5 py-4 text-sm font-mono text-zinc-700">{server.ip_address}</td>
@@ -192,7 +195,9 @@ export function ServerList({
           <article key={server.id} className="rounded-lg border border-zinc-200 p-4">
             <div className="flex items-start justify-between gap-3">
               <div>
-                <h4 className="font-semibold text-zinc-950">{server.hostname}</h4>
+                <Link className="font-semibold text-zinc-950 hover:text-zinc-700" to={`/inventory/${server.id}`}>
+                  {server.hostname}
+                </Link>
                 <p className="mt-1 font-mono text-sm text-zinc-600">{server.ip_address}</p>
               </div>
               <HealthBadge status={server.last_health_status} />

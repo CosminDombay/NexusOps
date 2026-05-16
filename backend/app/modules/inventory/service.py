@@ -104,7 +104,10 @@ class InventoryService:
             sync_status=InventorySyncStatus.SYNCED if discovered_vm else InventorySyncStatus.UNKNOWN,
             provider_node=payload.node,
             provider_type=payload.vm_type,
-            provider_metadata={"vm_name": vm_name},
+            provider_metadata={
+                "vm_name": vm_name,
+                "detected_ip_address": discovered_vm.ip_address if discovered_vm else None,
+            },
             last_seen_at=datetime.now(UTC) if discovered_vm else None,
         )
 
@@ -152,6 +155,8 @@ class InventoryService:
         server.provider_node = payload.node
         server.provider_type = payload.vm_type
         server.provider_metadata = {"vm_name": vm_name, "restored_from_archive": True}
+        if discovered_vm and discovered_vm.ip_address:
+            server.provider_metadata["detected_ip_address"] = discovered_vm.ip_address
         server.last_seen_at = datetime.now(UTC) if discovered_vm else None
 
         await self.repository.session.commit()
@@ -269,11 +274,15 @@ class InventoryService:
                 server.provider_node = vm.node
                 server.provider_type = vm.type
                 server.last_seen_at = datetime.now(UTC)
+                previous_detected_ip = server.provider_metadata.get("detected_ip_address")
                 server.provider_metadata = {
                     **server.provider_metadata,
                     "vm_name": vm.name,
                     "vm_status": vm.status,
+                    "detected_ip_address": vm.ip_address,
                 }
+                if self._should_apply_detected_ip(server, vm, previous_detected_ip):
+                    server.ip_address = vm.ip_address
                 server.sync_status = self._sync_status_for_match(server, vm)
             changed.append(server)
 
@@ -331,6 +340,16 @@ class InventoryService:
         from backend.app.modules.inventory.models import ServerStatus
 
         return ServerStatus.ONLINE if status == "running" else ServerStatus.OFFLINE
+
+    @staticmethod
+    def _should_apply_detected_ip(
+        server: Server,
+        vm: ProxmoxVmRead,
+        previous_detected_ip: object,
+    ) -> bool:
+        if not vm.ip_address:
+            return False
+        return not server.ip_address or server.ip_address == previous_detected_ip
 
     async def _ensure_unique(
         self,

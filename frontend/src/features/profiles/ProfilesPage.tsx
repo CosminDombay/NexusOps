@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import type { DragEvent } from 'react';
 
 import { PageHeader } from '../../components/layout/PageHeader';
 import { getApiErrorMessage } from '../../lib/api/client';
@@ -9,7 +10,7 @@ import { JobStatusBadge } from '../jobs/components/JobStatusBadge';
 import type { OperationalAction } from '../jobs/types/job';
 import { listPackageDefinitions } from '../packages/api/packagesApi';
 import type { PackageDefinition } from '../packages/types/package';
-import { applyProfile, applyProfileBulk, createProfile, deleteProfile, listProfiles } from './api/profilesApi';
+import { applyProfile, applyProfileBulk, cloneProfile, createProfile, deleteProfile, listProfiles, resetProfile, updateProfile } from './api/profilesApi';
 import type {
   ApplyProfileBulkResult,
   ApplyProfileResult,
@@ -18,9 +19,10 @@ import type {
   ProfileStep,
 } from './types/profile';
 
-type ProfileFormState = Omit<CreateInfrastructureProfilePayload, 'tags' | 'steps'> & {
+type ProfileFormState = Omit<CreateInfrastructureProfilePayload, 'tags' | 'steps' | 'variables'> & {
   tags_text: string;
   steps_text: string;
+  variables_text: string;
 };
 
 const initialProfileFormState: ProfileFormState = {
@@ -30,6 +32,7 @@ const initialProfileFormState: ProfileFormState = {
   description: '',
   tags_text: '',
   steps_text: 'package:docker-engine:Install Docker Engine\naction:docker-status:Check Docker Service',
+  variables_text: '[]',
 };
 
 export function ProfilesPage() {
@@ -48,6 +51,7 @@ export function ProfilesPage() {
   const [isCreating, setIsCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [editingProfileId, setEditingProfileId] = useState<string | null>(null);
 
   const selectedProfile = useMemo(
     () => profiles.find((profile) => profile.id === selectedProfileId) ?? profiles[0] ?? null,
@@ -84,6 +88,26 @@ export function ProfilesPage() {
     setSuccess(null);
   }
 
+  function startEdit(profile: InfrastructureProfile) {
+    setEditingProfileId(profile.id);
+    setFormState({
+      id: profile.id,
+      name: profile.name,
+      category: profile.category,
+      description: profile.description,
+      tags_text: profile.tags.join(','),
+      steps_text: formatSteps(profile.steps),
+      variables_text: JSON.stringify(profile.variables, null, 2),
+    });
+    setError(null);
+    setSuccess(null);
+  }
+
+  function resetEditor() {
+    setEditingProfileId(null);
+    setFormState(initialProfileFormState);
+  }
+
   async function handleCreateProfile() {
     if (!formState.id.trim() || !formState.name.trim()) {
       setError('Profile id and name are required.');
@@ -101,22 +125,60 @@ export function ProfilesPage() {
     setSuccess(null);
 
     try {
-      const created = await createProfile({
-        id: formState.id.trim(),
+      const payload = {
         name: formState.name.trim(),
         category: formState.category.trim() || 'Custom',
         description: formState.description.trim() || 'Custom infrastructure profile.',
         tags: splitCsv(formState.tags_text),
         steps,
-      });
-      setProfiles((current) => [...current, created]);
-      setSelectedProfileId(created.id);
-      setFormState(initialProfileFormState);
-      setSuccess(`Created profile ${created.name}.`);
+        variables: JSON.parse(formState.variables_text),
+      };
+      if (editingProfileId) {
+        const updated = await updateProfile(editingProfileId, payload);
+        setProfiles((current) => current.map((profile) => (profile.id === updated.id ? updated : profile)));
+        setSelectedProfileId(updated.id);
+        setSuccess(`Updated profile ${updated.name}.`);
+      } else {
+        const created = await createProfile({ id: formState.id.trim(), ...payload });
+        setProfiles((current) => [...current, created]);
+        setSelectedProfileId(created.id);
+        setSuccess(`Created profile ${created.name}.`);
+      }
+      resetEditor();
     } catch (caughtError) {
-      setError(getApiErrorMessage(caughtError));
+      setError(caughtError instanceof SyntaxError ? 'Variables must be valid JSON.' : getApiErrorMessage(caughtError));
     } finally {
       setIsCreating(false);
+    }
+  }
+
+  async function handleCloneProfile(profile: InfrastructureProfile) {
+    const id = window.prompt('Clone profile as ID', `${profile.id}-copy`);
+    if (!id) {
+      return;
+    }
+    try {
+      const cloned = await cloneProfile(profile.id, { id: id.trim(), name: `${profile.name} Copy` });
+      setProfiles((current) => [...current, cloned]);
+      setSelectedProfileId(cloned.id);
+      setSuccess(`Cloned profile ${cloned.name}.`);
+    } catch (caughtError) {
+      setError(getApiErrorMessage(caughtError));
+    }
+  }
+
+  async function handleResetProfile(profile: InfrastructureProfile) {
+    const confirmed = window.confirm(`Restore ${profile.name} to the built-in default? Current edits will be discarded.`);
+    if (!confirmed) {
+      return;
+    }
+    try {
+      const restored = await resetProfile(profile.id);
+      setProfiles((current) => current.map((item) => (item.id === restored.id ? restored : item)));
+      setSelectedProfileId(restored.id);
+      setSuccess(`Restored profile ${restored.name} to default.`);
+    } catch (caughtError) {
+      setError(getApiErrorMessage(caughtError));
     }
   }
 
@@ -143,6 +205,10 @@ export function ProfilesPage() {
     }
 
     const targetCount = selectedServerIds.length || 1;
+    const variables = promptProfileVariables(selectedProfile);
+    if (variables === null) {
+      return;
+    }
     const confirmed = window.confirm(`Apply ${selectedProfile.name} to ${targetCount} host(s)?`);
     if (!confirmed) {
       return;
@@ -160,6 +226,7 @@ export function ProfilesPage() {
             profile_id: profileId,
             target_server_ids: selectedServerIds,
             stop_on_failure: true,
+            variables,
           }),
         );
       } else {
@@ -167,6 +234,7 @@ export function ProfilesPage() {
           await applyProfile(profileId, {
             target_server_id: selectedServerId,
             stop_on_failure: true,
+            variables,
           }),
         );
       }
@@ -282,9 +350,11 @@ export function ProfilesPage() {
           <ProfileBuilder
             actions={actions}
             formState={formState}
+            editingProfileId={editingProfileId}
             isCreating={isCreating}
             packages={packages}
             onCreate={handleCreateProfile}
+            onCancel={resetEditor}
             onFieldChange={updateField}
           />
 
@@ -296,6 +366,9 @@ export function ProfilesPage() {
                   isSelected={selectedProfile?.id === profile.id}
                   profile={profile}
                   onDelete={handleDeleteProfile}
+                  onClone={handleCloneProfile}
+                  onEdit={startEdit}
+                  onReset={handleResetProfile}
                   onSelect={() => setSelectedProfileId(profile.id)}
                 />
               ))}
@@ -346,11 +419,17 @@ function ProfileCard({
   profile,
   isSelected,
   onDelete,
+  onClone,
+  onEdit,
+  onReset,
   onSelect,
 }: {
   profile: InfrastructureProfile;
   isSelected: boolean;
   onDelete: (profileId: string) => void;
+  onClone: (profile: InfrastructureProfile) => void;
+  onEdit: (profile: InfrastructureProfile) => void;
+  onReset: (profile: InfrastructureProfile) => void;
   onSelect: () => void;
 }) {
   return (
@@ -367,6 +446,8 @@ function ProfileCard({
           <span className="inline-flex w-fit rounded-full bg-zinc-50 px-2.5 py-1 text-xs font-medium text-zinc-600 ring-1 ring-inset ring-zinc-200">
             {profile.is_builtin ? 'Built-in' : 'Custom'}
           </span>
+          {profile.is_modified ? <Badge label="Modified" /> : null}
+          {profile.source_template_id && !profile.is_builtin ? <Badge label="Cloned" /> : null}
         </div>
       </div>
 
@@ -380,10 +461,31 @@ function ProfileCard({
             <span className="rounded-full bg-zinc-50 px-2 py-0.5 text-xs text-zinc-500 ring-1 ring-zinc-200">
               {step.kind}
             </span>
+            {step.kind === 'command' ? <span className="truncate font-mono text-xs text-zinc-500">{step.command}</span> : null}
           </li>
         ))}
       </ol>
-      <div className="mt-5 flex justify-end gap-2">
+      {profile.variables.length ? (
+        <div className="mt-4 flex flex-wrap gap-2">
+          {profile.variables.map((variable) => (
+            <span key={variable.name} className="rounded bg-zinc-100 px-2 py-1 font-mono text-xs text-zinc-700">
+              {variable.name}{variable.required ? ' *' : ''}{variable.sensitive ? ' sensitive' : ''}
+            </span>
+          ))}
+        </div>
+      ) : null}
+      <div className="mt-5 flex flex-wrap justify-end gap-2">
+        <button className="rounded-md border border-zinc-300 px-3 py-2 text-sm font-semibold text-zinc-700 transition hover:bg-zinc-50" type="button" onClick={() => onClone(profile)}>
+          Clone
+        </button>
+        <button className="rounded-md border border-zinc-300 px-3 py-2 text-sm font-semibold text-zinc-700 transition hover:bg-zinc-50" type="button" onClick={() => onEdit(profile)}>
+          Edit
+        </button>
+        {profile.is_builtin && profile.is_modified ? (
+          <button className="rounded-md border border-amber-300 px-3 py-2 text-sm font-semibold text-amber-700 transition hover:bg-amber-50" type="button" onClick={() => onReset(profile)}>
+            Restore default
+          </button>
+        ) : null}
         {!profile.is_builtin ? (
           <button
             className="rounded-md border border-rose-300 px-3 py-2 text-sm font-semibold text-rose-700 transition hover:bg-rose-50"
@@ -408,21 +510,37 @@ function ProfileCard({
 function ProfileBuilder({
   actions,
   formState,
+  editingProfileId,
   isCreating,
   packages,
   onCreate,
+  onCancel,
   onFieldChange,
 }: {
   actions: OperationalAction[];
   formState: ProfileFormState;
+  editingProfileId: string | null;
   isCreating: boolean;
   packages: PackageDefinition[];
   onCreate: () => void;
+  onCancel: () => void;
   onFieldChange: (name: keyof ProfileFormState, value: string) => void;
 }) {
+  const previewSteps = parseSteps(formState.steps_text);
+
+  function reorderSteps(from: number, to: number) {
+    if (from === to) {
+      return;
+    }
+    const next = [...previewSteps];
+    const [moved] = next.splice(from, 1);
+    next.splice(to, 0, moved);
+    onFieldChange('steps_text', formatSteps(next));
+  }
+
   return (
     <section className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm">
-      <h3 className="text-base font-semibold text-zinc-950">Build profile</h3>
+      <h3 className="text-base font-semibold text-zinc-950">{editingProfileId ? 'Edit profile' : 'Build profile'}</h3>
       <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         <TextInput label="ID" name="id" placeholder="custom-profile" value={formState.id} onChange={onFieldChange} />
         <TextInput label="Name" name="name" placeholder="Custom Profile" value={formState.name} onChange={onFieldChange} />
@@ -437,19 +555,58 @@ function ProfileBuilder({
             onChange={(event) => onFieldChange('steps_text', event.target.value)}
           />
         </label>
+        {previewSteps.length ? (
+          <div className="xl:col-span-3">
+            <p className="text-xs font-semibold uppercase text-zinc-500">Execution order</p>
+            <ol className="mt-2 space-y-2">
+              {previewSteps.map((step, index) => (
+                <li
+                  key={`${step.id}-${index}`}
+                  className="flex cursor-move items-center gap-3 rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-700"
+                  draggable
+                  onDragStart={(event: DragEvent<HTMLLIElement>) => event.dataTransfer.setData('text/plain', String(index))}
+                  onDragOver={(event) => event.preventDefault()}
+                  onDrop={(event) => {
+                    event.preventDefault();
+                    reorderSteps(Number(event.dataTransfer.getData('text/plain')), index);
+                  }}
+                >
+                  <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-zinc-950 text-xs font-semibold text-white">
+                    {index + 1}
+                  </span>
+                  <span className="min-w-0 flex-1 truncate">{step.name}</span>
+                  <span className="rounded-full bg-zinc-50 px-2 py-0.5 text-xs text-zinc-500 ring-1 ring-zinc-200">{step.kind}</span>
+                </li>
+              ))}
+            </ol>
+          </div>
+        ) : null}
+        <label className="text-sm font-medium text-zinc-700 xl:col-span-3">
+          Variables JSON
+          <textarea
+            className="mt-1 min-h-24 w-full rounded-md border border-zinc-300 bg-white px-3 py-2 font-mono text-sm text-zinc-950 shadow-sm outline-none transition focus:border-zinc-900 focus:ring-2 focus:ring-zinc-900/10"
+            value={formState.variables_text}
+            onChange={(event) => onFieldChange('variables_text', event.target.value)}
+          />
+        </label>
       </div>
       <div className="mt-4 grid gap-4 text-xs text-zinc-500 lg:grid-cols-2">
         <ReferenceList label="Package refs" values={packages.map((packageDefinition) => packageDefinition.id)} />
         <ReferenceList label="Action refs" values={actions.map((action) => action.id)} />
       </div>
-      <div className="mt-4 flex justify-end">
+      <div className="mt-4 flex justify-end gap-2">
+        {editingProfileId ? (
+          <button className="rounded-md border border-zinc-300 px-4 py-2 text-sm font-semibold text-zinc-700 transition hover:bg-zinc-50" type="button" onClick={onCancel}>
+            Cancel
+          </button>
+        ) : null}
         <button
           className="rounded-md bg-zinc-950 px-4 py-2 text-sm font-semibold text-white transition hover:bg-zinc-800 disabled:bg-zinc-300"
           disabled={isCreating}
           type="button"
           onClick={onCreate}
         >
-          {isCreating ? 'Creating' : 'Create profile'}
+          {isCreating ? 'Saving' : editingProfileId ? 'Save profile' : 'Create profile'}
         </button>
       </div>
     </section>
@@ -468,6 +625,14 @@ function ReferenceList({ label, values }: { label: string; values: string[] }) {
         ))}
       </div>
     </div>
+  );
+}
+
+function Badge({ label }: { label: string }) {
+  return (
+    <span className="inline-flex w-fit rounded-full bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700 ring-1 ring-inset ring-amber-200">
+      {label}
+    </span>
   );
 }
 
@@ -553,8 +718,21 @@ function splitCsv(value: string): string[] {
 function parseSteps(value: string): ProfileStep[] {
   return value
     .split('\n')
-    .map((line, index) => {
+    .map<ProfileStep | null>((line, index) => {
       const [kind, referenceId, name] = line.split(':').map((part) => part.trim());
+      if (kind === 'command') {
+        const command = line.split(':').slice(1).join(':').trim();
+        if (!command) {
+          return null;
+        }
+        return {
+          id: `command-${index + 1}`,
+          kind,
+          reference_id: `command-${index + 1}`,
+          name: name || `Command ${index + 1}`,
+          command,
+        };
+      }
       if ((kind !== 'action' && kind !== 'package') || !referenceId) {
         return null;
       }
@@ -566,4 +744,32 @@ function parseSteps(value: string): ProfileStep[] {
       };
     })
     .filter((step): step is ProfileStep => step !== null);
+}
+
+function formatSteps(steps: ProfileStep[]): string {
+  return steps
+    .map((step) => {
+      if (step.kind === 'command') {
+        return `command:${step.command ?? ''}`;
+      }
+      return `${step.kind}:${step.reference_id}:${step.name}`;
+    })
+    .join('\n');
+}
+
+function promptProfileVariables(profile: InfrastructureProfile): Record<string, string> | null {
+  const values: Record<string, string> = {};
+  for (const variable of profile.variables) {
+    const label = `${variable.name}${variable.description ? ` - ${variable.description}` : ''}`;
+    const value = window.prompt(label, variable.default_value ?? '');
+    if (value === null) {
+      return null;
+    }
+    if (variable.required && !value.trim()) {
+      window.alert(`${variable.name} is required.`);
+      return null;
+    }
+    values[variable.name] = value;
+  }
+  return values;
 }

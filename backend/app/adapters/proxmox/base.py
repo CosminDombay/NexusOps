@@ -23,6 +23,9 @@ class ProxmoxAdapter(Adapter):
     async def get_vm_status(self, *, node: str, vm_id: int, vm_type: str) -> dict[str, Any]:
         raise NotImplementedError
 
+    async def get_vm_network_interfaces(self, *, node: str, vm_id: int, vm_type: str) -> list[dict[str, Any]]:
+        return []
+
     @abstractmethod
     async def get_cluster_summary(self) -> dict[str, Any]:
         raise NotImplementedError

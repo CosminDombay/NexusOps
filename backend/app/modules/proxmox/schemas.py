@@ -57,3 +57,10 @@ class ProxmoxDashboardRead(BaseModel):
     summary: ProxmoxClusterSummaryRead
     nodes: list[ProxmoxNodeRead]
     vms: list[ProxmoxVmRead]
+
+
+class ProxmoxNodeDetailRead(BaseModel):
+    node: ProxmoxNodeRead
+    vms: list[ProxmoxVmRead]
+    storage_usage: list[dict[str, object]] = Field(default_factory=list)
+    placeholders: list[str] = Field(default_factory=lambda: ["wake_on_lan", "host_reboot", "maintenance_mode"])

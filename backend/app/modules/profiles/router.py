@@ -14,11 +14,13 @@ from backend.app.modules.profiles.schemas import (
     InfrastructureProfileCreate,
     InfrastructureProfileRead,
     InfrastructureProfileUpdate,
+    ProfileCloneRequest,
     ProfileApplyRead,
     ProfileBulkApplyRead,
     ProfileBulkApplyRequest,
     ProfileApplyRequest,
 )
+from backend.app.common.variables import VariableResolutionError
 from backend.app.modules.profiles.service import (
     BuiltinProfileError,
     ProfileConflictError,
@@ -95,6 +97,31 @@ async def update_profile(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
 
 
+@router.post("/{profile_id}/clone", response_model=InfrastructureProfileRead, status_code=status.HTTP_201_CREATED)
+async def clone_profile(
+    profile_id: str,
+    payload: ProfileCloneRequest,
+    service: Annotated[ProfileService, Depends(get_profile_service)],
+) -> InfrastructureProfileRead:
+    try:
+        return await service.clone_profile(profile_id, payload)
+    except ProfileNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except ProfileConflictError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+
+
+@router.post("/{profile_id}/reset", response_model=InfrastructureProfileRead)
+async def reset_profile(
+    profile_id: str,
+    service: Annotated[ProfileService, Depends(get_profile_service)],
+) -> InfrastructureProfileRead:
+    try:
+        return await service.reset_profile(profile_id)
+    except (ProfileNotFoundError, BuiltinProfileError) as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+
 @router.delete("/{profile_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_profile(
     profile_id: str,
@@ -122,3 +149,5 @@ async def apply_profile(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     except ProfileStepResolutionError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    except VariableResolutionError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc

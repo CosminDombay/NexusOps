@@ -6,10 +6,13 @@ import { listServers } from '../inventory/api/serversApi';
 import type { Server } from '../inventory/types/server';
 import {
   createPackageDefinition,
+  clonePackageDefinition,
   deletePackageDefinition,
   executePackageDefinition,
   executePackageDefinitionBulk,
   listPackageDefinitions,
+  resetPackageDefinition,
+  updatePackageDefinition,
 } from './api/packagesApi';
 import type { CreatePackageDefinitionPayload, PackageDefinition } from './types/package';
 import type { BulkExecutionResponse } from '../jobs/types/job';
@@ -26,7 +29,9 @@ const initialFormState: FormState = {
   supported_os: [],
   supported_os_text: 'ubuntu,debian',
   install_command: '',
+  uninstall_command: '',
   validation_command: '',
+  variables: [],
   tags: [],
   tags_text: '',
   description: '',
@@ -44,6 +49,8 @@ export function PackagesPage() {
   const [isCreating, setIsCreating] = useState(false);
   const [executingPackageId, setExecutingPackageId] = useState<string | null>(null);
   const [bulkResult, setBulkResult] = useState<BulkExecutionResponse | null>(null);
+  const [editingPackageId, setEditingPackageId] = useState<string | null>(null);
+  const [variablesText, setVariablesText] = useState('[]');
 
   useEffect(() => {
     async function loadPackages() {
@@ -71,6 +78,33 @@ export function PackagesPage() {
     setSuccess(null);
   }
 
+  function startEdit(packageDefinition: PackageDefinition) {
+    setEditingPackageId(packageDefinition.id);
+    setFormState({
+      id: packageDefinition.id,
+      name: packageDefinition.name,
+      category: packageDefinition.category,
+      supported_os: packageDefinition.supported_os,
+      supported_os_text: packageDefinition.supported_os.join(','),
+      install_command: packageDefinition.install_command,
+      uninstall_command: packageDefinition.uninstall_command,
+      validation_command: packageDefinition.validation_command,
+      variables: packageDefinition.variables,
+      tags: packageDefinition.tags,
+      tags_text: packageDefinition.tags.join(','),
+      description: packageDefinition.description,
+    });
+    setVariablesText(JSON.stringify(packageDefinition.variables, null, 2));
+    setError(null);
+    setSuccess(null);
+  }
+
+  function resetEditor() {
+    setEditingPackageId(null);
+    setFormState(initialFormState);
+    setVariablesText('[]');
+  }
+
   async function handleCreatePackage() {
     if (!formState.id.trim() || !formState.name.trim() || !formState.install_command.trim()) {
       setError('Package id, name, and install command are required.');
@@ -82,23 +116,59 @@ export function PackagesPage() {
     setSuccess(null);
 
     try {
-      const created = await createPackageDefinition({
-        id: formState.id.trim(),
+      const payload = {
         name: formState.name.trim(),
         category: formState.category.trim() || 'Custom',
         supported_os: splitCsv(formState.supported_os_text),
         install_command: formState.install_command.trim(),
+        uninstall_command: formState.uninstall_command.trim(),
         validation_command: formState.validation_command.trim() || 'true',
+        variables: JSON.parse(variablesText),
         tags: splitCsv(formState.tags_text),
         description: formState.description.trim() || 'Custom package definition.',
-      });
-      setPackages((current) => [...current, created]);
-      setFormState(initialFormState);
-      setSuccess(`Created package ${created.name}.`);
+      };
+      if (editingPackageId) {
+        const updated = await updatePackageDefinition(editingPackageId, payload);
+        setPackages((current) => current.map((item) => (item.id === updated.id ? updated : item)));
+        setSuccess(`Updated package ${updated.name}.`);
+      } else {
+        const created = await createPackageDefinition({ id: formState.id.trim(), ...payload });
+        setPackages((current) => [...current, created]);
+        setSuccess(`Created package ${created.name}.`);
+      }
+      resetEditor();
     } catch (caughtError) {
-      setError(getApiErrorMessage(caughtError));
+      setError(caughtError instanceof SyntaxError ? 'Variables must be valid JSON.' : getApiErrorMessage(caughtError));
     } finally {
       setIsCreating(false);
+    }
+  }
+
+  async function handleClonePackage(packageDefinition: PackageDefinition) {
+    const id = window.prompt('Clone package as ID', `${packageDefinition.id}-copy`);
+    if (!id) {
+      return;
+    }
+    try {
+      const cloned = await clonePackageDefinition(packageDefinition.id, { id: id.trim(), name: `${packageDefinition.name} Copy` });
+      setPackages((current) => [...current, cloned]);
+      setSuccess(`Cloned package ${cloned.name}.`);
+    } catch (caughtError) {
+      setError(getApiErrorMessage(caughtError));
+    }
+  }
+
+  async function handleResetPackage(packageDefinition: PackageDefinition) {
+    const confirmed = window.confirm(`Restore ${packageDefinition.name} to the built-in default? Current edits will be discarded.`);
+    if (!confirmed) {
+      return;
+    }
+    try {
+      const restored = await resetPackageDefinition(packageDefinition.id);
+      setPackages((current) => current.map((item) => (item.id === restored.id ? restored : item)));
+      setSuccess(`Restored package ${restored.name} to default.`);
+    } catch (caughtError) {
+      setError(getApiErrorMessage(caughtError));
     }
   }
 
@@ -124,6 +194,10 @@ export function PackagesPage() {
     }
 
     const targetCount = selectedServerIds.length || 1;
+    const variables = promptVariables(packageDefinition);
+    if (variables === null) {
+      return;
+    }
     const confirmed = window.confirm(`Run ${packageDefinition.name} on ${targetCount} host(s)?`);
     if (!confirmed) {
       return;
@@ -136,11 +210,11 @@ export function PackagesPage() {
 
     try {
       if (selectedServerIds.length > 0) {
-        const result = await executePackageDefinitionBulk(packageDefinition.id, selectedServerIds);
+        const result = await executePackageDefinitionBulk(packageDefinition.id, selectedServerIds, variables);
         setBulkResult(result);
         setSuccess(`Package ${packageDefinition.name}: ${result.success_count} succeeded, ${result.failure_count} failed.`);
       } else {
-        const job = await executePackageDefinition(packageDefinition.id, selectedServerId);
+        const job = await executePackageDefinition(packageDefinition.id, selectedServerId, variables);
         setSuccess(`Started package ${packageDefinition.name}. Job status: ${job.status}.`);
       }
     } catch (caughtError) {
@@ -199,9 +273,13 @@ export function PackagesPage() {
 
       <PackageBuilder
         formState={formState}
+        editingPackageId={editingPackageId}
         isCreating={isCreating}
+        variablesText={variablesText}
         onCreate={handleCreatePackage}
+        onCancel={resetEditor}
         onFieldChange={updateField}
+        onVariablesChange={setVariablesText}
       />
 
       {success ? <p className="rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-700">{success}</p> : null}
@@ -216,7 +294,10 @@ export function PackagesPage() {
               isExecuting={executingPackageId === packageDefinition.id}
               packageDefinition={packageDefinition}
               onDelete={handleDeletePackage}
+              onClone={handleClonePackage}
+              onEdit={startEdit}
               onExecute={handleExecutePackage}
+              onReset={handleResetPackage}
             />
           ))}
         </div>
@@ -249,18 +330,26 @@ function BulkResultPanel({ result }: { result: BulkExecutionResponse }) {
 
 function PackageBuilder({
   formState,
+  editingPackageId,
   isCreating,
+  variablesText,
   onCreate,
+  onCancel,
   onFieldChange,
+  onVariablesChange,
 }: {
   formState: FormState;
+  editingPackageId: string | null;
   isCreating: boolean;
+  variablesText: string;
   onCreate: () => void;
+  onCancel: () => void;
   onFieldChange: (name: keyof FormState, value: string) => void;
+  onVariablesChange: (value: string) => void;
 }) {
   return (
     <section className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm">
-      <h3 className="text-base font-semibold text-zinc-950">Add package definition</h3>
+      <h3 className="text-base font-semibold text-zinc-950">{editingPackageId ? 'Edit package definition' : 'Add package definition'}</h3>
       <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         <TextInput label="ID" name="id" placeholder="custom-agent" value={formState.id} onChange={onFieldChange} />
         <TextInput label="Name" name="name" placeholder="Custom Agent" value={formState.name} onChange={onFieldChange} />
@@ -269,16 +358,30 @@ function PackageBuilder({
         <TextInput label="Tags" name="tags_text" placeholder="monitoring,agent" value={formState.tags_text} onChange={onFieldChange} />
         <TextInput label="Description" name="description" placeholder="Installs a custom agent" value={formState.description} onChange={onFieldChange} />
         <TextArea label="Install command" name="install_command" value={formState.install_command} onChange={onFieldChange} />
+        <TextArea label="Uninstall command" name="uninstall_command" value={formState.uninstall_command} onChange={onFieldChange} />
         <TextArea label="Validation command" name="validation_command" value={formState.validation_command} onChange={onFieldChange} />
+        <label className="text-sm font-medium text-zinc-700 xl:col-span-3">
+          Variables JSON
+          <textarea
+            className="mt-1 min-h-24 w-full rounded-md border border-zinc-300 bg-white px-3 py-2 font-mono text-sm text-zinc-950 shadow-sm outline-none transition focus:border-zinc-900 focus:ring-2 focus:ring-zinc-900/10"
+            value={variablesText}
+            onChange={(event) => onVariablesChange(event.target.value)}
+          />
+        </label>
       </div>
-      <div className="mt-4 flex justify-end">
+      <div className="mt-4 flex justify-end gap-2">
+        {editingPackageId ? (
+          <button className="rounded-md border border-zinc-300 px-4 py-2 text-sm font-semibold text-zinc-700 transition hover:bg-zinc-50" type="button" onClick={onCancel}>
+            Cancel
+          </button>
+        ) : null}
         <button
           className="rounded-md bg-zinc-950 px-4 py-2 text-sm font-semibold text-white transition hover:bg-zinc-800 disabled:bg-zinc-300"
           disabled={isCreating}
           type="button"
           onClick={onCreate}
         >
-          {isCreating ? 'Creating' : 'Create package'}
+          {isCreating ? 'Saving' : editingPackageId ? 'Save package' : 'Create package'}
         </button>
       </div>
     </section>
@@ -289,12 +392,18 @@ function PackageCard({
   packageDefinition,
   isExecuting,
   onDelete,
+  onClone,
+  onEdit,
   onExecute,
+  onReset,
 }: {
   packageDefinition: PackageDefinition;
   isExecuting: boolean;
   onDelete: (packageId: string) => void;
+  onClone: (packageDefinition: PackageDefinition) => void;
+  onEdit: (packageDefinition: PackageDefinition) => void;
   onExecute: (packageDefinition: PackageDefinition) => void;
+  onReset: (packageDefinition: PackageDefinition) => void;
 }) {
   return (
     <article className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm">
@@ -310,6 +419,8 @@ function PackageCard({
           <span className="inline-flex w-fit rounded-full bg-zinc-50 px-2.5 py-1 text-xs font-medium text-zinc-600 ring-1 ring-inset ring-zinc-200">
             {packageDefinition.is_builtin ? 'Built-in' : 'Custom'}
           </span>
+          {packageDefinition.is_modified ? <Badge label="Modified" /> : null}
+          {packageDefinition.source_template_id && !packageDefinition.is_builtin ? <Badge label="Cloned" /> : null}
         </div>
       </div>
 
@@ -323,14 +434,38 @@ function PackageCard({
 
       <dl className="mt-5 space-y-4">
         <CommandBlock label="Install" value={packageDefinition.install_command} />
+        {packageDefinition.uninstall_command ? <CommandBlock label="Uninstall" value={packageDefinition.uninstall_command} /> : null}
         <CommandBlock label="Validate" value={packageDefinition.validation_command} />
       </dl>
+      {packageDefinition.variables.length ? (
+        <div className="mt-4 rounded-md border border-zinc-200 p-3">
+          <p className="text-xs font-semibold uppercase text-zinc-500">Variables</p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            {packageDefinition.variables.map((variable) => (
+              <span key={variable.name} className="rounded bg-zinc-100 px-2 py-1 font-mono text-xs text-zinc-700">
+                {variable.name}{variable.required ? ' *' : ''}{variable.sensitive ? ' sensitive' : ''}
+              </span>
+            ))}
+          </div>
+        </div>
+      ) : null}
 
       <p className="mt-4 text-xs text-zinc-500">
         Supported OS: {packageDefinition.supported_os.join(', ')}
       </p>
 
       <div className="mt-5 flex flex-wrap justify-end gap-2">
+        <button className="rounded-md border border-zinc-300 px-3 py-2 text-sm font-semibold text-zinc-700 transition hover:bg-zinc-50" type="button" onClick={() => onClone(packageDefinition)}>
+          Clone
+        </button>
+        <button className="rounded-md border border-zinc-300 px-3 py-2 text-sm font-semibold text-zinc-700 transition hover:bg-zinc-50" type="button" onClick={() => onEdit(packageDefinition)}>
+          Edit
+        </button>
+        {packageDefinition.is_builtin && packageDefinition.is_modified ? (
+          <button className="rounded-md border border-amber-300 px-3 py-2 text-sm font-semibold text-amber-700 transition hover:bg-amber-50" type="button" onClick={() => onReset(packageDefinition)}>
+            Restore default
+          </button>
+        ) : null}
         {!packageDefinition.is_builtin ? (
           <button
             className="rounded-md border border-rose-300 px-3 py-2 text-sm font-semibold text-rose-700 transition hover:bg-rose-50"
@@ -350,6 +485,14 @@ function PackageCard({
         </button>
       </div>
     </article>
+  );
+}
+
+function Badge({ label }: { label: string }) {
+  return (
+    <span className="inline-flex w-fit rounded-full bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700 ring-1 ring-inset ring-amber-200">
+      {label}
+    </span>
   );
 }
 
@@ -418,6 +561,23 @@ function splitCsv(value: string): string[] {
     .split(',')
     .map((item) => item.trim())
     .filter(Boolean);
+}
+
+function promptVariables(packageDefinition: PackageDefinition): Record<string, string> | null {
+  const values: Record<string, string> = {};
+  for (const variable of packageDefinition.variables) {
+    const label = `${variable.name}${variable.description ? ` - ${variable.description}` : ''}`;
+    const value = window.prompt(label, variable.default_value ?? '');
+    if (value === null) {
+      return null;
+    }
+    if (variable.required && !value.trim()) {
+      window.alert(`${variable.name} is required.`);
+      return null;
+    }
+    values[variable.name] = value;
+  }
+  return values;
 }
 
 function LoadingGrid() {

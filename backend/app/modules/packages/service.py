@@ -1,5 +1,8 @@
+from datetime import UTC, datetime
+
 from sqlalchemy.exc import IntegrityError
 
+from backend.app.common.variables import VariableResolutionError, VariableResolutionService
 from backend.app.modules.jobs.schemas import BulkExecutionRead, JobBulkExecuteRequest, JobExecuteRequest, JobRead
 from backend.app.modules.jobs.service import JobService
 from backend.app.modules.packages.definitions import (
@@ -14,6 +17,7 @@ from backend.app.modules.packages.schemas import (
     PackageDefinitionRead,
     PackageDefinitionUpdate,
     PackageBulkApplyRequest,
+    PackageCloneRequest,
     PackageExecuteRequest,
 )
 
@@ -30,6 +34,9 @@ class BuiltinPackageDefinitionError(Exception):
     """Raised when trying to mutate a built-in package definition."""
 
 
+SYSTEM_TEMPLATE_VERSION = "2026.05.16"
+
+
 class PackageAutomationService:
     """Application service for reusable package definitions."""
 
@@ -41,6 +48,7 @@ class PackageAutomationService:
     ) -> None:
         self.repository = repository
         self.job_service = job_service
+        self.variable_service = VariableResolutionService()
 
     async def list_definitions(self) -> list[PackageDefinitionRead]:
         definitions = [self._builtin_to_read(definition) for definition in list_package_definitions()]
@@ -75,7 +83,9 @@ class PackageAutomationService:
             category=payload.category,
             supported_os=payload.supported_os,
             install_command=payload.install_command,
+            uninstall_command=payload.uninstall_command,
             validation_command=payload.validation_command,
+            variables=[variable.model_dump() for variable in payload.variables],
             tags=payload.tags,
             description=payload.description,
             is_builtin=False,
@@ -96,15 +106,19 @@ class PackageAutomationService:
         if self.repository is None:
             raise RuntimeError("Package definition repository is required")
 
-        if get_package_definition(package_id):
-            raise BuiltinPackageDefinitionError("Built-in package definitions cannot be edited")
-
         record = await self.repository.get_by_slug(package_id)
+        builtin = get_package_definition(package_id)
+        if record is None and builtin is not None:
+            record = await self._create_builtin_override(builtin)
         if record is None:
             raise PackageDefinitionNotFoundError("Package definition not found")
 
         for key, value in payload.model_dump(exclude_unset=True).items():
+            if key == "variables" and value is not None:
+                value = [item.model_dump() if hasattr(item, "model_dump") else item for item in value]
             setattr(record, key, value)
+        record.is_modified = True
+        record.modified_at = datetime.now(UTC)
 
         await self.repository.session.commit()
         await self.repository.session.refresh(record)
@@ -124,12 +138,54 @@ class PackageAutomationService:
         await self.repository.delete(record)
         await self.repository.session.commit()
 
+    async def clone_definition(self, package_id: str, payload: PackageCloneRequest) -> PackageDefinitionRead:
+        if self.repository is None:
+            raise RuntimeError("Package definition repository is required")
+        if get_package_definition(payload.id) or await self.repository.get_by_slug(payload.id):
+            raise PackageDefinitionConflictError("Package definition already exists")
+
+        source = await self.get_definition(package_id)
+        record = PackageDefinitionRecord(
+            slug=payload.id,
+            name=payload.name or f"{source.name} Copy",
+            category=source.category,
+            supported_os=source.supported_os,
+            install_command=source.install_command,
+            uninstall_command=source.uninstall_command,
+            validation_command=source.validation_command,
+            variables=[variable.model_dump() for variable in source.variables],
+            tags=[*source.tags, "cloned"],
+            description=source.description,
+            is_builtin=False,
+            is_modified=False,
+            base_version=source.base_version,
+            source_template_id=source.id,
+        )
+        try:
+            record = await self.repository.create(record)
+            await self.repository.session.commit()
+        except IntegrityError as exc:
+            await self.repository.session.rollback()
+            raise PackageDefinitionConflictError("Package definition already exists") from exc
+        return self._record_to_read(record)
+
+    async def reset_definition(self, package_id: str) -> PackageDefinitionRead:
+        if self.repository is None:
+            raise RuntimeError("Package definition repository is required")
+        if get_package_definition(package_id) is None:
+            raise BuiltinPackageDefinitionError("Only built-in package definitions can be reset")
+        record = await self.repository.get_by_slug(package_id)
+        if record is not None:
+            await self.repository.delete(record)
+            await self.repository.session.commit()
+        return await self.get_definition(package_id)
+
     async def execute_definition(self, package_id: str, payload: PackageExecuteRequest) -> JobRead:
         if self.job_service is None:
             raise RuntimeError("Job service is required")
 
         definition = await self.get_definition(package_id)
-        command = f"{definition.install_command} && {definition.validation_command}"
+        command = self._resolve_definition_command(definition, payload.variables)
         return await self.job_service.execute(
             JobExecuteRequest(
                 target_server_id=payload.target_server_id,
@@ -143,7 +199,7 @@ class PackageAutomationService:
             raise RuntimeError("Job service is required")
 
         definition = await self.get_definition(payload.package_id)
-        command = f"{definition.install_command} && {definition.validation_command}"
+        command = self._resolve_definition_command(definition, payload.variables)
         return await self.job_service.execute_bulk(
             JobBulkExecuteRequest(
                 target_server_ids=payload.target_server_ids,
@@ -154,7 +210,12 @@ class PackageAutomationService:
 
     @staticmethod
     def _builtin_to_read(definition: PackageDefinition) -> PackageDefinitionRead:
-        return PackageDefinitionRead(**definition.__dict__, is_builtin=True)
+        return PackageDefinitionRead(
+            **definition.__dict__,
+            is_builtin=True,
+            is_modified=False,
+            base_version=SYSTEM_TEMPLATE_VERSION,
+        )
 
     @staticmethod
     def _record_to_read(record: PackageDefinitionRecord) -> PackageDefinitionRead:
@@ -164,10 +225,58 @@ class PackageAutomationService:
             category=record.category,
             supported_os=record.supported_os,
             install_command=record.install_command,
+            uninstall_command=record.uninstall_command,
             validation_command=record.validation_command,
+            variables=record.variables,
             tags=record.tags,
             description=record.description,
             is_builtin=record.is_builtin,
+            is_modified=record.is_modified,
+            base_version=record.base_version,
+            source_template_id=record.source_template_id,
+            modified_at=record.modified_at,
             created_at=record.created_at,
             updated_at=record.updated_at,
         )
+
+    async def _create_builtin_override(self, definition: PackageDefinition) -> PackageDefinitionRecord:
+        assert self.repository is not None
+        record = PackageDefinitionRecord(
+            slug=definition.id,
+            name=definition.name,
+            category=definition.category,
+            supported_os=definition.supported_os,
+            install_command=definition.install_command,
+            uninstall_command=definition.uninstall_command,
+            validation_command=definition.validation_command,
+            variables=definition.variables,
+            tags=definition.tags,
+            description=definition.description,
+            is_builtin=True,
+            is_modified=False,
+            base_version=SYSTEM_TEMPLATE_VERSION,
+            source_template_id=definition.id,
+        )
+        record = await self.repository.create(record)
+        await self.repository.session.flush()
+        return record
+
+    def _resolve_definition_command(
+        self,
+        definition: PackageDefinitionRead,
+        variables: dict[str, str],
+    ) -> str:
+        try:
+            install = self.variable_service.resolve_text(
+                definition.install_command,
+                definitions=[variable.model_dump() for variable in definition.variables],
+                variables=variables,
+            )
+            validation = self.variable_service.resolve_text(
+                definition.validation_command,
+                definitions=[variable.model_dump() for variable in definition.variables],
+                variables=variables,
+            )
+        except VariableResolutionError:
+            raise
+        return f"{install} && {validation}"

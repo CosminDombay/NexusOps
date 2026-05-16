@@ -15,7 +15,9 @@ The frontend currently implements:
 - Package definitions page
 - Infrastructure profiles page with apply workflow and execution visibility
 - VM provisioning page with template, cloud-init, static networking, bootstrap, and history sections
-- placeholder pages for deployments and monitoring
+- host detail and Proxmox node detail pages
+- integrations settings page
+- deployment and monitoring foundation pages
 
 ## Application Shell
 
@@ -32,14 +34,17 @@ Key files:
 Current main routes:
 
 - `/` inventory
+- `/inventory/:id` host detail
 - `/infrastructure` Proxmox visibility, lifecycle controls, and inventory synchronization
+- `/infrastructure/nodes/:id` Proxmox node detail
 - `/jobs` SSH-backed operations and job history
 - `/identity` Linux user, group, SSH key, sudo, and permission replication
 - `/packages` package definition catalog
 - `/profiles` reusable infrastructure profile templates
 - `/provisioning` Proxmox template provisioning workflow
-- `/deployments` placeholder
-- `/monitoring` placeholder
+- `/deployments` Docker Compose deployment workflows
+- `/monitoring` Prometheus/Grafana monitoring foundations
+- `/settings/integrations` integration records and connection tests
 
 ## Feature-Based Structure
 
@@ -193,7 +198,9 @@ PackagesPage
   -> FastAPI /api/v1/packages
 ```
 
-The Packages UI displays reusable package definitions with install commands, validation commands, tags, category, and supported OS metadata. It also supports adding custom package definitions, deleting custom definitions, selecting a target host, and running a package through Jobs.
+The Packages UI displays reusable package definitions with install, uninstall, validation, variable, tag, category, and supported OS metadata. It supports adding custom package definitions, editing built-in working copies, cloning templates, restoring modified built-ins to defaults, deleting custom definitions, selecting target hosts, bulk execution, and running packages through Jobs.
+
+Package variable definitions are shown on package cards. Before execution, the UI prompts for required/defaulted variables and sends them with the execution request. Sensitive variables are flagged in the UI, but this is not yet a secrets vault.
 
 ## Profiles Frontend Flow
 
@@ -208,10 +215,45 @@ The Profiles UI includes:
 
 - profile cards
 - ordered step display
-- profile builder using package/action references
+- profile builder using package/action/command references
+- editable built-in working copies
+- clone and restore-default workflows
+- drag-and-drop step ordering preview
+- variable definition editor through JSON
+- execution-time variable prompts
 - target inventory host selector
 - apply profile action
 - generated job sequence visibility
+
+Profile steps are still authored in a compact text format for this phase:
+
+```text
+package:docker-engine:Install Docker Engine
+action:docker-status:Check Docker Service
+command:sudo systemctl daemon-reload
+```
+
+The drag-and-drop preview rewrites this text order and keeps the execution sequence visible.
+
+## Integrations Frontend Flow
+
+```text
+IntegrationsPage
+  -> integrationsApi
+  -> shared apiClient
+  -> FastAPI /api/v1/integrations
+```
+
+The Integrations UI includes:
+
+- configured integration cards
+- enabled/disabled badges
+- raw config preview for local MVP use
+- create integration form
+- Proxmox, Prometheus, and Grafana presets
+- connection test action
+
+Integration configs are currently local MVP metadata and should not be treated as production-grade secret storage.
 
 ## Provisioning Frontend Flow
 

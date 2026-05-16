@@ -45,6 +45,13 @@ export type ProxmoxDashboard = {
   vms: ProxmoxVm[];
 };
 
+export type ProxmoxNodeDetail = {
+  node: ProxmoxNode;
+  vms: ProxmoxVm[];
+  storage_usage: Array<Record<string, unknown>>;
+  placeholders: string[];
+};
+
 export type ProxmoxVmAction = 'start' | 'stop' | 'reboot' | 'shutdown';
 
 export type ProxmoxVmActionResponse = {

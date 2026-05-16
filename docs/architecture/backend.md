@@ -36,9 +36,10 @@ Current implemented domain routes include:
 - `/api/v1/jobs` for SSH command execution, job history, and operational actions
 - `/api/v1/packages` for reusable package definitions
 - `/api/v1/profiles` for reusable infrastructure profile templates and execution
+- `/api/v1/integrations` for persisted provider and monitoring integration records
 - `/api/v1/identity` for Linux user, group, SSH key, sudo, permission, and replication workflows
 
-Placeholder routers exist for future modules such as deployments, monitoring, and execution, but they do not yet implement real workflows.
+Placeholder or foundation modules still exist for future expansion, but deployments, monitoring, integrations, and execution now have varying levels of implemented API surface.
 
 ## Module Organization
 
@@ -88,11 +89,25 @@ Operational actions do not duplicate execution logic. They resolve an action int
 
 Packages and Profiles are lightweight orchestration definitions:
 
-- Packages expose reusable package metadata, install commands, and validation commands.
-- Custom package definitions are persisted and can be created, edited, deleted, and executed.
-- Profiles compose ordered action/package steps.
-- Custom profiles are persisted and can be created, edited, deleted, and applied.
+- Packages expose reusable package metadata, install commands, uninstall commands, validation commands, variables, and tags.
+- Custom package definitions are persisted and can be created, edited, deleted, cloned, and executed.
+- Built-in package definitions can be edited through persisted overrides while preserving reset-to-default capability.
+- Profiles compose ordered action/package/command steps.
+- Custom profiles are persisted and can be created, edited, deleted, cloned, and applied.
+- Built-in profiles can be edited through persisted overrides while preserving reset-to-default capability.
 - Applying a profile resolves each step into a command and calls `JobService.execute()` sequentially.
+
+Template metadata fields track override and clone state:
+
+- `is_builtin`
+- `is_modified`
+- `base_version`
+- `source_template_id`
+- `modified_at`
+
+Variable resolution lives in `backend/app/common/variables.py`. It supports only simple `{{ variable_name }}` placeholder substitution from defaults and execution-time variables. It intentionally does not implement Jinja, arbitrary Python, or a workflow engine.
+
+Integrations are persisted separately from runtime adapter configuration. They provide a UI/API foundation for testing Proxmox, Prometheus, and Grafana connection details, but the current runtime adapters still primarily use local environment settings.
 
 ## Async SQLAlchemy
 
@@ -111,7 +126,7 @@ Inventory commits are currently performed in the service layer after repository 
 
 Alembic is configured at the repository root through `alembic.ini` and migration code under `backend/migrations`.
 
-Current migrations create the `servers` and `jobs` tables, inventory SSH authentication metadata, definition tables, provisioning requests, and inventory synchronization metadata.
+Current migrations create the `servers` and `jobs` tables, inventory SSH authentication metadata, definition tables, provisioning requests, inventory synchronization metadata, integration records, and template override/variable metadata.
 
 Important migration characteristics:
 
@@ -215,13 +230,27 @@ Operational actions are intentionally lightweight. They are predefined action de
 Frontend Profiles page
   -> FastAPI /api/v1/profiles/{profile_id}/apply
   -> ProfileService
-  -> resolve action/package step
+  -> resolve action/package/command step
+  -> resolve simple template variables
   -> JobService.execute()
   -> SSH adapter
   -> persisted job result
 ```
 
-Package/profile definition CRUD uses module repositories and persists only definitions. Actual execution history remains centralized in Jobs.
+Package/profile definition CRUD uses module repositories and persists only definitions and template override metadata. Actual execution history remains centralized in Jobs. Resetting a built-in template removes the persisted override and leaves job history untouched.
+
+## Package Execution Flow
+
+```text
+Frontend Packages page
+  -> FastAPI /api/v1/packages/{package_id}/execute
+  -> PackageAutomationService
+  -> load built-in/default/override/custom package definition
+  -> resolve `{{ variable_name }}` placeholders
+  -> JobService.execute()
+  -> SSH adapter
+  -> persisted job result
+```
 
 ## Identity Backend Flow
 

@@ -62,6 +62,20 @@ class HttpProxmoxAdapter(ProxmoxAdapter):
         normalized_type = self._normalize_vm_type(vm_type)
         return dict(await self._get(f"nodes/{node}/{normalized_type}/{vm_id}/status/current"))
 
+    async def get_vm_network_interfaces(self, *, node: str, vm_id: int, vm_type: str) -> list[dict[str, Any]]:
+        normalized_type = self._normalize_vm_type(vm_type)
+        if normalized_type != "qemu":
+            return []
+        try:
+            data = await self._get(f"nodes/{node}/qemu/{vm_id}/agent/network-get-interfaces")
+        except ProxmoxConnectionError:
+            return []
+        if isinstance(data, dict) and isinstance(data.get("result"), list):
+            return list(data["result"])
+        if isinstance(data, list):
+            return data
+        return []
+
     async def get_cluster_summary(self) -> dict[str, Any]:
         resources = await self._get("cluster/resources")
         return {"resources": list(resources)}

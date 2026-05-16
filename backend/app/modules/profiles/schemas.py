@@ -5,13 +5,15 @@ from uuid import UUID
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from backend.app.modules.jobs.schemas import JobRead
+from backend.app.modules.packages.schemas import VariableDefinitionRead
 
 
 class ProfileStepRead(BaseModel):
     id: str
     name: str
-    kind: Literal["action", "package"]
+    kind: Literal["action", "package", "command"]
     reference_id: str
+    command: str | None = None
 
 
 class InfrastructureProfileRead(BaseModel):
@@ -21,7 +23,12 @@ class InfrastructureProfileRead(BaseModel):
     description: str
     tags: list[str]
     steps: list[ProfileStepRead]
+    variables: list[VariableDefinitionRead] = Field(default_factory=list)
     is_builtin: bool = False
+    is_modified: bool = False
+    base_version: str | None = None
+    source_template_id: str | None = None
+    modified_at: datetime | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
 
@@ -29,16 +36,30 @@ class InfrastructureProfileRead(BaseModel):
 class ProfileStepWrite(BaseModel):
     id: str = Field(min_length=1, max_length=100)
     name: str = Field(min_length=1, max_length=255)
-    kind: Literal["action", "package"]
-    reference_id: str = Field(min_length=1, max_length=100)
+    kind: Literal["action", "package", "command"]
+    reference_id: str = Field(default="", max_length=100)
+    command: str | None = Field(default=None, max_length=8000)
 
-    @field_validator("id", "name", "reference_id")
+    @field_validator("id", "name")
     @classmethod
     def strip_required_strings(cls, value: str) -> str:
         stripped = value.strip()
         if not stripped:
             raise ValueError("Value cannot be blank")
         return stripped
+
+    @model_validator(mode="after")
+    def require_reference_or_command(self) -> Self:
+        if self.kind == "command":
+            if not self.command or not self.command.strip():
+                raise ValueError("Command steps require a command")
+            self.reference_id = self.reference_id.strip() or self.id
+            self.command = self.command.strip()
+            return self
+        self.reference_id = self.reference_id.strip()
+        if not self.reference_id:
+            raise ValueError("Action and package steps require a reference_id")
+        return self
 
 
 class InfrastructureProfileCreate(BaseModel):
@@ -48,6 +69,7 @@ class InfrastructureProfileCreate(BaseModel):
     description: str = Field(min_length=1, max_length=2000)
     tags: list[str] = Field(default_factory=list)
     steps: list[ProfileStepWrite] = Field(min_length=1)
+    variables: list[VariableDefinitionRead] = Field(default_factory=list)
 
     @field_validator("id", "name", "category", "description")
     @classmethod
@@ -76,6 +98,7 @@ class InfrastructureProfileUpdate(BaseModel):
     description: str | None = Field(default=None, min_length=1, max_length=2000)
     tags: list[str] | None = None
     steps: list[ProfileStepWrite] | None = None
+    variables: list[VariableDefinitionRead] | None = None
 
     @field_validator("name", "category", "description")
     @classmethod
@@ -111,12 +134,29 @@ class InfrastructureProfileUpdate(BaseModel):
 class ProfileApplyRequest(BaseModel):
     target_server_id: UUID
     stop_on_failure: bool = True
+    variables: dict[str, str] = Field(default_factory=dict)
+
+
+class ProfileCloneRequest(BaseModel):
+    id: str = Field(min_length=1, max_length=100)
+    name: str | None = Field(default=None, min_length=1, max_length=255)
+
+    @field_validator("id", "name")
+    @classmethod
+    def strip_strings(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("Value cannot be blank")
+        return stripped
 
 
 class ProfileBulkApplyRequest(BaseModel):
     profile_id: str = Field(min_length=1, max_length=100)
     target_server_ids: list[UUID] = Field(min_length=1)
     stop_on_failure: bool = True
+    variables: dict[str, str] = Field(default_factory=dict)
 
     @field_validator("profile_id")
     @classmethod

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { Play, RefreshCw, Square, Terminal } from 'lucide-react';
 
 import { PageHeader } from '../../components/layout/PageHeader';
@@ -166,7 +167,13 @@ export function DeploymentsPage() {
               {deployments.map((deployment) => (
                 <tr key={deployment.id}>
                   <td className="py-3 font-medium text-zinc-950">{deployment.name}</td>
-                  <td className="py-3 text-zinc-600">{deployment.target_hostname ?? 'No target'}</td>
+                  <td className="py-3 text-zinc-600">
+                    {deployment.target_server_id ? (
+                      <Link className="font-semibold text-zinc-800 hover:text-zinc-950" to={`/inventory/${deployment.target_server_id}`}>
+                        {deployment.target_hostname ?? 'Open host'}
+                      </Link>
+                    ) : 'No target'}
+                  </td>
                   <td className="py-3 text-zinc-600">{deployment.status}</td>
                 </tr>
               ))}

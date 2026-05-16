@@ -50,7 +50,7 @@ export function JobsTable({
             <table className="min-w-full divide-y divide-zinc-200">
               <thead className="bg-zinc-50">
                 <tr>
-                  {['Target', 'Operation', 'Command', 'Status', 'Exit', 'Completed'].map((heading) => (
+                  {['Target', 'Operation', 'Command', 'Status', 'Exit', 'Duration', 'Completed'].map((heading) => (
                     <th
                       key={heading}
                       className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-normal text-zinc-500"
@@ -81,6 +81,9 @@ export function JobsTable({
                     </td>
                     <td className="px-5 py-4 text-sm text-zinc-700">
                       {job.exit_code ?? '-'}
+                    </td>
+                    <td className="px-5 py-4 text-sm text-zinc-700">
+                      {formatDuration(job.started_at, job.completed_at)}
                     </td>
                     <td className="px-5 py-4 text-sm text-zinc-700">
                       {formatDateTime(job.completed_at)}
@@ -119,6 +122,14 @@ export function JobsTable({
       ) : null}
     </section>
   );
+}
+
+function formatDuration(startedAt: string | null, completedAt: string | null): string {
+  if (!startedAt || !completedAt) {
+    return '-';
+  }
+  const seconds = Math.max(0, Math.round((new Date(completedAt).getTime() - new Date(startedAt).getTime()) / 1000));
+  return seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
 }
 
 function LoadingRows() {

@@ -90,3 +90,68 @@ export type InventoryHealthSummary = {
   sync_error: number;
   last_checked_at: string | null;
 };
+
+export type HostFilesystem = {
+  filesystem: string;
+  type: string | null;
+  size_bytes: number | null;
+  used_bytes: number | null;
+  available_bytes: number | null;
+  mountpoint: string;
+};
+
+export type HostSystem = {
+  hostname: string;
+  operating_system: string;
+  kernel: string | null;
+  uptime_seconds: number | null;
+  load_average: number[];
+  cpu_model: string | null;
+  cpu_cores: number | null;
+  memory_total_bytes: number | null;
+  memory_used_bytes: number | null;
+  memory_available_bytes: number | null;
+  filesystems: HostFilesystem[];
+};
+
+export type HostNetworkInterface = {
+  name: string;
+  addresses: string[];
+};
+
+export type ListeningPort = {
+  protocol: string;
+  address: string;
+  port: number;
+  process: string | null;
+  service: string | null;
+};
+
+export type HostNetwork = {
+  lan_ip: string;
+  tailscale_ip: string | null;
+  interfaces: HostNetworkInterface[];
+  listening_ports: ListeningPort[];
+};
+
+export type DockerContainer = {
+  container_id: string;
+  name: string;
+  image: string;
+  status: string;
+  ports: string | null;
+  compose_project: string | null;
+};
+
+export type DockerNetwork = {
+  name: string;
+  driver: string;
+  scope: string;
+};
+
+export type HostDocker = {
+  installed: boolean;
+  version: string | null;
+  containers: DockerContainer[];
+  networks: DockerNetwork[];
+};

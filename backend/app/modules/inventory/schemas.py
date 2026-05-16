@@ -192,6 +192,71 @@ class InventoryHealthSummary(BaseModel):
     last_checked_at: datetime | None = None
 
 
+class HostFilesystemRead(BaseModel):
+    filesystem: str
+    type: str | None = None
+    size_bytes: int | None = None
+    used_bytes: int | None = None
+    available_bytes: int | None = None
+    mountpoint: str
+
+
+class HostSystemRead(BaseModel):
+    hostname: str
+    operating_system: str
+    kernel: str | None = None
+    uptime_seconds: int | None = None
+    load_average: list[float] = Field(default_factory=list)
+    cpu_model: str | None = None
+    cpu_cores: int | None = None
+    memory_total_bytes: int | None = None
+    memory_used_bytes: int | None = None
+    memory_available_bytes: int | None = None
+    filesystems: list[HostFilesystemRead] = Field(default_factory=list)
+
+
+class HostNetworkInterfaceRead(BaseModel):
+    name: str
+    addresses: list[str] = Field(default_factory=list)
+
+
+class ListeningPortRead(BaseModel):
+    protocol: str
+    address: str
+    port: int
+    process: str | None = None
+    service: str | None = None
+
+
+class HostNetworkRead(BaseModel):
+    lan_ip: str
+    tailscale_ip: str | None = None
+    interfaces: list[HostNetworkInterfaceRead] = Field(default_factory=list)
+    listening_ports: list[ListeningPortRead] = Field(default_factory=list)
+
+
+class DockerContainerRead(BaseModel):
+    container_id: str
+    name: str
+    image: str
+    status: str
+    ports: str | None = None
+    compose_project: str | None = None
+
+
+class DockerNetworkRead(BaseModel):
+    name: str
+    driver: str
+    scope: str
+
+
+class HostDockerRead(BaseModel):
+    installed: bool
+    version: str | None = None
+    containers: list[DockerContainerRead] = Field(default_factory=list)
+    networks: list[DockerNetworkRead] = Field(default_factory=list)
+
+
 class ServerListFilters(BaseModel):
     environment: ServerEnvironment | None = None
     provider: str | None = None

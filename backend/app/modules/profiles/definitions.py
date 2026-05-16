@@ -7,6 +7,7 @@ class ProfileStep:
     name: str
     kind: str
     reference_id: str
+    command: str | None = None
 
 
 @dataclass(frozen=True)
@@ -17,6 +18,7 @@ class InfrastructureProfile:
     description: str
     tags: list[str]
     steps: list[ProfileStep]
+    variables: list[dict]
 
 
 PROFILE_REGISTRY: tuple[InfrastructureProfile, ...] = (
@@ -26,6 +28,7 @@ PROFILE_REGISTRY: tuple[InfrastructureProfile, ...] = (
         category="Baseline",
         description="Basic diagnostics and host hardening package definitions for a managed Linux server.",
         tags=["baseline", "linux", "security"],
+        variables=[],
         steps=[
             ProfileStep(
                 id="check-uptime",
@@ -48,6 +51,7 @@ PROFILE_REGISTRY: tuple[InfrastructureProfile, ...] = (
         category="Containers",
         description="Prepare a Linux host for Docker workloads and verify Docker service state.",
         tags=["docker", "containers", "runtime"],
+        variables=[{"name": "docker_data_path", "description": "Docker data root path", "default_value": "/var/lib/docker", "required": False, "sensitive": False}],
         steps=[
             ProfileStep(
                 id="install-docker",
@@ -75,6 +79,7 @@ PROFILE_REGISTRY: tuple[InfrastructureProfile, ...] = (
         category="Monitoring",
         description="Install host monitoring and log shipping definitions for observability nodes.",
         tags=["monitoring", "metrics", "logs"],
+        variables=[{"name": "grafana_url", "description": "Grafana base URL", "default_value": None, "required": False, "sensitive": False}],
         steps=[
             ProfileStep(
                 id="install-node-exporter",
@@ -102,6 +107,7 @@ PROFILE_REGISTRY: tuple[InfrastructureProfile, ...] = (
         category="Development",
         description="Prepare a VM with container runtime, mesh networking, and basic diagnostics.",
         tags=["development", "docker", "networking"],
+        variables=[{"name": "tailscale_auth_key", "description": "Tailscale reusable auth key", "default_value": None, "required": True, "sensitive": True}],
         steps=[
             ProfileStep(
                 id="install-docker",

@@ -14,6 +14,7 @@ from backend.app.modules.proxmox.schemas import (
     ProxmoxClusterSummaryRead,
     ProxmoxDashboardRead,
     ProxmoxNodeRead,
+    ProxmoxNodeDetailRead,
     ProxmoxVmActionRead,
     ProxmoxVmRead,
 )
@@ -54,6 +55,17 @@ async def get_nodes(
     try:
         return await service.get_nodes()
     except (ProxmoxConfigurationError, ProxmoxConnectionError) as exc:
+        raise _map_proxmox_error(exc) from exc
+
+
+@router.get("/nodes/{node_name}", response_model=ProxmoxNodeDetailRead)
+async def get_node_detail(
+    node_name: str,
+    service: Annotated[ProxmoxService, Depends(get_proxmox_service)],
+) -> ProxmoxNodeDetailRead:
+    try:
+        return await service.get_node_detail(node_name)
+    except (ProxmoxConfigurationError, ProxmoxConnectionError, ProxmoxVmNotFoundError) as exc:
         raise _map_proxmox_error(exc) from exc
 
 
