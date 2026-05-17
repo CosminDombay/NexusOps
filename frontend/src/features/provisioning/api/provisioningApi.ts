@@ -2,9 +2,11 @@ import { apiClient } from '../../../lib/api/client';
 import type {
   CreateProvisioningBlueprintPayload,
   CreateProvisioningPayload,
+  ProxmoxStorage,
   ProxmoxTemplate,
   ProvisioningBlueprint,
   ProvisioningRequest,
+  UpdateProvisioningBlueprintPayload,
 } from '../types/provisioning';
 
 export async function listProvisioningRequests(): Promise<ProvisioningRequest[]> {
@@ -14,6 +16,13 @@ export async function listProvisioningRequests(): Promise<ProvisioningRequest[]>
 
 export async function listProxmoxTemplates(): Promise<ProxmoxTemplate[]> {
   const response = await apiClient.get<ProxmoxTemplate[]>('/vms/templates');
+  return response.data;
+}
+
+export async function listProxmoxStorage(nodeName?: string): Promise<ProxmoxStorage[]> {
+  const response = await apiClient.get<ProxmoxStorage[]>('/proxmox/storage', {
+    params: nodeName ? { node_name: nodeName } : undefined,
+  });
   return response.data;
 }
 
@@ -33,6 +42,14 @@ export async function createProvisioningBlueprint(
   payload: CreateProvisioningBlueprintPayload,
 ): Promise<ProvisioningBlueprint> {
   const response = await apiClient.post<ProvisioningBlueprint>('/vms/blueprints', payload);
+  return response.data;
+}
+
+export async function updateProvisioningBlueprint(
+  blueprintId: string,
+  payload: UpdateProvisioningBlueprintPayload,
+): Promise<ProvisioningBlueprint> {
+  const response = await apiClient.put<ProvisioningBlueprint>(`/vms/blueprints/${blueprintId}`, payload);
   return response.data;
 }
 

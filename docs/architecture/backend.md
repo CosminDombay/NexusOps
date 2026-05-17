@@ -40,6 +40,8 @@ Current implemented domain routes include:
 - `/api/v1/credentials` for encrypted reusable credentials and shared accounts
 - `/api/v1/variables` for variable-manager foundations
 - `/api/v1/integrations` for persisted provider and monitoring integration records
+- `/api/v1/workflows` for persistent workflow runs, steps, logs, and execution timelines
+- `/api/v1/automations` for scheduled action/package/profile automations
 - `/api/v1/identity` for Linux user, group, SSH key, sudo, permission, and replication workflows
 
 Placeholder or foundation modules still exist for future expansion, but deployments, monitoring, integrations, and execution now have varying levels of implemented API surface.
@@ -123,7 +125,21 @@ Credential records are encrypted using `NEXUSOPS_MASTER_KEY`. API responses expo
 
 Variable Manager foundations are implemented under `backend/app/modules/variables/`. Secret variables must reference credentials instead of storing plaintext values.
 
-Integrations are persisted separately from runtime adapter configuration. They provide a UI/API foundation for testing Proxmox, Prometheus, and Grafana connection details, but the current runtime adapters still primarily use local environment settings.
+Integrations are persisted separately from runtime adapter configuration. Proxmox runtime adapters now resolve from enabled persisted Proxmox integrations first and fall back to local environment settings when no enabled integration exists.
+
+Workflow runs are the persistent orchestration timeline foundation:
+
+- `workflow_runs` stores the workflow type, trigger source, target host, status, timestamps, context, result summary, and errors.
+- `workflow_steps` stores ordered step status, logs, errors, metadata, and timestamps.
+- Workflow APIs expose list/detail polling for frontend visibility.
+
+Scheduled automations are backed by APScheduler and an in-process async task queue for the MVP. Automations currently support predefined actions, package execution, and profile execution. Automation runs create WorkflowRuns and then execute through existing service pipelines:
+
+```text
+Automation -> WorkflowRun -> Job/Profile/Package Service -> Jobs -> SSH Adapter -> persistence
+```
+
+Celery/Redis are intentionally not introduced in this sprint.
 
 ## Async SQLAlchemy
 

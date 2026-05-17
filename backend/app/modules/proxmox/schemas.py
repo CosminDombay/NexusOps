@@ -31,6 +31,19 @@ class ProxmoxVmRead(BaseModel):
     inventory_notes: list[str] = Field(default_factory=list)
 
 
+class ProxmoxStorageRead(BaseModel):
+    storage: str
+    node: str | None = None
+    type: str | None = None
+    content: list[str] = Field(default_factory=list)
+    active: bool | None = None
+    enabled: bool | None = None
+    shared: bool | None = None
+    used_bytes: int | None = None
+    total_bytes: int | None = None
+    available_bytes: int | None = None
+
+
 class ProxmoxVmActionRead(BaseModel):
     vm_id: int
     name: str

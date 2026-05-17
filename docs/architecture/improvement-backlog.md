@@ -43,9 +43,9 @@ This backlog captures near-term product and engineering improvements from the Ma
 
 ### Highest Impact
 
-- Move long-running work out of request/response paths. Provisioning, profiles, packages, identity replication, bulk jobs, and deployments should run through a background worker or internal task runner.
+- Continue moving long-running work out of request/response paths. Scheduled automations now create WorkflowRuns and dispatch through the in-process async queue; provisioning, direct profile/package execution, identity replication, bulk jobs, and deployments still need deeper workflow-backed async entrypoints.
 - Add realtime status updates through polling endpoints first, then WebSockets or server-sent events later.
-- Promote workflow execution to a first-class domain. A workflow run should be able to chain provisioning, inventory registration, profile application, package execution, Docker deployment, identity setup, and monitoring setup.
+- Expand the new workflow domain into full orchestration chaining. WorkflowRun and WorkflowStep now exist, but provisioning, deployment, identity, and direct package/profile execution still need complete step-by-step workflow refactors.
 - Implement deployment profile steps in `ProfileService` instead of treating deployment as a placeholder step kind.
 - Add audit persistence for infrastructure actions, provisioning tasks, deployment operations, identity replication, and destructive operations.
 - Make persisted integration records the runtime source of truth for Proxmox, Prometheus, Grafana, and future providers. Environment variables should remain local bootstrap defaults.

@@ -4,17 +4,21 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.adapters.proxmox import (
-    HttpProxmoxAdapter,
     ProxmoxConfigurationError,
     ProxmoxConnectionError,
 )
 from backend.app.db.session import get_db_session
+from backend.app.modules.credentials.repository import CredentialRepository
+from backend.app.modules.credentials.service import CredentialService
+from backend.app.modules.integrations.repository import IntegrationRepository
+from backend.app.modules.integrations.service import IntegrationService
 from backend.app.modules.inventory.repository import ServerRepository
 from backend.app.modules.proxmox.schemas import (
     ProxmoxClusterSummaryRead,
     ProxmoxDashboardRead,
     ProxmoxNodeRead,
     ProxmoxNodeDetailRead,
+    ProxmoxStorageRead,
     ProxmoxVmActionRead,
     ProxmoxVmRead,
 )
@@ -30,7 +34,14 @@ router = APIRouter()
 async def get_proxmox_service(
     session: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> ProxmoxService:
-    return ProxmoxService(HttpProxmoxAdapter(), server_repository=ServerRepository(session))
+    integration_service = IntegrationService(
+        IntegrationRepository(session),
+        credential_service=CredentialService(repository=CredentialRepository(session)),
+    )
+    return ProxmoxService(
+        await integration_service.get_proxmox_adapter(),
+        server_repository=ServerRepository(session),
+    )
 
 
 def _map_proxmox_error(exc: Exception) -> HTTPException:
@@ -75,6 +86,17 @@ async def list_vms(
 ) -> list[ProxmoxVmRead]:
     try:
         return await service.list_vms()
+    except (ProxmoxConfigurationError, ProxmoxConnectionError) as exc:
+        raise _map_proxmox_error(exc) from exc
+
+
+@router.get("/storage", response_model=list[ProxmoxStorageRead])
+async def list_storage(
+    service: Annotated[ProxmoxService, Depends(get_proxmox_service)],
+    node_name: str | None = None,
+) -> list[ProxmoxStorageRead]:
+    try:
+        return await service.list_storage(node_name)
     except (ProxmoxConfigurationError, ProxmoxConnectionError) as exc:
         raise _map_proxmox_error(exc) from exc
 

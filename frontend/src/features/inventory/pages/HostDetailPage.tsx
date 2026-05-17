@@ -147,6 +147,32 @@ export function HostDetailPage() {
 
       {errors.length ? <ErrorPanel title="Some live checks failed" errors={errors} onRetry={refresh} compact /> : null}
 
+      <nav className="flex gap-2 overflow-x-auto rounded-lg border border-zinc-200 bg-white p-2 shadow-sm">
+        {['Overview', 'Jobs', 'Deployments', 'Monitoring', 'Identity', 'Automations', 'Workflows', 'Logs'].map((tab) => (
+          <Link
+            key={tab}
+            className="whitespace-nowrap rounded-md px-3 py-2 text-sm font-semibold text-zinc-600 hover:bg-zinc-100 hover:text-zinc-950"
+            to={
+              tab === 'Jobs'
+                ? '/jobs'
+                : tab === 'Deployments'
+                  ? '/deployments'
+                  : tab === 'Monitoring'
+                    ? '/monitoring'
+                    : tab === 'Identity'
+                      ? '/identity'
+                      : tab === 'Automations'
+                        ? '/automations'
+                        : tab === 'Workflows'
+                          ? '/workflows'
+                          : '#'
+            }
+          >
+            {tab}
+          </Link>
+        ))}
+      </nav>
+
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <MetricCard icon={ServerIcon} label="LAN IP" value={state.network?.lan_ip ?? server.ip_address} />
         <MetricCard icon={Activity} label="Uptime" value={formatDuration(state.system?.uptime_seconds ?? state.metrics?.uptime_seconds)} />

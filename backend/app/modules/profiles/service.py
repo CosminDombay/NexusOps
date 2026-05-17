@@ -1,8 +1,10 @@
 from datetime import UTC, datetime
+from uuid import UUID
 
 from sqlalchemy.exc import IntegrityError
 
 from backend.app.common.variables import VariableResolutionError, VariableResolutionService
+from backend.app.modules.deployments.service import DockerComposeDeploymentService
 from backend.app.modules.jobs.actions import get_action
 from backend.app.modules.jobs.schemas import JobExecuteRequest
 from backend.app.modules.jobs.service import JobService
@@ -53,10 +55,12 @@ class ProfileService:
         job_service: JobService,
         repository: InfrastructureProfileRepository | None = None,
         package_repository: PackageDefinitionRepository | None = None,
+        deployment_service: DockerComposeDeploymentService | None = None,
     ) -> None:
         self.job_service = job_service
         self.repository = repository
         self.package_repository = package_repository
+        self.deployment_service = deployment_service
         self.variable_service = VariableResolutionService()
 
     async def list_profiles(self) -> list[InfrastructureProfileRead]:
@@ -199,6 +203,24 @@ class ProfileService:
         status = "success"
         for step in profile.steps:
             if getattr(step, "enabled", True) is False:
+                continue
+            if step.kind == "deployment":
+                if self.deployment_service is None:
+                    raise ProfileStepResolutionError("Deployment service is required for deployment profile steps")
+                try:
+                    deployment_id = UUID(step.reference_id)
+                except ValueError as exc:
+                    raise ProfileStepResolutionError(
+                        f"Deployment step requires a deployment UUID: {step.reference_id}"
+                    ) from exc
+                deployment_result = await self.deployment_service.deploy_for_target(
+                    deployment_id,
+                    payload.target_server_id,
+                )
+                jobs.append(deployment_result.job)
+                if deployment_result.job.status == "failed" and payload.stop_on_failure:
+                    status = "failed"
+                    break
                 continue
             credential_ref = getattr(step, "credential_ref", None)
             command, redacted_command = await self._resolve_step_commands(

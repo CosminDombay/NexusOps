@@ -5,7 +5,7 @@ import httpx
 from backend.app.adapters.proxmox import HttpProxmoxAdapter, ProxmoxAdapterError
 from backend.app.core.config import settings
 from backend.app.modules.credentials.service import CredentialService
-from backend.app.modules.integrations.models import Integration
+from backend.app.modules.integrations.models import Integration, IntegrationType
 from backend.app.modules.integrations.repository import IntegrationRepository
 from backend.app.modules.integrations.schemas import (
     IntegrationCreate,
@@ -67,12 +67,48 @@ class IntegrationService:
             message="No connection test is defined for this integration yet.",
         )
 
+    async def get_proxmox_adapter(self) -> HttpProxmoxAdapter:
+        integration = await self._active_proxmox_integration()
+        if integration is None:
+            return HttpProxmoxAdapter()
+
+        token_secret, token_username = await self._secret_and_username(
+            integration,
+            "token_secret",
+            settings.proxmox_token_secret,
+        )
+        return HttpProxmoxAdapter(
+            api_url=_str_config(integration, "api_url") or settings.proxmox_api_url,
+            token_id=(
+                _str_config(integration, "token_id")
+                or token_username
+                or settings.proxmox_token_id
+            ),
+            token_secret=token_secret,
+            verify_ssl=_bool_config(integration, "verify_ssl", settings.proxmox_verify_ssl),
+            timeout_seconds=_int_config(
+                integration,
+                "timeout_seconds",
+                settings.proxmox_timeout_seconds,
+            ),
+        )
+
+    async def _active_proxmox_integration(self) -> Integration | None:
+        integrations = await self.repository.list_enabled_by_type(IntegrationType.INFRASTRUCTURE_PROVIDER)
+        return next((item for item in integrations if "proxmox" in item.name.lower()), None)
+
     async def _test_proxmox(self, integration: Integration) -> IntegrationTestRead:
+        token_secret, token_username = await self._secret_and_username(
+            integration,
+            "token_secret",
+            settings.proxmox_token_secret,
+        )
         adapter = HttpProxmoxAdapter(
             api_url=_str_config(integration, "api_url") or settings.proxmox_api_url,
-            token_id=_str_config(integration, "token_id") or settings.proxmox_token_id,
-            token_secret=await self._secret_config(integration, "token_secret", settings.proxmox_token_secret),
+            token_id=_str_config(integration, "token_id") or token_username or settings.proxmox_token_id,
+            token_secret=token_secret,
             verify_ssl=_bool_config(integration, "verify_ssl", settings.proxmox_verify_ssl),
+            timeout_seconds=_int_config(integration, "timeout_seconds", settings.proxmox_timeout_seconds),
         )
         try:
             nodes = await adapter.get_nodes()
@@ -102,13 +138,22 @@ class IntegrationService:
         return IntegrationTestRead(integration_id=integration.id, status="ok", message="Connection test succeeded.")
 
     async def _secret_config(self, integration: Integration, key: str, default: str | None) -> str | None:
+        secret, _username = await self._secret_and_username(integration, key, default)
+        return secret
+
+    async def _secret_and_username(
+        self,
+        integration: Integration,
+        key: str,
+        default: str | None,
+    ) -> tuple[str | None, str | None]:
         credential_ref = (integration.credential_refs or {}).get(key)
         if not credential_ref:
-            return _str_config(integration, key) or default
+            return _str_config(integration, key) or default, None
         if self.credential_service is None:
-            return default
+            return default, None
         credential = await self.credential_service.resolve_credential(credential_ref)
-        return credential.secret or credential.private_key or default
+        return credential.secret or credential.private_key or default, credential.username
 
 
 def _str_config(integration: Integration, key: str) -> str | None:
@@ -119,3 +164,15 @@ def _str_config(integration: Integration, key: str) -> str | None:
 def _bool_config(integration: Integration, key: str, default: bool) -> bool:
     value = integration.config.get(key)
     return value if isinstance(value, bool) else default
+
+
+def _int_config(integration: Integration, key: str, default: int) -> int:
+    value = integration.config.get(key)
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str):
+        try:
+            return int(value)
+        except ValueError:
+            return default
+    return default

@@ -9,7 +9,7 @@ import { createIntegration, listIntegrations, testIntegration, updateIntegration
 import type { Integration, IntegrationPayload, IntegrationTestResult, IntegrationType } from './types/integration';
 
 const defaults: IntegrationPayload[] = [
-  { name: 'Proxmox', type: 'infrastructure_provider', enabled: true, config: { api_url: '', token_id: '', verify_ssl: true }, credential_refs: {} },
+  { name: 'Proxmox', type: 'infrastructure_provider', enabled: true, config: { api_url: '', token_id: '', verify_ssl: true, timeout_seconds: 15 }, credential_refs: {} },
   { name: 'Prometheus', type: 'monitoring', enabled: true, config: { url: '' }, credential_refs: {} },
   { name: 'Grafana', type: 'monitoring', enabled: true, config: { base_url: '' }, credential_refs: {} },
 ];
@@ -114,6 +114,15 @@ export function IntegrationsPage() {
                     ))}
                   </div>
                 ) : null}
+                {runtimeConsumers(integration).length ? (
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {runtimeConsumers(integration).map((consumer) => (
+                      <span key={consumer} className="rounded-full bg-sky-50 px-2.5 py-1 text-xs font-semibold text-sky-700 ring-1 ring-sky-200">
+                        Used by {consumer}
+                      </span>
+                    ))}
+                  </div>
+                ) : null}
                 {tests[integration.id] ? (
                   <p className={`mt-3 rounded-md px-3 py-2 text-sm ${tests[integration.id].status === 'ok' ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}`}>
                     {tests[integration.id].message}
@@ -162,7 +171,7 @@ export function IntegrationsPage() {
         <div className="mt-4 grid gap-3 lg:grid-cols-3">
           {credentialKeysFor(form.name).map((key) => (
             <label key={key} className="text-sm font-medium text-zinc-700">
-              {formatType(key)}
+              {credentialLabelFor(key)}
               <select
                 className="mt-1 w-full rounded-md border border-zinc-300 px-3 py-2"
                 value={credentialRefs[key] ?? ''}
@@ -222,4 +231,25 @@ function credentialKeysFor(name: string): string[] {
     return ['bearer_token'];
   }
   return ['api_token'];
+}
+
+function credentialLabelFor(key: string): string {
+  if (key === 'token_secret') {
+    return 'Token Secret (credential username can supply token ID)';
+  }
+  return formatType(key);
+}
+
+function runtimeConsumers(integration: Integration): string[] {
+  const normalized = integration.name.toLowerCase();
+  if (integration.enabled && integration.type === 'infrastructure_provider' && normalized.includes('proxmox')) {
+    return ['Infrastructure', 'Provisioning', 'VM lifecycle'];
+  }
+  if (integration.enabled && normalized.includes('prometheus')) {
+    return ['Monitoring'];
+  }
+  if (integration.enabled && normalized.includes('grafana')) {
+    return ['Dashboards'];
+  }
+  return [];
 }

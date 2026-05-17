@@ -4,9 +4,13 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.app.adapters.proxmox import HttpProxmoxAdapter, ProxmoxConfigurationError, ProxmoxConnectionError
+from backend.app.adapters.proxmox import ProxmoxConfigurationError, ProxmoxConnectionError
 from backend.app.adapters.ssh import ParamikoSshAdapter
 from backend.app.db.session import get_db_session
+from backend.app.modules.credentials.repository import CredentialRepository
+from backend.app.modules.credentials.service import CredentialService
+from backend.app.modules.integrations.repository import IntegrationRepository
+from backend.app.modules.integrations.service import IntegrationService
 from backend.app.modules.inventory.repository import ServerRepository
 from backend.app.modules.jobs.repository import JobRepository
 from backend.app.modules.packages.repository import PackageDefinitionRepository
@@ -36,6 +40,11 @@ router = APIRouter()
 async def get_provisioning_service(
     session: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> ProvisioningService:
+    credential_service = CredentialService(repository=CredentialRepository(session))
+    integration_service = IntegrationService(
+        IntegrationRepository(session),
+        credential_service=credential_service,
+    )
     return ProvisioningService(
         repository=ProvisioningRequestRepository(session),
         blueprint_repository=ProvisioningBlueprintRepository(session),
@@ -43,7 +52,8 @@ async def get_provisioning_service(
         job_repository=JobRepository(session),
         package_repository=PackageDefinitionRepository(session),
         profile_repository=InfrastructureProfileRepository(session),
-        proxmox_adapter=HttpProxmoxAdapter(),
+        credential_service=credential_service,
+        proxmox_adapter=await integration_service.get_proxmox_adapter(),
         ssh_adapter=ParamikoSshAdapter(),
     )
 

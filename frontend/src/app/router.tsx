@@ -1,6 +1,7 @@
 import { createBrowserRouter } from 'react-router-dom';
 
 import { AppLayout } from '../components/layout/AppLayout';
+import { AutomationsPage } from '../features/automations/pages/AutomationsPage';
 import { CredentialsPage } from '../features/credentials/CredentialsPage';
 import { DeploymentsPage } from '../features/deployments/DeploymentsPage';
 import { InventoryPage } from '../features/inventory/InventoryPage';
@@ -14,6 +15,7 @@ import { InfrastructureNodeDetailPage } from '../features/proxmox/pages/Infrastr
 import { ProfilesPage } from '../features/profiles/ProfilesPage';
 import { ProvisioningPage } from '../features/provisioning/ProvisioningPage';
 import { IntegrationsPage } from '../features/settings/IntegrationsPage';
+import { WorkflowsPage } from '../features/workflows/pages/WorkflowsPage';
 
 export const router = createBrowserRouter([
   {
@@ -32,6 +34,8 @@ export const router = createBrowserRouter([
       { path: 'monitoring', element: <MonitoringPage /> },
       { path: 'profiles', element: <ProfilesPage /> },
       { path: 'jobs', element: <JobsPage /> },
+      { path: 'automations', element: <AutomationsPage /> },
+      { path: 'workflows', element: <WorkflowsPage /> },
       { path: 'settings/integrations', element: <IntegrationsPage /> },
     ],
   },

@@ -5,6 +5,7 @@ description = "Centralized infrastructure orchestration and automation platform.
 requires-python = ">=3.12"
 dependencies = [
     "alembic>=1.13.2",
+    "apscheduler>=3.10.4",
     "aiosqlite>=0.20.0",
     "asyncpg>=0.29.0",
     "cryptography>=43.0.0",

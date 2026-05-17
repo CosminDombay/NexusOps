@@ -11,6 +11,7 @@ from backend.app.modules.proxmox.schemas import (
     ProxmoxDashboardRead,
     ProxmoxNodeDetailRead,
     ProxmoxNodeRead,
+    ProxmoxStorageRead,
     ProxmoxVmActionRead,
     ProxmoxVmRead,
 )
@@ -59,6 +60,11 @@ class ProxmoxService:
             vms = await self._add_inventory_context(vms)
         logger.info("proxmox_vms_normalized", vm_count=len(vms))
         return vms
+
+    async def list_storage(self, node_name: str | None = None) -> list[ProxmoxStorageRead]:
+        raw_storage = await self.adapter.list_storage(node=node_name)
+        storage = [self._normalize_storage(item, default_node=node_name) for item in raw_storage]
+        return sorted(storage, key=lambda item: ((item.node or ""), item.storage))
 
     async def get_vm_status(self, *, node: str, vm_id: int, vm_type: str) -> ProxmoxVmRead:
         raw_status = await self.adapter.get_vm_status(node=node, vm_id=vm_id, vm_type=vm_type)
@@ -230,6 +236,29 @@ class ProxmoxService:
             ),
         )
 
+    @staticmethod
+    def _normalize_storage(raw_storage: dict[str, Any], *, default_node: str | None = None) -> ProxmoxStorageRead:
+        content = raw_storage.get("content") or ""
+        if isinstance(content, str):
+            content_items = [item.strip() for item in content.split(",") if item.strip()]
+        elif isinstance(content, list):
+            content_items = [str(item) for item in content]
+        else:
+            content_items = []
+
+        return ProxmoxStorageRead(
+            storage=str(raw_storage.get("storage") or raw_storage.get("id") or "unknown"),
+            node=_optional_str(raw_storage.get("node")) or default_node,
+            type=_optional_str(raw_storage.get("type")),
+            content=content_items,
+            active=_optional_bool(raw_storage.get("active")),
+            enabled=_optional_bool(raw_storage.get("enabled")),
+            shared=_optional_bool(raw_storage.get("shared")),
+            used_bytes=_optional_int(raw_storage.get("used")),
+            total_bytes=_optional_int(raw_storage.get("total") or raw_storage.get("maxdisk")),
+            available_bytes=_optional_int(raw_storage.get("avail")),
+        )
+
     async def _add_inventory_context(self, vms: list[ProxmoxVmRead]) -> list[ProxmoxVmRead]:
         if self.server_repository is None:
             return vms
@@ -298,6 +327,17 @@ def _optional_float(value: Any) -> float | None:
         return None
     try:
         return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _optional_bool(value: Any) -> bool | None:
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return value
+    try:
+        return bool(int(value))
     except (TypeError, ValueError):
         return None
 

@@ -13,7 +13,14 @@ from backend.app.common.constants import (
     ServerSshAuthMethod,
     ServerStatus,
 )
+from backend.app.modules.credentials.service import CredentialService
 from backend.app.modules.inventory.repository import ServerRepository
+from backend.app.modules.deployments.repository import (
+    DeploymentRepository,
+    DeploymentRevisionRepository,
+    DeploymentTargetRepository,
+)
+from backend.app.modules.deployments.service import DockerComposeDeploymentService
 from backend.app.modules.inventory.schemas import ServerCreate
 from backend.app.modules.inventory.service import InventoryConflictError, InventoryService
 from backend.app.modules.jobs.repository import JobRepository
@@ -73,6 +80,7 @@ class ProvisioningService:
         job_repository: JobRepository,
         package_repository: PackageDefinitionRepository,
         profile_repository: InfrastructureProfileRepository,
+        credential_service: CredentialService | None = None,
         proxmox_adapter: ProxmoxAdapter,
         ssh_adapter: SshAdapter,
     ) -> None:
@@ -82,6 +90,7 @@ class ProvisioningService:
         self.job_repository = job_repository
         self.package_repository = package_repository
         self.profile_repository = profile_repository
+        self.credential_service = credential_service
         self.proxmox_adapter = proxmox_adapter
         self.ssh_adapter = ssh_adapter
 
@@ -373,11 +382,20 @@ class ProvisioningService:
             job_repository=self.job_repository,
             server_repository=self.server_repository,
             ssh_adapter=self.ssh_adapter,
+            credential_service=self.credential_service,
         )
         profile_service = ProfileService(
             job_service=job_service,
             repository=self.profile_repository,
             package_repository=self.package_repository,
+            deployment_service=DockerComposeDeploymentService(
+                repository=DeploymentRepository(self.repository.session),
+                target_repository=DeploymentTargetRepository(self.repository.session),
+                revision_repository=DeploymentRevisionRepository(self.repository.session),
+                server_repository=self.server_repository,
+                job_service=job_service,
+                credential_service=self.credential_service,
+            ),
         )
         package_service = PackageAutomationService(
             repository=self.package_repository,

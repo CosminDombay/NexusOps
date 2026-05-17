@@ -7,6 +7,12 @@ from backend.app.adapters.ssh import ParamikoSshAdapter
 from backend.app.db.session import get_db_session
 from backend.app.modules.credentials.repository import CredentialRepository
 from backend.app.modules.credentials.service import CredentialNotFoundError, CredentialService
+from backend.app.modules.deployments.repository import (
+    DeploymentRepository,
+    DeploymentRevisionRepository,
+    DeploymentTargetRepository,
+)
+from backend.app.modules.deployments.service import DeploymentNotFoundError, DeploymentValidationError, DockerComposeDeploymentService
 from backend.app.modules.inventory.repository import ServerRepository
 from backend.app.modules.jobs.repository import JobRepository
 from backend.app.modules.jobs.service import JobService, JobTargetNotFoundError, JobTargetNotManagedError
@@ -37,15 +43,26 @@ router = APIRouter()
 async def get_profile_service(
     session: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> ProfileService:
+    server_repository = ServerRepository(session)
+    credential_service = CredentialService(repository=CredentialRepository(session))
+    job_service = JobService(
+        job_repository=JobRepository(session),
+        server_repository=server_repository,
+        ssh_adapter=ParamikoSshAdapter(),
+        credential_service=credential_service,
+    )
     return ProfileService(
-        job_service=JobService(
-            job_repository=JobRepository(session),
-            server_repository=ServerRepository(session),
-            ssh_adapter=ParamikoSshAdapter(),
-            credential_service=CredentialService(repository=CredentialRepository(session)),
-        ),
+        job_service=job_service,
         repository=InfrastructureProfileRepository(session),
         package_repository=PackageDefinitionRepository(session),
+        deployment_service=DockerComposeDeploymentService(
+            repository=DeploymentRepository(session),
+            target_repository=DeploymentTargetRepository(session),
+            revision_repository=DeploymentRevisionRepository(session),
+            server_repository=server_repository,
+            job_service=job_service,
+            credential_service=credential_service,
+        ),
     )
 
 
@@ -150,8 +167,10 @@ async def apply_profile(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except JobTargetNotManagedError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
-    except ProfileStepResolutionError as exc:
+    except (ProfileStepResolutionError, DeploymentValidationError) as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    except DeploymentNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except VariableResolutionError as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
     except CredentialNotFoundError as exc:

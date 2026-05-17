@@ -33,6 +33,9 @@ class FakeProxmoxAdapter(ProxmoxAdapter):
     async def list_vm_templates(self) -> list[dict[str, Any]]:
         return [{"vmid": 9000, "name": "ubuntu-template", "node": "hellgate", "type": "qemu", "template": 1}]
 
+    async def list_storage(self, *, node: str | None = None) -> list[dict[str, Any]]:
+        return [{"storage": "local-lvm", "node": node or "hellgate", "type": "lvmthin", "content": "images"}]
+
     async def get_vm_status(self, *, node: str, vm_id: int, vm_type: str) -> dict[str, Any]:
         return {}
 
@@ -152,6 +155,16 @@ async def test_provisioning_lists_templates(client) -> None:
         templates = await service(db_session).list_templates()
 
         assert templates[0].template_id == 9000
+
+
+@pytest.mark.asyncio
+async def test_provisioning_lists_storage(client) -> None:
+    from backend.app.modules.proxmox.service import ProxmoxService
+
+    storage = await ProxmoxService(FakeProxmoxAdapter()).list_storage("hellgate")
+
+    assert storage[0].storage == "local-lvm"
+    assert storage[0].content == ["images"]
 
 
 @pytest.mark.asyncio

@@ -2,7 +2,7 @@
 
 ## Implementation Status
 
-NexusOps is currently a modular monolith with a FastAPI backend, a React/Vite frontend, PostgreSQL persistence, and a CMDB-style server inventory. The platform also includes Proxmox infrastructure visibility, controlled VM lifecycle actions, Proxmox template provisioning, NexusOps provisioning blueprints, Proxmox-to-inventory synchronization, SSH-backed job execution, reusable operational actions, package definitions, infrastructure profiles, editable built-in operational templates, integration records, a credential manager, variable-manager foundations, Docker Compose deployments, monitoring foundations, Linux identity orchestration, and credential-backed variable-driven execution.
+NexusOps is currently a modular monolith with a FastAPI backend, a React/Vite frontend, PostgreSQL persistence, and a CMDB-style server inventory. The platform also includes Proxmox infrastructure visibility, controlled VM lifecycle actions, Proxmox template provisioning, NexusOps provisioning blueprints, Proxmox-to-inventory synchronization, SSH-backed job execution, persistent workflow runs, scheduled automations, reusable operational actions, package definitions, infrastructure profiles, editable built-in operational templates, integration records, a credential manager, variable-manager foundations, Docker Compose deployments, monitoring foundations, Linux identity orchestration, and credential-backed variable-driven execution.
 
 The implemented system is focused on foundations, visibility, narrowly scoped VM lifecycle control, template provisioning, inventory synchronization, reusable automation templates, and the first orchestration layer. It does not yet perform VM deletion, full secrets vaulting, Terraform execution, Ansible execution, authentication, authorization, or workflow chaining.
 
@@ -74,6 +74,23 @@ The implemented system is focused on foundations, visibility, narrowly scoped VM
   - expose reusable operational actions backed by the jobs pipeline
   - frontend Jobs page with action runner, raw command runner, history, and tabbed stdout/stderr/command/metadata result viewer
   - bulk command execution foundation for sequential multi-host fanout
+- Workflow engine foundation:
+  - persisted workflow runs
+  - persisted workflow steps
+  - workflow status lifecycle: pending, queued, running, success, failed, cancelled
+  - step status lifecycle: pending, running, success, failed, skipped
+  - ordered step logs and errors
+  - workflow list/detail API
+  - frontend Workflows page with timeline/log view
+- Scheduled automations foundation:
+  - interval and cron schedules
+  - predefined action automations
+  - package execution automations
+  - profile execution automations
+  - enable/disable/run-now API
+  - APScheduler startup/shutdown integration
+  - automation runs create WorkflowRuns and execute through existing Jobs/Profile/Package services
+  - frontend Automations page
 - Inventory health:
   - lightweight TCP reachability check against SSH port
   - per-host last health state, timestamp, and error metadata
@@ -267,9 +284,9 @@ Discovered VMs are shown as unmanaged until an operator imports them. Import cre
 - Proxmox credentials are intentionally not persisted in source-controlled files.
 - Proxmox lifecycle actions currently return accepted task IDs but do not poll task completion.
 - Proxmox lifecycle action audit persistence is not implemented yet.
-- Jobs run synchronously during the API request; no Celery/Redis/background worker exists yet.
-- Profiles run synchronously and sequentially; no DAG engine, rollback, or workflow scheduler exists yet.
-- Provisioning runs synchronously in the API request; no background worker or websocket status streaming exists yet.
+- Jobs still execute synchronously inside the JobService call, but scheduled automations now dispatch through WorkflowRuns and an in-process async queue.
+- Profiles still run sequentially inside ProfileService, but automation-triggered profile runs now persist workflow steps.
+- Provisioning still needs the deeper background refactor so each clone/config/bootstrap phase is driven fully by WorkflowRun steps.
 - Provisioning blueprints do not yet discover valid Proxmox storage targets per node; extra disks currently rely on operator-entered storage names.
 - Deployment logs are pulled on demand from Docker Compose and are not yet indexed as first-class log records.
 - Docker deployment steps are visible in profile editing but do not yet execute as concrete deployment operations inside `ProfileService`.

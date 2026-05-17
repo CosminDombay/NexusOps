@@ -84,6 +84,12 @@ class DockerComposeDeploymentService:
     async def deploy(self, deployment_id: UUID) -> DeploymentOperationRead:
         return await self._run_operation(deployment_id, "deploy")
 
+    async def deploy_for_target(self, deployment_id: UUID, target_server_id: UUID) -> DeploymentOperationRead:
+        deployment, target = await self._deployment_and_target(deployment_id)
+        if target.server_id != target_server_id:
+            raise DeploymentValidationError("Deployment target does not match the profile target host")
+        return await self._run_operation(deployment.id, "deploy")
+
     async def redeploy(self, deployment_id: UUID) -> DeploymentOperationRead:
         return await self._run_operation(deployment_id, "redeploy")
 

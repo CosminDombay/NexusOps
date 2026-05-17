@@ -6,24 +6,21 @@ const navGroups = [
     items: [
       { to: '/', label: 'Inventory' },
       { to: '/infrastructure', label: 'Infrastructure' },
+      { to: '/provisioning', label: 'Provisioning' },
       { to: '/infrastructure/credentials', label: 'Credentials' },
-      { to: '/provisioning', label: 'VMs' },
     ],
   },
   {
-    label: 'Orchestration',
+    label: 'Operations/Orchestration',
     items: [
       { to: '/jobs', label: 'Jobs' },
+      { to: '/workflows', label: 'Workflows' },
+      { to: '/automations', label: 'Automations' },
       { to: '/packages', label: 'Packages' },
       { to: '/profiles', label: 'Profiles' },
       { to: '/deployments', label: 'Deployments' },
-    ],
-  },
-  {
-    label: 'Operations',
-    items: [
-      { to: '/monitoring', label: 'Monitoring' },
       { to: '/identity', label: 'Identity' },
+      { to: '/monitoring', label: 'Monitoring' },
       { to: '/settings/integrations', label: 'Integrations' },
     ],
   },

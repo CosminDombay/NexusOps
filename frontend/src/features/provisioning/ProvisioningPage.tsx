@@ -10,12 +10,15 @@ import {
   createProvisioningBlueprint,
   createProvisioningRequest,
   deleteProvisioningBlueprint,
+  listProxmoxStorage,
   listProxmoxTemplates,
   listProvisioningBlueprints,
   listProvisioningRequests,
+  updateProvisioningBlueprint,
 } from './api/provisioningApi';
 import type {
   CreateProvisioningPayload,
+  ProxmoxStorage,
   ProxmoxTemplate,
   ProvisioningBlueprint,
   ProvisioningRequest,
@@ -73,6 +76,7 @@ const initialFormState: FormState = {
 
 export function ProvisioningPage() {
   const [templates, setTemplates] = useState<ProxmoxTemplate[]>([]);
+  const [storageOptions, setStorageOptions] = useState<ProxmoxStorage[]>([]);
   const [profiles, setProfiles] = useState<InfrastructureProfile[]>([]);
   const [packages, setPackages] = useState<PackageDefinition[]>([]);
   const [requests, setRequests] = useState<ProvisioningRequest[]>([]);
@@ -90,6 +94,17 @@ export function ProvisioningPage() {
     [formState.template_id, templates],
   );
 
+  const diskStorageOptions = useMemo(
+    () =>
+      storageOptions.filter(
+        (storage) =>
+          (!storage.node || !formState.target_node || storage.node === formState.target_node) &&
+          (storage.content.length === 0 || storage.content.includes('images')) &&
+          storage.storage !== 'unknown',
+      ),
+    [formState.target_node, storageOptions],
+  );
+
   useEffect(() => {
     async function load() {
       setIsLoading(true);
@@ -102,7 +117,12 @@ export function ProvisioningPage() {
           listProvisioningRequests(),
           listProvisioningBlueprints(),
         ]);
+        const nodeNames = Array.from(new Set(nextTemplates.map((template) => template.node).filter(Boolean)));
+        const nextStorage = (
+          await Promise.all(nodeNames.length ? nodeNames.map((nodeName) => listProxmoxStorage(nodeName)) : [listProxmoxStorage()])
+        ).flat();
         setTemplates(nextTemplates);
+        setStorageOptions(nextStorage);
         setProfiles(nextProfiles);
         setPackages(nextPackages);
         setRequests(nextRequests);
@@ -190,6 +210,60 @@ export function ProvisioningPage() {
       setBlueprints((current) => [...current, created].sort((left, right) => left.name.localeCompare(right.name)));
       setSelectedBlueprintId(created.id);
       setSuccess(`Saved blueprint ${created.name}.`);
+    } catch (caughtError) {
+      setError(getApiErrorMessage(caughtError));
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  async function handleUpdateBlueprint() {
+    const blueprint = blueprints.find((item) => item.id === selectedBlueprintId);
+    const payload = toBlueprintPayload(formState, blueprintName.trim() || blueprint?.name || '');
+    if (!blueprint || !payload) {
+      setError('Select a blueprint and fill the required defaults before updating.');
+      return;
+    }
+    setIsSubmitting(true);
+    setError(null);
+    setSuccess(null);
+    try {
+      const updated = await updateProvisioningBlueprint(blueprint.id, payload);
+      setBlueprints((current) =>
+        current.map((item) => (item.id === updated.id ? updated : item)).sort((left, right) => left.name.localeCompare(right.name)),
+      );
+      setBlueprintName(updated.name);
+      setSuccess(`Updated blueprint ${updated.name}.`);
+    } catch (caughtError) {
+      setError(getApiErrorMessage(caughtError));
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  async function handleCloneBlueprint() {
+    const blueprint = blueprints.find((item) => item.id === selectedBlueprintId);
+    if (!blueprint) {
+      return;
+    }
+    const cloneName = window.prompt('Clone blueprint as', `${blueprint.name} Copy`);
+    if (!cloneName?.trim()) {
+      return;
+    }
+    const payload = toBlueprintPayload(formState, cloneName.trim());
+    if (!payload) {
+      setError('Blueprint clone needs template, target node, and gateway defaults.');
+      return;
+    }
+    setIsSubmitting(true);
+    setError(null);
+    setSuccess(null);
+    try {
+      const created = await createProvisioningBlueprint(payload);
+      setBlueprints((current) => [...current, created].sort((left, right) => left.name.localeCompare(right.name)));
+      setSelectedBlueprintId(created.id);
+      setBlueprintName(created.name);
+      setSuccess(`Cloned blueprint ${created.name}.`);
     } catch (caughtError) {
       setError(getApiErrorMessage(caughtError));
     } finally {
@@ -300,6 +374,22 @@ export function ProvisioningPage() {
               Save blueprint
             </button>
             <button
+              className="rounded-md border border-zinc-300 px-4 py-2 text-sm font-semibold text-zinc-700 transition hover:bg-zinc-50 disabled:opacity-50"
+              disabled={!selectedBlueprintId || isSubmitting}
+              type="button"
+              onClick={() => void handleUpdateBlueprint()}
+            >
+              Update
+            </button>
+            <button
+              className="rounded-md border border-zinc-300 px-4 py-2 text-sm font-semibold text-zinc-700 transition hover:bg-zinc-50 disabled:opacity-50"
+              disabled={!selectedBlueprintId || isSubmitting}
+              type="button"
+              onClick={() => void handleCloneBlueprint()}
+            >
+              Clone
+            </button>
+            <button
               className="rounded-md border border-rose-300 px-4 py-2 text-sm font-semibold text-rose-700 transition hover:bg-rose-50 disabled:opacity-50"
               disabled={!selectedBlueprintId || isSubmitting}
               type="button"
@@ -316,6 +406,10 @@ export function ProvisioningPage() {
 
       <section className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm">
         <h3 className="text-base font-semibold text-zinc-950">Provision VM</h3>
+        <WizardSteps
+          steps={['Blueprint', 'VM fields', 'Cloud-init/auth', 'Bootstrap', 'Review', 'Run']}
+          currentIndex={reviewCompleteness(formState, selectedBlueprintId)}
+        />
         {isLoading ? <div className="mt-4 h-40 animate-pulse rounded-md bg-zinc-100" /> : null}
         {!isLoading ? (
           <>
@@ -341,7 +435,7 @@ export function ProvisioningPage() {
                   ))}
                 </select>
               </label>
-              <TextInput label="Target node" name="target_node" value={formState.target_node} onChange={updateField} />
+                      <TextInput label="Target node" name="target_node" value={formState.target_node} onChange={updateField} />
               <TextInput label="Network bridge" name="network_bridge" value={formState.network_bridge} onChange={updateField} />
               <TextInput label="CPU cores" name="cpu_cores" type="number" value={formState.cpu_cores} onChange={updateField} />
               <TextInput label="RAM MB" name="memory_mb" type="number" value={formState.memory_mb} onChange={updateField} />
@@ -384,7 +478,7 @@ export function ProvisioningPage() {
                   onClick={() =>
                     updateField('additional_disks', [
                       ...formState.additional_disks,
-                      { size_gb: '32', storage: 'local-lvm', bus: 'scsi' },
+                      { size_gb: '32', storage: diskStorageOptions[0]?.storage ?? 'local-lvm', bus: 'scsi' },
                     ])
                   }
                 >
@@ -407,11 +501,18 @@ export function ProvisioningPage() {
                       </label>
                       <label className="text-sm font-medium text-zinc-700">
                         Storage
-                        <input
+                        <select
                           className="mt-1 w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-950"
                           value={disk.storage}
                           onChange={(event) => updateAdditionalDisk(index, { storage: event.target.value })}
-                        />
+                        >
+                          {diskStorageOptions.length === 0 ? <option value={disk.storage}>{disk.storage || 'local-lvm'}</option> : null}
+                          {diskStorageOptions.map((storage) => (
+                            <option key={`${storage.node ?? 'cluster'}-${storage.storage}`} value={storage.storage}>
+                              {storage.storage}{storage.type ? ` (${storage.type})` : ''}
+                            </option>
+                          ))}
+                        </select>
                       </label>
                       <label className="text-sm font-medium text-zinc-700">
                         Bus
@@ -535,6 +636,26 @@ function MultiSelect({
   );
 }
 
+function WizardSteps({ steps, currentIndex }: { steps: string[]; currentIndex: number }) {
+  return (
+    <ol className="mt-4 grid gap-2 md:grid-cols-3 xl:grid-cols-6">
+      {steps.map((step, index) => (
+        <li
+          key={step}
+          className={`rounded-md border px-3 py-2 text-xs font-semibold ${
+            index <= currentIndex
+              ? 'border-zinc-900 bg-zinc-950 text-white'
+              : 'border-zinc-200 bg-zinc-50 text-zinc-500'
+          }`}
+        >
+          <span className="mr-1 font-mono">{index + 1}</span>
+          {step}
+        </li>
+      ))}
+    </ol>
+  );
+}
+
 function ProvisioningHistory({ requests }: { requests: ProvisioningRequest[] }) {
   return (
     <section className="rounded-lg border border-zinc-200 bg-white shadow-sm">
@@ -560,11 +681,41 @@ function ProvisioningHistory({ requests }: { requests: ProvisioningRequest[] }) 
             <p className="mt-3 text-xs text-zinc-500">
               Tasks: {request.proxmox_task_ids.length} | Bootstrap jobs: {request.bootstrap_job_ids.length}
             </p>
+            <ProvisioningTimeline request={request} />
           </article>
         ))}
         {requests.length === 0 ? <p className="text-sm text-zinc-500">No provisioning requests yet.</p> : null}
       </div>
     </section>
+  );
+}
+
+function ProvisioningTimeline({ request }: { request: ProvisioningRequest }) {
+  const items = provisioningTimelineItems(request);
+  return (
+    <ol className="mt-4 grid gap-2 md:grid-cols-2 xl:grid-cols-4">
+      {items.map((item) => (
+        <li key={item.label} className="rounded-md border border-zinc-200 bg-zinc-50 px-3 py-2">
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-xs font-semibold text-zinc-700">{item.label}</span>
+            <span
+              className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${
+                item.state === 'done'
+                  ? 'bg-emerald-100 text-emerald-700'
+                  : item.state === 'failed'
+                    ? 'bg-rose-100 text-rose-700'
+                    : item.state === 'active'
+                      ? 'bg-sky-100 text-sky-700'
+                      : 'bg-zinc-100 text-zinc-500'
+              }`}
+            >
+              {item.state}
+            </span>
+          </div>
+          {item.detail ? <p className="mt-1 break-all font-mono text-[11px] text-zinc-500">{item.detail}</p> : null}
+        </li>
+      ))}
+    </ol>
   );
 }
 
@@ -636,6 +787,52 @@ function toBlueprintPayload(formState: FormState, name: string) {
     bootstrap_profile_ids: formState.bootstrap_profile_ids,
     bootstrap_package_ids: formState.bootstrap_package_ids,
   };
+}
+
+function reviewCompleteness(formState: FormState, selectedBlueprintId: string): number {
+  if (!selectedBlueprintId) return 0;
+  if (!formState.vm_name || !formState.new_vm_id || !formState.cloud_init_hostname || !formState.static_ip_cidr) return 1;
+  if (!formState.cloud_init_username || (!formState.cloud_init_password && !formState.ssh_public_key)) return 2;
+  if (formState.bootstrap_profile_ids.length || formState.bootstrap_package_ids.length) return 3;
+  if (toPayload(formState, null)) return 4;
+  return 3;
+}
+
+function provisioningTimelineItems(request: ProvisioningRequest): Array<{
+  label: string;
+  state: 'pending' | 'active' | 'done' | 'failed';
+  detail?: string;
+}> {
+  const order = [
+    ['validating_ip', 'Preflight'],
+    ['cloning', 'Clone'],
+    ['configuring', 'Cloud-init and disks'],
+    ['starting', 'Start VM'],
+    ['waiting_for_ssh', 'SSH readiness'],
+    ['inventory_registration', 'Inventory'],
+    ['bootstrap_running', 'Bootstrap'],
+    ['completed', 'Complete'],
+  ] as const;
+  const currentIndex = order.findIndex(([status]) => status === request.status);
+  return order.map(([status, label], index) => {
+    let state: 'pending' | 'active' | 'done' | 'failed' = 'pending';
+    if (request.status === 'failed') {
+      state = index <= Math.max(currentIndex, 0) ? 'failed' : 'pending';
+    } else if (currentIndex >= 0 && index < currentIndex) {
+      state = 'done';
+    } else if (currentIndex >= 0 && index === currentIndex) {
+      state = status === 'completed' ? 'done' : 'active';
+    }
+    const detail =
+      status === 'cloning'
+        ? request.proxmox_task_ids[0]
+        : status === 'configuring'
+          ? request.proxmox_task_ids.slice(1, -1).join(', ')
+          : status === 'bootstrap_running'
+            ? request.bootstrap_job_ids.join(', ')
+            : undefined;
+    return { label, state, detail };
+  });
 }
 
 function splitCsv(value: string): string[] {

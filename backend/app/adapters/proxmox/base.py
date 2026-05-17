@@ -19,6 +19,9 @@ class ProxmoxAdapter(Adapter):
     async def list_vm_templates(self) -> list[dict[str, Any]]:
         raise NotImplementedError
 
+    async def list_storage(self, *, node: str | None = None) -> list[dict[str, Any]]:
+        return []
+
     @abstractmethod
     async def get_vm_status(self, *, node: str, vm_id: int, vm_type: str) -> dict[str, Any]:
         raise NotImplementedError

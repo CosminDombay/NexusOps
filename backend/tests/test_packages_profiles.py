@@ -6,10 +6,19 @@ from backend.app.adapters.ssh import SshAdapter, SshExecutionResult
 from backend.app.modules.inventory.repository import ServerRepository
 from backend.app.modules.inventory.schemas import ServerCreate
 from backend.app.modules.inventory.service import InventoryService
+from backend.app.modules.deployments.repository import (
+    DeploymentRepository,
+    DeploymentRevisionRepository,
+    DeploymentTargetRepository,
+)
+from backend.app.modules.deployments.schemas import DeploymentCreate
+from backend.app.modules.deployments.service import DockerComposeDeploymentService
 from backend.app.modules.jobs.repository import JobRepository
 from backend.app.modules.jobs.service import JobService
 from backend.app.modules.packages.service import PackageAutomationService
 from backend.app.modules.profiles.schemas import ProfileApplyRequest
+from backend.app.modules.profiles.schemas import InfrastructureProfileCreate
+from backend.app.modules.profiles.repository import InfrastructureProfileRepository
 from backend.app.modules.profiles.service import ProfileService
 
 
@@ -104,6 +113,67 @@ async def test_profile_apply_generates_sequential_jobs(client) -> None:
         assert result.jobs[0].operation_type == "profile:docker-host:install-docker"
         assert "get.docker.com" in adapter.calls[0]["command"]
         assert adapter.calls[1]["command"] == "systemctl status docker --no-pager"
+
+
+@pytest.mark.asyncio
+async def test_profile_apply_runs_deployment_step(client) -> None:
+    session = next(iter(client.app.dependency_overrides.values()))
+    async for db_session in session():
+        server = await InventoryService(ServerRepository(db_session)).create_server(
+            ServerCreate(**server_payload(hostname="deploy-profile-01", ip_address="10.2.0.11"))
+        )
+        adapter = FakeSshAdapter()
+        server_repository = ServerRepository(db_session)
+        job_service = JobService(
+            job_repository=JobRepository(db_session),
+            server_repository=server_repository,
+            ssh_adapter=adapter,
+        )
+        deployment_service = DockerComposeDeploymentService(
+            repository=DeploymentRepository(db_session),
+            target_repository=DeploymentTargetRepository(db_session),
+            revision_repository=DeploymentRevisionRepository(db_session),
+            server_repository=server_repository,
+            job_service=job_service,
+        )
+        deployment = await deployment_service.create_deployment(
+            DeploymentCreate(
+                name="profile-web",
+                target_server_id=server.id,
+                compose_content="services:\n  web:\n    image: nginx:alpine\n",
+            )
+        )
+        profile_service = ProfileService(
+            job_service=job_service,
+            repository=InfrastructureProfileRepository(db_session),
+            deployment_service=deployment_service,
+        )
+        profile = await profile_service.create_profile(
+            InfrastructureProfileCreate(
+                id="deploy-profile",
+                name="Deploy Profile",
+                category="Custom",
+                description="Runs a deployment.",
+                tags=[],
+                steps=[
+                    {
+                        "kind": "deployment",
+                        "reference_id": str(deployment.id),
+                        "name": "Deploy web",
+                    }
+                ],
+            )
+        )
+
+        result = await profile_service.apply_profile(
+            profile.id,
+            ProfileApplyRequest(target_server_id=server.id),
+        )
+
+        assert result.status == "success"
+        assert len(result.jobs) == 1
+        assert result.jobs[0].operation_type == f"deployment:{deployment.id}:deploy"
+        assert "docker compose up -d" in adapter.calls[0]["command"]
 
 
 def test_profiles_router_lists_profiles(client) -> None:

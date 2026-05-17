@@ -58,6 +58,13 @@ class HttpProxmoxAdapter(ProxmoxAdapter):
         vms = await self.list_vms()
         return [vm for vm in vms if bool(vm.get("template"))]
 
+    async def list_storage(self, *, node: str | None = None) -> list[dict[str, Any]]:
+        if node:
+            data = await self._get(f"nodes/{node}/storage")
+        else:
+            data = await self._get("cluster/resources", params={"type": "storage"})
+        return list(data)
+
     async def get_vm_status(self, *, node: str, vm_id: int, vm_type: str) -> dict[str, Any]:
         normalized_type = self._normalize_vm_type(vm_type)
         return dict(await self._get(f"nodes/{node}/{normalized_type}/{vm_id}/status/current"))

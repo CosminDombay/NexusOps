@@ -8,6 +8,8 @@ import { VariableDefinitionEditor } from '../../components/VariableDefinitionEdi
 import { getApiErrorMessage } from '../../lib/api/client';
 import { listCredentials } from '../credentials/api/credentialsApi';
 import type { Credential } from '../credentials/types/credential';
+import { listDeployments } from '../deployments/api/deploymentsApi';
+import type { Deployment } from '../deployments/types/deployment';
 import { listServers } from '../inventory/api/serversApi';
 import type { Server } from '../inventory/types/server';
 import { listOperationalActions } from '../jobs/api/jobsApi';
@@ -49,6 +51,7 @@ export function ProfilesPage() {
   const [packages, setPackages] = useState<PackageDefinition[]>([]);
   const [actions, setActions] = useState<OperationalAction[]>([]);
   const [credentials, setCredentials] = useState<Credential[]>([]);
+  const [deployments, setDeployments] = useState<Deployment[]>([]);
   const [selectedProfileId, setSelectedProfileId] = useState('');
   const [selectedServerId, setSelectedServerId] = useState('');
   const [selectedServerIds, setSelectedServerIds] = useState<string[]>([]);
@@ -73,18 +76,20 @@ export function ProfilesPage() {
     setError(null);
 
     try {
-      const [nextProfiles, nextServers, nextPackages, nextActions, nextCredentials] = await Promise.all([
+      const [nextProfiles, nextServers, nextPackages, nextActions, nextCredentials, nextDeployments] = await Promise.all([
         listProfiles(),
         listServers(),
         listPackageDefinitions(),
         listOperationalActions(),
         listCredentials(),
+        listDeployments(),
       ]);
       setProfiles(nextProfiles);
       setServers(nextServers);
       setPackages(nextPackages);
       setActions(nextActions);
       setCredentials(nextCredentials);
+      setDeployments(nextDeployments);
       setSelectedProfileId((current) => current || nextProfiles[0]?.id || '');
       setSelectedServerId((current) => current || nextServers[0]?.id || '');
     } catch (caughtError) {
@@ -367,6 +372,7 @@ export function ProfilesPage() {
             actions={actions}
             formState={formState}
             credentials={credentials}
+            deployments={deployments}
             editingProfileId={editingProfileId}
             isCreating={isCreating}
             packages={packages}
@@ -544,6 +550,7 @@ function ProfileCard({
 function ProfileBuilder({
   actions,
   credentials,
+  deployments,
   formState,
   editingProfileId,
   isCreating,
@@ -556,6 +563,7 @@ function ProfileBuilder({
 }: {
   actions: OperationalAction[];
   credentials: Credential[];
+  deployments: Deployment[];
   formState: ProfileFormState;
   editingProfileId: string | null;
   isCreating: boolean;
@@ -638,6 +646,7 @@ function ProfileBuilder({
                 key={`${step.id}-${index}`}
                 actions={actions}
                 credentials={credentials}
+                deployments={deployments}
                 index={index}
                 packages={packages}
                 step={step}
@@ -654,6 +663,7 @@ function ProfileBuilder({
       <div className="mt-4 grid gap-4 text-xs text-zinc-500 lg:grid-cols-2">
         <ReferenceList label="Package refs" values={packages.map((packageDefinition) => packageDefinition.id)} />
         <ReferenceList label="Action refs" values={actions.map((action) => action.id)} />
+        <ReferenceList label="Deployment refs" values={deployments.map((deployment) => deployment.id)} />
       </div>
       <div className="mt-4 flex justify-end gap-2">
         {editingProfileId ? (
@@ -692,6 +702,7 @@ function ReferenceList({ label, values }: { label: string; values: string[] }) {
 function ProfileStepCard({
   actions,
   credentials,
+  deployments,
   index,
   packages,
   step,
@@ -702,6 +713,7 @@ function ProfileStepCard({
 }: {
   actions: OperationalAction[];
   credentials: Credential[];
+  deployments: Deployment[];
   index: number;
   packages: PackageDefinition[];
   step: ProfileStep;
@@ -711,12 +723,12 @@ function ProfileStepCard({
   onUpdate: (patch: Partial<ProfileStep>) => void;
 }) {
   const stepType = step.kind === 'command' ? 'script' : step.kind;
-  const options = stepType === 'action' ? actions : packages;
+  const options = stepType === 'action' ? actions : stepType === 'deployment' ? deployments : packages;
   const Icon = stepType === 'package' ? Package : stepType === 'action' ? Play : Terminal;
 
   function handleTypeChange(value: string) {
     const nextKind = value === 'script' ? 'command' : (value as ProfileStep['kind']);
-    const nextOptions = value === 'action' ? actions : packages;
+    const nextOptions = value === 'action' ? actions : value === 'deployment' ? deployments : packages;
     const first = nextOptions[0];
     onUpdate({
       kind: nextKind,
@@ -770,11 +782,6 @@ function ProfileStepCard({
             <label className="text-xs font-medium text-zinc-700 md:col-span-2">
               Command
               <input className="mt-1 w-full rounded-md border border-zinc-300 bg-white px-2 py-2 font-mono text-sm" value={step.command ?? ''} onChange={(event) => onUpdate({ command: event.target.value, name: 'Script step' })} />
-            </label>
-          ) : stepType === 'deployment' ? (
-            <label className="text-xs font-medium text-zinc-700 md:col-span-2">
-              Deployment target
-              <input className="mt-1 w-full rounded-md border border-zinc-300 bg-white px-2 py-2 text-sm" placeholder="Future deployment id" value={step.reference_id} onChange={(event) => onUpdate({ reference_id: event.target.value, target: event.target.value, name: event.target.value || 'Deployment step' })} />
             </label>
           ) : (
             <label className="text-xs font-medium text-zinc-700 md:col-span-2">

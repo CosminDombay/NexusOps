@@ -17,6 +17,19 @@ export type ProxmoxTemplate = {
   type: string;
 };
 
+export type ProxmoxStorage = {
+  storage: string;
+  node: string | null;
+  type: string | null;
+  content: string[];
+  active: boolean | null;
+  enabled: boolean | null;
+  shared: boolean | null;
+  used_bytes: number | null;
+  total_bytes: number | null;
+  available_bytes: number | null;
+};
+
 export type ProvisioningRequest = {
   id: string;
   vm_name: string;
@@ -104,3 +117,5 @@ export type ProvisioningBlueprint = {
 };
 
 export type CreateProvisioningBlueprintPayload = Omit<ProvisioningBlueprint, 'id' | 'created_at' | 'updated_at'>;
+
+export type UpdateProvisioningBlueprintPayload = Partial<CreateProvisioningBlueprintPayload>;
