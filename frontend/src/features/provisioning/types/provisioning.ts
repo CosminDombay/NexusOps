@@ -26,6 +26,7 @@ export type ProvisioningRequest = {
   cpu_cores: number;
   memory_mb: number;
   disk_gb: number;
+  additional_disks: ProvisioningDisk[];
   network_bridge: string;
   environment: string;
   tags: string[];
@@ -47,6 +48,12 @@ export type ProvisioningRequest = {
   updated_at: string;
 };
 
+export type ProvisioningDisk = {
+  size_gb: number;
+  storage: string;
+  bus: 'scsi' | 'virtio' | 'sata';
+};
+
 export type CreateProvisioningPayload = {
   vm_name: string;
   target_node: string;
@@ -55,6 +62,7 @@ export type CreateProvisioningPayload = {
   cpu_cores: number;
   memory_mb: number;
   disk_gb: number;
+  additional_disks: ProvisioningDisk[];
   network_bridge: string;
   environment: string;
   tags: string[];
@@ -70,3 +78,29 @@ export type CreateProvisioningPayload = {
   bootstrap_profile_ids: string[];
   bootstrap_package_ids: string[];
 };
+
+export type ProvisioningBlueprint = {
+  id: string;
+  name: string;
+  description: string | null;
+  target_node: string;
+  template_id: number;
+  cpu_cores: number;
+  memory_mb: number;
+  disk_gb: number;
+  additional_disks: ProvisioningDisk[];
+  network_bridge: string;
+  environment: string;
+  tags: string[];
+  start_on_boot: boolean;
+  cloud_init_username: string;
+  ssh_public_key: string | null;
+  gateway: string;
+  dns_servers: string[];
+  bootstrap_profile_ids: string[];
+  bootstrap_package_ids: string[];
+  created_at: string;
+  updated_at: string;
+};
+
+export type CreateProvisioningBlueprintPayload = Omit<ProvisioningBlueprint, 'id' | 'created_at' | 'updated_at'>;

@@ -91,3 +91,14 @@ class ProxmoxAdapter(Adapter):
         disk_size_gb: int,
     ) -> dict[str, Any]:
         raise NotImplementedError
+
+    async def add_vm_disk(
+        self,
+        *,
+        node: str,
+        vm_id: int,
+        disk: str,
+        storage: str,
+        size_gb: int,
+    ) -> dict[str, Any]:
+        raise NotImplementedError

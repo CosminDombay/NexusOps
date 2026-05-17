@@ -5,6 +5,8 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.db.session import get_db_session
+from backend.app.modules.credentials.repository import CredentialRepository
+from backend.app.modules.credentials.service import CredentialService
 from backend.app.modules.integrations.repository import IntegrationRepository
 from backend.app.modules.integrations.schemas import (
     IntegrationCreate,
@@ -20,7 +22,10 @@ router = APIRouter()
 async def get_integration_service(
     session: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> IntegrationService:
-    return IntegrationService(IntegrationRepository(session))
+    return IntegrationService(
+        IntegrationRepository(session),
+        credential_service=CredentialService(repository=CredentialRepository(session)),
+    )
 
 
 @router.get("", response_model=list[IntegrationRead])

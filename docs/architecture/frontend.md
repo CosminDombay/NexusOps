@@ -17,7 +17,7 @@ The frontend currently implements:
 - Credential Manager page for reusable encrypted secrets and shared SSH accounts
 - shared execution variable modal for normal inputs and credential-backed sensitive inputs
 - visual variable definition editor for packages and profiles
-- VM provisioning page with template, cloud-init, static networking, bootstrap, and history sections
+- VM provisioning page with provider template selection, NexusOps blueprints, cloud-init, static networking, disk controls, bootstrap, and history sections
 - host detail and Proxmox node detail pages
 - integrations settings page
 - deployment and monitoring foundation pages
@@ -284,12 +284,38 @@ ProvisioningPage
 
 The Provisioning UI includes:
 
+- provisioning blueprint selector, save action, and delete action
 - Proxmox template selector
 - VM sizing and network bridge inputs
+- root disk and additional disk controls
 - cloud-init username/password/SSH key inputs
 - static IP/CIDR, gateway, and DNS inputs
 - profile/package bootstrap selectors
 - provisioning lifecycle history cards
+
+Blueprints fill the fixed defaults while keeping VM name, VMID, cloud-init hostname, and static IP/CIDR editable for each run.
+
+## Deployments Frontend Flow
+
+```text
+DeploymentsPage
+  -> deploymentsApi
+  -> shared apiClient
+  -> FastAPI /api/v1/deployments
+```
+
+The Deployments UI includes Docker Compose content, non-secret env content, credential-backed env variable mappings, target host selection, deployment operation buttons, deployment state/history rows, and log loading. Credential-backed env mappings send only credential IDs to the backend; secret values are resolved server-side.
+
+## Monitoring Frontend Flow
+
+```text
+MonitoringPage
+  -> monitoringApi
+  -> shared apiClient
+  -> FastAPI /api/v1/monitoring
+```
+
+The Monitoring UI is still a foundation. It is currently oriented around Prometheus-backed server metrics and Grafana links rather than full alerting, dashboards, or log exploration.
 
 ## Types, Hooks, and Utilities
 

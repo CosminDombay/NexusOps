@@ -28,3 +28,4 @@ class Integration(Base, UuidPrimaryKeyMixin, TimestampMixin):
     )
     enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False, index=True)
     config: Mapped[dict[str, object]] = mapped_column(JSON, default=dict, nullable=False)
+    credential_refs: Mapped[dict[str, str]] = mapped_column(JSON, default=dict, nullable=False)

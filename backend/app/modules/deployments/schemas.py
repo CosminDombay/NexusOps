@@ -13,6 +13,7 @@ class DeploymentCreate(BaseModel):
     target_server_id: UUID
     compose_content: str = Field(min_length=1, max_length=20000)
     env_content: str | None = Field(default=None, max_length=20000)
+    credential_refs: dict[str, str] = Field(default_factory=dict)
     remote_path: str = Field(default="/opt/nexusops/deployments", min_length=1, max_length=500)
 
     @field_validator("name", "compose_content", "remote_path")
@@ -30,6 +31,7 @@ class DeploymentRead(BaseModel):
     description: str | None = None
     compose_content: str
     env_content: str | None = None
+    credential_refs: dict[str, str] = Field(default_factory=dict)
     status: DeploymentStatus
     target_server_id: UUID | None = None
     target_hostname: str | None = None

@@ -3,6 +3,7 @@ from ipaddress import ip_interface
 from uuid import UUID
 
 import structlog
+from sqlalchemy.exc import IntegrityError
 
 from backend.app.adapters.proxmox import ProxmoxAdapter
 from backend.app.adapters.ssh import SshAdapter
@@ -23,10 +24,20 @@ from backend.app.modules.packages.service import PackageAutomationService
 from backend.app.modules.profiles.repository import InfrastructureProfileRepository
 from backend.app.modules.profiles.schemas import ProfileApplyRequest
 from backend.app.modules.profiles.service import ProfileService
-from backend.app.modules.provisioning.models import ProvisioningRequest, ProvisioningStatus
-from backend.app.modules.provisioning.repository import ProvisioningRequestRepository
+from backend.app.modules.provisioning.models import (
+    ProvisioningBlueprint,
+    ProvisioningRequest,
+    ProvisioningStatus,
+)
+from backend.app.modules.provisioning.repository import (
+    ProvisioningBlueprintRepository,
+    ProvisioningRequestRepository,
+)
 from backend.app.modules.provisioning.schemas import (
     ProxmoxTemplateRead,
+    ProvisioningBlueprintCreate,
+    ProvisioningBlueprintRead,
+    ProvisioningBlueprintUpdate,
     ProvisioningCreate,
     ProvisioningRead,
 )
@@ -42,6 +53,14 @@ class ProvisioningValidationError(Exception):
     """Raised when provisioning input is invalid for current state."""
 
 
+class ProvisioningBlueprintNotFoundError(Exception):
+    """Raised when a provisioning blueprint cannot be found."""
+
+
+class ProvisioningBlueprintConflictError(Exception):
+    """Raised when a provisioning blueprint name already exists."""
+
+
 class ProvisioningService:
     """Application service for template-based Proxmox VM provisioning."""
 
@@ -49,6 +68,7 @@ class ProvisioningService:
         self,
         *,
         repository: ProvisioningRequestRepository,
+        blueprint_repository: ProvisioningBlueprintRepository,
         server_repository: ServerRepository,
         job_repository: JobRepository,
         package_repository: PackageDefinitionRepository,
@@ -57,6 +77,7 @@ class ProvisioningService:
         ssh_adapter: SshAdapter,
     ) -> None:
         self.repository = repository
+        self.blueprint_repository = blueprint_repository
         self.server_repository = server_repository
         self.job_repository = job_repository
         self.package_repository = package_repository
@@ -86,6 +107,51 @@ class ProvisioningService:
             if template.get("vmid") and template.get("node")
         ]
 
+    async def list_blueprints(self) -> list[ProvisioningBlueprintRead]:
+        return [
+            ProvisioningBlueprintRead.model_validate(item)
+            for item in await self.blueprint_repository.list()
+        ]
+
+    async def create_blueprint(
+        self,
+        payload: ProvisioningBlueprintCreate,
+    ) -> ProvisioningBlueprintRead:
+        blueprint = ProvisioningBlueprint(**self._blueprint_data(payload))
+        try:
+            blueprint = await self.blueprint_repository.create(blueprint)
+            await self.blueprint_repository.session.commit()
+        except IntegrityError as exc:
+            await self.blueprint_repository.session.rollback()
+            raise ProvisioningBlueprintConflictError("Provisioning blueprint already exists") from exc
+        return ProvisioningBlueprintRead.model_validate(blueprint)
+
+    async def update_blueprint(
+        self,
+        blueprint_id: UUID,
+        payload: ProvisioningBlueprintUpdate,
+    ) -> ProvisioningBlueprintRead:
+        blueprint = await self.blueprint_repository.get_by_id(blueprint_id)
+        if blueprint is None:
+            raise ProvisioningBlueprintNotFoundError("Provisioning blueprint not found")
+
+        for key, value in self._blueprint_data(payload, exclude_unset=True).items():
+            setattr(blueprint, key, value)
+        try:
+            await self.blueprint_repository.session.commit()
+            await self.blueprint_repository.session.refresh(blueprint)
+        except IntegrityError as exc:
+            await self.blueprint_repository.session.rollback()
+            raise ProvisioningBlueprintConflictError("Provisioning blueprint already exists") from exc
+        return ProvisioningBlueprintRead.model_validate(blueprint)
+
+    async def delete_blueprint(self, blueprint_id: UUID) -> None:
+        blueprint = await self.blueprint_repository.get_by_id(blueprint_id)
+        if blueprint is None:
+            raise ProvisioningBlueprintNotFoundError("Provisioning blueprint not found")
+        await self.blueprint_repository.delete(blueprint)
+        await self.blueprint_repository.session.commit()
+
     async def provision(self, payload: ProvisioningCreate) -> ProvisioningRead:
         static_ip = str(ip_interface(payload.static_ip_cidr).ip)
         request = ProvisioningRequest(
@@ -96,6 +162,7 @@ class ProvisioningService:
             cpu_cores=payload.cpu_cores,
             memory_mb=payload.memory_mb,
             disk_gb=payload.disk_gb,
+            additional_disks=[disk.model_dump() for disk in payload.additional_disks],
             network_bridge=payload.network_bridge,
             environment=payload.environment.value,
             tags=payload.tags,
@@ -156,6 +223,16 @@ class ProvisioningService:
             )
             self._append_task(request, resize_task.get("task_id"))
             await self._wait_for_proxmox_task(payload.target_node, resize_task.get("task_id"))
+            for disk_index, disk in enumerate(payload.additional_disks, start=1):
+                add_disk_task = await self.proxmox_adapter.add_vm_disk(
+                    node=payload.target_node,
+                    vm_id=payload.new_vm_id,
+                    disk=f"{disk.bus}{disk_index}",
+                    storage=disk.storage,
+                    size_gb=disk.size_gb,
+                )
+                self._append_task(request, add_disk_task.get("task_id"))
+                await self._wait_for_proxmox_task(payload.target_node, add_disk_task.get("task_id"))
             await self.repository.session.commit()
 
             await self._set_status(request, ProvisioningStatus.STARTING)
@@ -200,7 +277,11 @@ class ProvisioningService:
                     sync_status=InventorySyncStatus.SYNCED,
                     provider_node=payload.target_node,
                     provider_type="qemu",
-                    provider_metadata={"template_id": payload.template_id, "vm_name": payload.vm_name},
+                    provider_metadata={
+                        "template_id": payload.template_id,
+                        "vm_name": payload.vm_name,
+                        "additional_disks": [disk.model_dump() for disk in payload.additional_disks],
+                    },
                 )
             )
             request.server_id = server.id
@@ -219,6 +300,17 @@ class ProvisioningService:
 
         await self.repository.session.refresh(request)
         return ProvisioningRead.model_validate(request)
+
+    @staticmethod
+    def _blueprint_data(
+        payload: ProvisioningBlueprintCreate | ProvisioningBlueprintUpdate,
+        *,
+        exclude_unset: bool = False,
+    ) -> dict:
+        data = payload.model_dump(exclude_unset=exclude_unset)
+        if "environment" in data and data["environment"] is not None:
+            data["environment"] = data["environment"].value
+        return data
 
     async def _set_status(
         self,

@@ -98,8 +98,8 @@ export function EditServerModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-      <div className="relative w-full max-w-lg rounded-lg bg-white shadow-xl">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+      <div className="relative flex max-h-[calc(100vh-2rem)] w-full max-w-lg flex-col overflow-hidden rounded-lg bg-white shadow-xl">
         {/* Header */}
         <div className="border-b border-zinc-200 px-6 py-4">
           <div className="flex items-center justify-between">
@@ -116,7 +116,7 @@ export function EditServerModal({
         </div>
 
         {/* Body */}
-        <form id="edit-server-form" onSubmit={handleSave} className="space-y-4 px-6 py-4">
+        <form id="edit-server-form" onSubmit={handleSave} className="min-h-0 flex-1 space-y-4 overflow-y-auto px-6 py-4">
           {error && (
             <div className="rounded-md bg-rose-50 p-3 text-sm text-rose-800">
               {error}

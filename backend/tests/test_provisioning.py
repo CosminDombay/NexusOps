@@ -8,7 +8,10 @@ from backend.app.modules.inventory.repository import ServerRepository
 from backend.app.modules.jobs.repository import JobRepository
 from backend.app.modules.packages.repository import PackageDefinitionRepository
 from backend.app.modules.profiles.repository import InfrastructureProfileRepository
-from backend.app.modules.provisioning.repository import ProvisioningRequestRepository
+from backend.app.modules.provisioning.repository import (
+    ProvisioningBlueprintRepository,
+    ProvisioningRequestRepository,
+)
 from backend.app.modules.provisioning.schemas import ProvisioningCreate
 from backend.app.modules.provisioning.service import ProvisioningService
 
@@ -72,6 +75,18 @@ class FakeProxmoxAdapter(ProxmoxAdapter):
         self.calls.append({"action": "resize", "disk_size_gb": disk_size_gb})
         return {"task_id": "UPID:resize"}
 
+    async def add_vm_disk(
+        self,
+        *,
+        node: str,
+        vm_id: int,
+        disk: str,
+        storage: str,
+        size_gb: int,
+    ) -> dict[str, Any]:
+        self.calls.append({"action": "add_disk", "disk": disk, "storage": storage, "size_gb": size_gb})
+        return {"task_id": f"UPID:add-{disk}"}
+
 
 class FakeSshAdapter(SshAdapter):
     @property
@@ -120,6 +135,7 @@ def payload(**overrides):
 def service(db_session, proxmox: FakeProxmoxAdapter | None = None) -> ProvisioningService:
     return ProvisioningService(
         repository=ProvisioningRequestRepository(db_session),
+        blueprint_repository=ProvisioningBlueprintRepository(db_session),
         server_repository=ServerRepository(db_session),
         job_repository=JobRepository(db_session),
         package_repository=PackageDefinitionRepository(db_session),

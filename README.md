@@ -9,14 +9,15 @@ This repository is scaffolded as a modular monolith:
 - `infra/` contains local development infrastructure such as Docker Compose and database initialization scripts.
 
 The current implementation includes the platform foundation, CMDB-style inventory CRUD,
-Proxmox visibility/lifecycle control, template-based VM provisioning,
+Proxmox visibility/lifecycle control, template-based VM provisioning with NexusOps provisioning blueprints,
 Proxmox-to-inventory synchronization, SSH-backed job execution, reusable operational actions, package definitions,
-infrastructure profiles, editable operational templates, credential-backed secret injection, and simple variable-driven execution.
+infrastructure profiles, editable operational templates, credential-backed secret injection, Docker Compose deployments, and simple variable-driven execution.
 
 ## MVP Domains
 
 - VM provisioning through Proxmox API
 - Proxmox template cloning with cloud-init configuration
+- NexusOps provisioning blueprints for reusable VM defaults
 - Static IP provisioning and inventory auto-registration
 - Server inventory management
 - Credential Manager for reusable SSH accounts, API tokens, and environment secrets
@@ -33,6 +34,7 @@ infrastructure profiles, editable operational templates, credential-backed secre
 - Variable Manager foundations for reusable runtime values
 - Integration records for provider and monitoring connection settings
 - SSH-backed Docker Compose deployment workflows
+- Credential-backed deployment environment variables
 - Package installation automation
 - Prometheus-backed monitoring/statistics foundations
 - Linux identity orchestration and replication
@@ -58,6 +60,8 @@ Backend API docs will be available at `http://localhost:8000/docs`.
 - Proxmox integration discovers nodes, VMs/containers, cluster summary data, import status, and supports guarded VM lifecycle actions.
 - Discovered Proxmox assets can be imported into Inventory, but NexusOps does not blindly auto-import every VM.
 - Provisioning clones cloud-init-capable Proxmox templates, configures static networking, starts VMs, waits for SSH, and registers inventory records.
+- Provisioning blueprints save repeatable defaults such as Proxmox template, node, sizing, disks, bridge, gateway, DNS, environment, tags, default username, and bootstrap selections. Per-machine values such as VM name, VMID, hostname, and static IP remain editable every run.
+- Provisioning supports a root disk plus optional additional disks.
 - Jobs execute SSH commands against inventory targets and persist status, stdout, stderr, exit code, and timestamps.
 - Jobs resolve node credentials and execution credential references server-side. Sensitive values are never returned to the frontend, and commands persisted to job history are redacted when runtime secrets are injected.
 - Inventory health checks perform lightweight TCP reachability checks against SSH ports without logging in on each refresh.
@@ -70,7 +74,7 @@ Backend API docs will be available at `http://localhost:8000/docs`.
 - Infrastructure profiles orchestrate ordered package/action/command workflows through Jobs and can be built from built-in or custom structured steps.
 - Built-in profiles can be edited as persisted working copies, cloned into user-managed templates, reordered, or restored to the system default.
 - Integration records provide a central place to store and test provider/monitoring connection metadata while runtime adapters still primarily use local environment configuration.
-- Docker Compose deployments store compose/env definitions and execute deploy/redeploy/restart/stop/status/logs through the Jobs -> SSH pipeline.
+- Docker Compose deployments store compose/env definitions and execute deploy/redeploy/restart/stop/status/logs through the Jobs -> SSH pipeline. Deployment-specific credential references are resolved server-side into `.env` at runtime and redacted from persisted job command history.
 - Monitoring reads metrics from the Prometheus HTTP API when configured and links to Grafana when configured.
 - Identity orchestration stores Linux users, groups, SSH public keys, and permission templates, then replicates user/group/access/permission changes across selected Inventory-managed hosts through Jobs and SSH.
 - Identity includes guided access profiles such as Administrator, Deployment Operator, Docker Operator, Log Viewer, Read Only, and Service Account. These profiles configure shell, sudo behavior, recommended groups, and defaults while preserving advanced Linux controls.
@@ -80,7 +84,7 @@ Backend API docs will be available at `http://localhost:8000/docs`.
 Current orchestration flow:
 
 ```text
-Provisioning -> Proxmox template/cloud-init -> Inventory -> Profiles / Packages / Actions -> Jobs -> SSH adapter -> managed Linux host
+Provisioning blueprint -> Proxmox template/cloud-init -> Inventory -> Profiles / Packages / Actions -> Jobs -> SSH adapter -> managed Linux host
 ```
 
 Proxmox remains a provider/discovery layer. Inventory deletion or archival does

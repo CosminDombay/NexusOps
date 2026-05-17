@@ -3,19 +3,23 @@ import { CheckCircle2, Plug, RefreshCw, TestTube2, XCircle } from 'lucide-react'
 
 import { PageHeader } from '../../components/layout/PageHeader';
 import { getApiErrorMessage } from '../../lib/api/client';
+import { listCredentials } from '../credentials/api/credentialsApi';
+import type { Credential } from '../credentials/types/credential';
 import { createIntegration, listIntegrations, testIntegration, updateIntegration } from './api/integrationsApi';
 import type { Integration, IntegrationPayload, IntegrationTestResult, IntegrationType } from './types/integration';
 
 const defaults: IntegrationPayload[] = [
-  { name: 'Proxmox', type: 'infrastructure_provider', enabled: true, config: { api_url: '' } },
-  { name: 'Prometheus', type: 'monitoring', enabled: true, config: { url: '' } },
-  { name: 'Grafana', type: 'monitoring', enabled: true, config: { base_url: '' } },
+  { name: 'Proxmox', type: 'infrastructure_provider', enabled: true, config: { api_url: '', token_id: '', verify_ssl: true }, credential_refs: {} },
+  { name: 'Prometheus', type: 'monitoring', enabled: true, config: { url: '' }, credential_refs: {} },
+  { name: 'Grafana', type: 'monitoring', enabled: true, config: { base_url: '' }, credential_refs: {} },
 ];
 
 export function IntegrationsPage() {
   const [integrations, setIntegrations] = useState<Integration[]>([]);
+  const [credentials, setCredentials] = useState<Credential[]>([]);
   const [form, setForm] = useState<IntegrationPayload>(defaults[0]);
   const [configText, setConfigText] = useState(JSON.stringify(defaults[0].config, null, 2));
+  const [credentialRefs, setCredentialRefs] = useState<Record<string, string>>({});
   const [tests, setTests] = useState<Record<string, IntegrationTestResult>>({});
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -24,7 +28,9 @@ export function IntegrationsPage() {
     setIsLoading(true);
     setError(null);
     try {
-      setIntegrations(await listIntegrations());
+      const [nextIntegrations, nextCredentials] = await Promise.all([listIntegrations(), listCredentials()]);
+      setIntegrations(nextIntegrations);
+      setCredentials(nextCredentials);
     } catch (requestError) {
       setError(getApiErrorMessage(requestError));
     } finally {
@@ -39,7 +45,11 @@ export function IntegrationsPage() {
   async function submit() {
     setError(null);
     try {
-      const created = await createIntegration({ ...form, config: JSON.parse(configText) as Record<string, unknown> });
+      const created = await createIntegration({
+        ...form,
+        config: JSON.parse(configText) as Record<string, unknown>,
+        credential_refs: Object.fromEntries(Object.entries(credentialRefs).filter(([, value]) => value)),
+      });
       setIntegrations((current) => [...current, created]);
     } catch (requestError) {
       setError(requestError instanceof SyntaxError ? 'Config must be valid JSON.' : getApiErrorMessage(requestError));
@@ -97,6 +107,13 @@ export function IntegrationsPage() {
                   <Status enabled={integration.enabled} />
                 </div>
                 <pre className="mt-4 max-h-28 overflow-auto rounded-md bg-zinc-950 p-3 text-xs text-zinc-50">{JSON.stringify(integration.config, null, 2)}</pre>
+                {Object.keys(integration.credential_refs ?? {}).length ? (
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {Object.keys(integration.credential_refs).map((key) => (
+                      <span key={key} className="rounded bg-zinc-100 px-2 py-1 font-mono text-xs text-zinc-700">{key}: ********</span>
+                    ))}
+                  </div>
+                ) : null}
                 {tests[integration.id] ? (
                   <p className={`mt-3 rounded-md px-3 py-2 text-sm ${tests[integration.id].status === 'ok' ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}`}>
                     {tests[integration.id].message}
@@ -142,11 +159,29 @@ export function IntegrationsPage() {
           Config JSON
           <textarea className="mt-1 min-h-36 w-full rounded-md border border-zinc-300 px-3 py-2 font-mono text-sm" value={configText} onChange={(event) => setConfigText(event.target.value)} />
         </label>
+        <div className="mt-4 grid gap-3 lg:grid-cols-3">
+          {credentialKeysFor(form.name).map((key) => (
+            <label key={key} className="text-sm font-medium text-zinc-700">
+              {formatType(key)}
+              <select
+                className="mt-1 w-full rounded-md border border-zinc-300 px-3 py-2"
+                value={credentialRefs[key] ?? ''}
+                onChange={(event) => setCredentialRefs((current) => ({ ...current, [key]: event.target.value }))}
+              >
+                <option value="">None</option>
+                {credentials.map((credential) => (
+                  <option key={credential.id} value={credential.id}>{credential.name}</option>
+                ))}
+              </select>
+            </label>
+          ))}
+        </div>
         <div className="mt-4 flex flex-wrap gap-2">
           {defaults.map((preset) => (
             <button key={preset.name} className="rounded-md border border-zinc-300 px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50" type="button" onClick={() => {
               setForm(preset);
               setConfigText(JSON.stringify(preset.config, null, 2));
+              setCredentialRefs(preset.credential_refs ?? {});
             }}>
               {preset.name}
             </button>
@@ -173,4 +208,18 @@ function Status({ enabled }: { enabled: boolean }) {
 
 function formatType(value: string): string {
   return value.replace(/_/g, ' ').replace(/\b\w/g, (letter: string) => letter.toUpperCase());
+}
+
+function credentialKeysFor(name: string): string[] {
+  const normalized = name.toLowerCase();
+  if (normalized.includes('proxmox')) {
+    return ['token_secret'];
+  }
+  if (normalized.includes('grafana')) {
+    return ['api_token'];
+  }
+  if (normalized.includes('prometheus')) {
+    return ['bearer_token'];
+  }
+  return ['api_token'];
 }

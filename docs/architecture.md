@@ -43,6 +43,7 @@ The frontend is organized by feature rather than technical layer. Pages for inve
 
 - `Server`: CMDB inventory record, Linux host connection state, provider linkage, lifecycle state, and synchronization status.
 - `VirtualMachine`: VM request and Proxmox provider mapping.
+- `ProvisioningBlueprint`: NexusOps-side provisioning preset around a Proxmox VM template.
 - `CommandExecution`: legacy placeholder for command audit concepts.
 - `Deployment`: Docker Compose project definition and state.
 - `PackageDefinitionRecord`: persisted package template, including custom packages and editable built-in overrides.
@@ -71,6 +72,20 @@ Inventory -> Jobs / Operational Actions -> SSH adapter -> managed Linux host
 ```
 
 Proxmox remains a provider discovery and lifecycle-control layer. Jobs and operational actions execute only against inventory-managed servers.
+
+Provisioning follows the same authority boundary:
+
+```text
+Provisioning blueprint
+  -> Proxmox template clone and cloud-init
+  -> Inventory registration
+  -> optional profile/package bootstrap
+  -> Jobs
+  -> SSH adapter
+  -> inventory-managed Linux host
+```
+
+Blueprints are NexusOps UI/API presets; provider-side VM templates still live in Proxmox.
 
 Identity follows the same orchestration boundary:
 

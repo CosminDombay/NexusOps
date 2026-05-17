@@ -6,8 +6,20 @@ import { listPackageDefinitions } from '../packages/api/packagesApi';
 import type { PackageDefinition } from '../packages/types/package';
 import { listProfiles } from '../profiles/api/profilesApi';
 import type { InfrastructureProfile } from '../profiles/types/profile';
-import { createProvisioningRequest, listProxmoxTemplates, listProvisioningRequests } from './api/provisioningApi';
-import type { CreateProvisioningPayload, ProxmoxTemplate, ProvisioningRequest } from './types/provisioning';
+import {
+  createProvisioningBlueprint,
+  createProvisioningRequest,
+  deleteProvisioningBlueprint,
+  listProxmoxTemplates,
+  listProvisioningBlueprints,
+  listProvisioningRequests,
+} from './api/provisioningApi';
+import type {
+  CreateProvisioningPayload,
+  ProxmoxTemplate,
+  ProvisioningBlueprint,
+  ProvisioningRequest,
+} from './types/provisioning';
 
 type FormState = {
   vm_name: string;
@@ -17,6 +29,7 @@ type FormState = {
   cpu_cores: string;
   memory_mb: string;
   disk_gb: string;
+  additional_disks: Array<{ size_gb: string; storage: string; bus: 'scsi' | 'virtio' | 'sata' }>;
   network_bridge: string;
   environment: string;
   tags_text: string;
@@ -41,6 +54,7 @@ const initialFormState: FormState = {
   cpu_cores: '2',
   memory_mb: '2048',
   disk_gb: '32',
+  additional_disks: [],
   network_bridge: 'vmbr0',
   environment: 'lab',
   tags_text: 'provisioned',
@@ -62,6 +76,9 @@ export function ProvisioningPage() {
   const [profiles, setProfiles] = useState<InfrastructureProfile[]>([]);
   const [packages, setPackages] = useState<PackageDefinition[]>([]);
   const [requests, setRequests] = useState<ProvisioningRequest[]>([]);
+  const [blueprints, setBlueprints] = useState<ProvisioningBlueprint[]>([]);
+  const [selectedBlueprintId, setSelectedBlueprintId] = useState('');
+  const [blueprintName, setBlueprintName] = useState('');
   const [formState, setFormState] = useState<FormState>(initialFormState);
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -78,16 +95,18 @@ export function ProvisioningPage() {
       setIsLoading(true);
       setError(null);
       try {
-        const [nextTemplates, nextProfiles, nextPackages, nextRequests] = await Promise.all([
+        const [nextTemplates, nextProfiles, nextPackages, nextRequests, nextBlueprints] = await Promise.all([
           listProxmoxTemplates(),
           listProfiles(),
           listPackageDefinitions(),
           listProvisioningRequests(),
+          listProvisioningBlueprints(),
         ]);
         setTemplates(nextTemplates);
         setProfiles(nextProfiles);
         setPackages(nextPackages);
         setRequests(nextRequests);
+        setBlueprints(nextBlueprints);
         const firstTemplate = nextTemplates[0];
         if (firstTemplate) {
           setFormState((current) => ({
@@ -106,10 +125,100 @@ export function ProvisioningPage() {
     void load();
   }, []);
 
-  function updateField(name: keyof FormState, value: string | boolean | string[]) {
+  function updateField(name: keyof FormState, value: FormState[keyof FormState]) {
     setFormState((current) => ({ ...current, [name]: value }));
     setError(null);
     setSuccess(null);
+  }
+
+  function updateAdditionalDisk(
+    index: number,
+    patch: Partial<FormState['additional_disks'][number]>,
+  ) {
+    setFormState((current) => ({
+      ...current,
+      additional_disks: current.additional_disks.map((disk, diskIndex) =>
+        diskIndex === index ? { ...disk, ...patch } : disk,
+      ),
+    }));
+    setError(null);
+    setSuccess(null);
+  }
+
+  function applyBlueprint(blueprint: ProvisioningBlueprint) {
+    setSelectedBlueprintId(blueprint.id);
+    setBlueprintName(blueprint.name);
+    setFormState((current) => ({
+      ...current,
+      target_node: blueprint.target_node,
+      template_id: String(blueprint.template_id),
+      cpu_cores: String(blueprint.cpu_cores),
+      memory_mb: String(blueprint.memory_mb),
+      disk_gb: String(blueprint.disk_gb),
+      additional_disks: blueprint.additional_disks.map((disk) => ({
+        size_gb: String(disk.size_gb),
+        storage: disk.storage,
+        bus: disk.bus,
+      })),
+      network_bridge: blueprint.network_bridge,
+      environment: blueprint.environment,
+      tags_text: blueprint.tags.join(', '),
+      description: blueprint.description ?? '',
+      start_on_boot: blueprint.start_on_boot,
+      cloud_init_username: blueprint.cloud_init_username,
+      ssh_public_key: blueprint.ssh_public_key ?? '',
+      gateway: blueprint.gateway,
+      dns_servers_text: blueprint.dns_servers.join(', '),
+      bootstrap_profile_ids: blueprint.bootstrap_profile_ids,
+      bootstrap_package_ids: blueprint.bootstrap_package_ids,
+    }));
+    setError(null);
+    setSuccess(`Loaded blueprint ${blueprint.name}.`);
+  }
+
+  async function handleSaveBlueprint() {
+    const payload = toBlueprintPayload(formState, blueprintName.trim());
+    if (!payload) {
+      setError('Blueprint name, template, target node, and gateway are required.');
+      return;
+    }
+    setIsSubmitting(true);
+    setError(null);
+    setSuccess(null);
+    try {
+      const created = await createProvisioningBlueprint(payload);
+      setBlueprints((current) => [...current, created].sort((left, right) => left.name.localeCompare(right.name)));
+      setSelectedBlueprintId(created.id);
+      setSuccess(`Saved blueprint ${created.name}.`);
+    } catch (caughtError) {
+      setError(getApiErrorMessage(caughtError));
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  async function handleDeleteBlueprint() {
+    const blueprint = blueprints.find((item) => item.id === selectedBlueprintId);
+    if (!blueprint) {
+      return;
+    }
+    const confirmed = window.confirm(`Delete blueprint ${blueprint.name}?`);
+    if (!confirmed) {
+      return;
+    }
+    setIsSubmitting(true);
+    setError(null);
+    setSuccess(null);
+    try {
+      await deleteProvisioningBlueprint(blueprint.id);
+      setBlueprints((current) => current.filter((item) => item.id !== blueprint.id));
+      setSelectedBlueprintId('');
+      setSuccess(`Deleted blueprint ${blueprint.name}.`);
+    } catch (caughtError) {
+      setError(getApiErrorMessage(caughtError));
+    } finally {
+      setIsSubmitting(false);
+    }
   }
 
   async function handleSubmit() {
@@ -149,6 +258,63 @@ export function ProvisioningPage() {
       {success ? <p className="rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-700">{success}</p> : null}
 
       <section className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-end">
+          <label className="flex-1 text-sm font-medium text-zinc-700">
+            Provisioning blueprint
+            <select
+              className="mt-1 w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-950 shadow-sm outline-none transition focus:border-zinc-900 focus:ring-2 focus:ring-zinc-900/10"
+              value={selectedBlueprintId}
+              onChange={(event) => {
+                const blueprint = blueprints.find((item) => item.id === event.target.value);
+                if (blueprint) {
+                  applyBlueprint(blueprint);
+                } else {
+                  setSelectedBlueprintId('');
+                }
+              }}
+            >
+              <option value="">No blueprint selected</option>
+              {blueprints.map((blueprint) => (
+                <option key={blueprint.id} value={blueprint.id}>
+                  {blueprint.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="flex-1 text-sm font-medium text-zinc-700">
+            Save current defaults as
+            <input
+              className="mt-1 w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-950 shadow-sm outline-none transition focus:border-zinc-900 focus:ring-2 focus:ring-zinc-900/10"
+              placeholder="Ubuntu Docker Host"
+              value={blueprintName}
+              onChange={(event) => setBlueprintName(event.target.value)}
+            />
+          </label>
+          <div className="flex flex-wrap gap-2">
+            <button
+              className="rounded-md bg-zinc-950 px-4 py-2 text-sm font-semibold text-white transition hover:bg-zinc-800 disabled:bg-zinc-300"
+              disabled={isSubmitting}
+              type="button"
+              onClick={() => void handleSaveBlueprint()}
+            >
+              Save blueprint
+            </button>
+            <button
+              className="rounded-md border border-rose-300 px-4 py-2 text-sm font-semibold text-rose-700 transition hover:bg-rose-50 disabled:opacity-50"
+              disabled={!selectedBlueprintId || isSubmitting}
+              type="button"
+              onClick={() => void handleDeleteBlueprint()}
+            >
+              Delete
+            </button>
+          </div>
+        </div>
+        <p className="mt-3 text-sm text-zinc-500">
+          Blueprints keep the fixed provisioning shape: Proxmox template, sizing, disks, network, environment, and bootstrap profiles. VMID, hostname, and IP stay per-machine.
+        </p>
+      </section>
+
+      <section className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm">
         <h3 className="text-base font-semibold text-zinc-950">Provision VM</h3>
         {isLoading ? <div className="mt-4 h-40 animate-pulse rounded-md bg-zinc-100" /> : null}
         {!isLoading ? (
@@ -179,7 +345,7 @@ export function ProvisioningPage() {
               <TextInput label="Network bridge" name="network_bridge" value={formState.network_bridge} onChange={updateField} />
               <TextInput label="CPU cores" name="cpu_cores" type="number" value={formState.cpu_cores} onChange={updateField} />
               <TextInput label="RAM MB" name="memory_mb" type="number" value={formState.memory_mb} onChange={updateField} />
-              <TextInput label="Disk GB" name="disk_gb" type="number" value={formState.disk_gb} onChange={updateField} />
+              <TextInput label="Root disk GB" name="disk_gb" type="number" value={formState.disk_gb} onChange={updateField} />
               <TextInput label="Static IP/CIDR" name="static_ip_cidr" value={formState.static_ip_cidr} onChange={updateField} />
               <TextInput label="Gateway" name="gateway" value={formState.gateway} onChange={updateField} />
               <TextInput label="DNS servers" name="dns_servers_text" value={formState.dns_servers_text} onChange={updateField} />
@@ -204,6 +370,77 @@ export function ProvisioningPage() {
                   onChange={(event) => updateField('ssh_public_key', event.target.value)}
                 />
               </label>
+            </div>
+
+            <div className="mt-5 rounded-md border border-zinc-200 p-4">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <h4 className="text-sm font-semibold text-zinc-950">Additional disks</h4>
+                  <p className="mt-1 text-xs text-zinc-500">Extra disks are added after the root disk as scsi1, scsi2, and onward by default.</p>
+                </div>
+                <button
+                  className="rounded-md border border-zinc-300 px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
+                  type="button"
+                  onClick={() =>
+                    updateField('additional_disks', [
+                      ...formState.additional_disks,
+                      { size_gb: '32', storage: 'local-lvm', bus: 'scsi' },
+                    ])
+                  }
+                >
+                  Add disk
+                </button>
+              </div>
+              {formState.additional_disks.length ? (
+                <div className="mt-4 space-y-3">
+                  {formState.additional_disks.map((disk, index) => (
+                    <div key={index} className="grid gap-3 md:grid-cols-[1fr_1fr_1fr_auto]">
+                      <label className="text-sm font-medium text-zinc-700">
+                        Size GB
+                        <input
+                          className="mt-1 w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-950"
+                          min="1"
+                          type="number"
+                          value={disk.size_gb}
+                          onChange={(event) => updateAdditionalDisk(index, { size_gb: event.target.value })}
+                        />
+                      </label>
+                      <label className="text-sm font-medium text-zinc-700">
+                        Storage
+                        <input
+                          className="mt-1 w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-950"
+                          value={disk.storage}
+                          onChange={(event) => updateAdditionalDisk(index, { storage: event.target.value })}
+                        />
+                      </label>
+                      <label className="text-sm font-medium text-zinc-700">
+                        Bus
+                        <select
+                          className="mt-1 w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-950"
+                          value={disk.bus}
+                          onChange={(event) => updateAdditionalDisk(index, { bus: event.target.value as 'scsi' | 'virtio' | 'sata' })}
+                        >
+                          <option value="scsi">SCSI</option>
+                          <option value="virtio">VirtIO</option>
+                          <option value="sata">SATA</option>
+                        </select>
+                      </label>
+                      <button
+                        className="self-end rounded-md border border-rose-300 px-3 py-2 text-sm font-semibold text-rose-700 hover:bg-rose-50"
+                        type="button"
+                        onClick={() =>
+                          updateField(
+                            'additional_disks',
+                            formState.additional_disks.filter((_, diskIndex) => diskIndex !== index),
+                          )
+                        }
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
             </div>
 
             <div className="mt-5 grid gap-4 md:grid-cols-2">
@@ -344,6 +581,13 @@ function toPayload(formState: FormState, selectedTemplate: ProxmoxTemplate | nul
     cpu_cores: Number(formState.cpu_cores),
     memory_mb: Number(formState.memory_mb),
     disk_gb: Number(formState.disk_gb),
+    additional_disks: formState.additional_disks
+      .filter((disk) => Number(disk.size_gb) > 0 && disk.storage.trim())
+      .map((disk) => ({
+        size_gb: Number(disk.size_gb),
+        storage: disk.storage.trim(),
+        bus: disk.bus,
+      })),
     network_bridge: formState.network_bridge.trim(),
     environment: formState.environment.trim(),
     tags: splitCsv(formState.tags_text),
@@ -354,6 +598,39 @@ function toPayload(formState: FormState, selectedTemplate: ProxmoxTemplate | nul
     cloud_init_password: formState.cloud_init_password.trim() || null,
     ssh_public_key: formState.ssh_public_key.trim() || null,
     static_ip_cidr: formState.static_ip_cidr.trim(),
+    gateway: formState.gateway.trim(),
+    dns_servers: splitCsv(formState.dns_servers_text),
+    bootstrap_profile_ids: formState.bootstrap_profile_ids,
+    bootstrap_package_ids: formState.bootstrap_package_ids,
+  };
+}
+
+function toBlueprintPayload(formState: FormState, name: string) {
+  if (!name || !formState.template_id || !formState.target_node || !formState.gateway) {
+    return null;
+  }
+
+  return {
+    name,
+    description: formState.description.trim() || null,
+    target_node: formState.target_node.trim(),
+    template_id: Number(formState.template_id),
+    cpu_cores: Number(formState.cpu_cores),
+    memory_mb: Number(formState.memory_mb),
+    disk_gb: Number(formState.disk_gb),
+    additional_disks: formState.additional_disks
+      .filter((disk) => Number(disk.size_gb) > 0 && disk.storage.trim())
+      .map((disk) => ({
+        size_gb: Number(disk.size_gb),
+        storage: disk.storage.trim(),
+        bus: disk.bus,
+      })),
+    network_bridge: formState.network_bridge.trim(),
+    environment: formState.environment.trim(),
+    tags: splitCsv(formState.tags_text),
+    start_on_boot: formState.start_on_boot,
+    cloud_init_username: formState.cloud_init_username.trim(),
+    ssh_public_key: formState.ssh_public_key.trim() || null,
     gateway: formState.gateway.trim(),
     dns_servers: splitCsv(formState.dns_servers_text),
     bootstrap_profile_ids: formState.bootstrap_profile_ids,

@@ -8,6 +8,7 @@ export type Deployment = {
   description: string | null;
   compose_content: string;
   env_content: string | null;
+  credential_refs: Record<string, string>;
   status: DeploymentStatus;
   target_server_id: string | null;
   target_hostname: string | null;
@@ -22,6 +23,7 @@ export type CreateDeploymentPayload = {
   target_server_id: string;
   compose_content: string;
   env_content?: string | null;
+  credential_refs?: Record<string, string>;
   remote_path?: string;
 };
 

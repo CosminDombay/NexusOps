@@ -1,7 +1,7 @@
 from enum import StrEnum
 from uuid import UUID
 
-from sqlalchemy import Enum, ForeignKey, Integer, String, Text
+from sqlalchemy import Enum, ForeignKey, Integer, JSON, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from backend.app.db.base import Base, TimestampMixin, UuidPrimaryKeyMixin
@@ -22,6 +22,7 @@ class Deployment(Base, UuidPrimaryKeyMixin, TimestampMixin):
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     compose_content: Mapped[str] = mapped_column(Text)
     env_content: Mapped[str | None] = mapped_column(Text, nullable=True)
+    credential_refs: Mapped[dict[str, str]] = mapped_column(JSON, default=dict, nullable=False)
     status: Mapped[DeploymentStatus] = mapped_column(
         Enum(
             DeploymentStatus,

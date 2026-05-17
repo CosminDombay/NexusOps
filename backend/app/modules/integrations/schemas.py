@@ -12,6 +12,7 @@ class IntegrationBase(BaseModel):
     type: IntegrationType
     enabled: bool = True
     config: dict[str, object] = Field(default_factory=dict)
+    credential_refs: dict[str, str] = Field(default_factory=dict)
 
     @field_validator("name")
     @classmethod
@@ -31,6 +32,7 @@ class IntegrationUpdate(BaseModel):
     type: IntegrationType | None = None
     enabled: bool | None = None
     config: dict[str, object] | None = None
+    credential_refs: dict[str, str] | None = None
 
     @field_validator("name")
     @classmethod

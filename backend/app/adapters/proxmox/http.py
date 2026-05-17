@@ -169,6 +169,21 @@ class HttpProxmoxAdapter(ProxmoxAdapter):
         )
         return {"task_id": data}
 
+    async def add_vm_disk(
+        self,
+        *,
+        node: str,
+        vm_id: int,
+        disk: str,
+        storage: str,
+        size_gb: int,
+    ) -> dict[str, Any]:
+        data = await self._put(
+            f"nodes/{node}/qemu/{vm_id}/config",
+            data={disk: f"{storage}:{size_gb}"},
+        )
+        return {"task_id": data}
+
     async def _get(self, path: str, params: dict[str, str] | None = None) -> Any:
         self._validate_configuration()
         url = urljoin(self.api_url, path.lstrip("/"))

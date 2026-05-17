@@ -1,7 +1,7 @@
 from enum import StrEnum
 from uuid import UUID
 
-from sqlalchemy import Boolean, Enum, ForeignKey, Integer, JSON, String, Text
+from sqlalchemy import Boolean, Enum, ForeignKey, Integer, JSON, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from backend.app.db.base import Base, TimestampMixin, UuidPrimaryKeyMixin
@@ -52,6 +52,7 @@ class ProvisioningRequest(Base, UuidPrimaryKeyMixin, TimestampMixin):
     cpu_cores: Mapped[int] = mapped_column(Integer, nullable=False)
     memory_mb: Mapped[int] = mapped_column(Integer, nullable=False)
     disk_gb: Mapped[int] = mapped_column(Integer, nullable=False)
+    additional_disks: Mapped[list[dict]] = mapped_column(JSON, default=list, nullable=False)
     network_bridge: Mapped[str] = mapped_column(String(100), nullable=False)
     environment: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
     tags: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
@@ -81,3 +82,27 @@ class ProvisioningRequest(Base, UuidPrimaryKeyMixin, TimestampMixin):
     bootstrap_profile_ids: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
     bootstrap_package_ids: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
     bootstrap_job_ids: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
+
+
+class ProvisioningBlueprint(Base, UuidPrimaryKeyMixin, TimestampMixin):
+    __tablename__ = "provisioning_blueprints"
+    __table_args__ = (UniqueConstraint("name", name="uq_provisioning_blueprints_name"),)
+
+    name: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    description: Mapped[str | None] = mapped_column(Text)
+    target_node: Mapped[str] = mapped_column(String(100), nullable=False)
+    template_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    cpu_cores: Mapped[int] = mapped_column(Integer, nullable=False)
+    memory_mb: Mapped[int] = mapped_column(Integer, nullable=False)
+    disk_gb: Mapped[int] = mapped_column(Integer, nullable=False)
+    additional_disks: Mapped[list[dict]] = mapped_column(JSON, default=list, nullable=False)
+    network_bridge: Mapped[str] = mapped_column(String(100), nullable=False)
+    environment: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
+    tags: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
+    start_on_boot: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    cloud_init_username: Mapped[str] = mapped_column(String(100), nullable=False)
+    ssh_public_key: Mapped[str | None] = mapped_column(Text)
+    gateway: Mapped[str] = mapped_column(String(64), nullable=False)
+    dns_servers: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
+    bootstrap_profile_ids: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
+    bootstrap_package_ids: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)

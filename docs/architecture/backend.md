@@ -33,6 +33,7 @@ Current implemented domain routes include:
 - `/api/v1/servers` for CMDB inventory, lifecycle operations, Proxmox import, and reconciliation
 - `/api/v1/proxmox` for Proxmox visibility and controlled lifecycle actions
 - `/api/v1/vms` for template-based Proxmox provisioning
+- `/api/v1/vms/blueprints` for NexusOps-side provisioning presets
 - `/api/v1/jobs` for SSH command execution, job history, and operational actions
 - `/api/v1/packages` for reusable package definitions
 - `/api/v1/profiles` for reusable infrastructure profile templates and execution
@@ -141,7 +142,7 @@ Inventory commits are currently performed in the service layer after repository 
 
 Alembic is configured at the repository root through `alembic.ini` and migration code under `backend/migrations`.
 
-Current migrations create the `servers` and `jobs` tables, inventory SSH authentication metadata, definition tables, provisioning requests, inventory synchronization metadata, integration records, template override/variable metadata, encrypted credentials, credential usages, variables, and inventory credential references.
+Current migrations create the `servers` and `jobs` tables, inventory SSH authentication metadata, definition tables, provisioning requests, provisioning blueprints, inventory synchronization metadata, integration records, template override/variable metadata, encrypted credentials, credential usages, variables, inventory credential references, deployment credential references, integration credential references, and provisioning additional disk metadata.
 
 Important migration characteristics:
 
@@ -308,6 +309,26 @@ Frontend Provisioning page
 Provisioning uses Proxmox templates only. Cloud-init configuration sets identity, SSH credentials, static IP/CIDR, gateway, DNS, CPU, memory, network bridge, on-boot behavior, and description metadata.
 
 Provisioned records are created as managed Inventory assets with `provider=proxmox`, `external_id=<vmid>`, `source=provisioned`, `lifecycle_state=provisioned`, and `sync_status=synced`.
+
+Provisioning can also apply NexusOps provisioning blueprints. Blueprints are database-backed presets around a provider-side Proxmox template. They store fixed defaults such as target node, Proxmox template ID, CPU, memory, root disk, additional disks, bridge, gateway, DNS, default username, tags, environment, and bootstrap profile/package IDs. They intentionally leave VM name, VMID, cloud-init hostname, and static IP/CIDR as per-run inputs.
+
+Provisioning supports one root disk resized as `scsi0` plus optional additional disks created after clone/configuration. Extra disk storage names are currently operator-entered and should later be sourced from Proxmox storage discovery.
+
+## Deployment Backend Flow
+
+```text
+Frontend Deployments page
+  -> FastAPI /api/v1/deployments
+  -> DockerComposeDeploymentService
+  -> resolve deployment credential_refs into .env content
+  -> JobService.execute()
+  -> SSH adapter
+  -> docker compose on inventory-managed host
+```
+
+Docker Compose deployments persist compose content, optional plaintext env content for non-secret values, credential-backed env references for secrets, deployment target metadata, and deployment revisions. Deploy/redeploy/restart/stop/status/logs reuse Jobs and never create a parallel remote-execution path.
+
+Deployment command history is redacted when credential-backed env values are injected.
 
 ## Current Backend Boundaries
 

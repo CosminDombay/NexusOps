@@ -19,6 +19,7 @@ from backend.app.modules.deployments.schemas import (
     DeploymentRevisionRead,
     DeploymentStatusRead,
 )
+from backend.app.modules.credentials.service import CredentialService
 from backend.app.modules.inventory.models import InventoryLifecycleState
 from backend.app.modules.inventory.repository import ServerRepository
 from backend.app.modules.jobs.schemas import JobExecuteRequest
@@ -44,12 +45,14 @@ class DockerComposeDeploymentService:
         revision_repository: DeploymentRevisionRepository,
         server_repository: ServerRepository,
         job_service: JobService,
+        credential_service: CredentialService | None = None,
     ) -> None:
         self.repository = repository
         self.target_repository = target_repository
         self.revision_repository = revision_repository
         self.server_repository = server_repository
         self.job_service = job_service
+        self.credential_service = credential_service
 
     async def list_deployments(self) -> list[DeploymentRead]:
         deployments = await self.repository.list()
@@ -63,6 +66,7 @@ class DockerComposeDeploymentService:
                 description=payload.description,
                 compose_content=payload.compose_content,
                 env_content=payload.env_content,
+                credential_refs=payload.credential_refs,
                 status=DeploymentStatus.DRAFT,
             )
         )
@@ -138,11 +142,13 @@ class DockerComposeDeploymentService:
         )
         await self.repository.session.commit()
 
+        command, redacted_command = await self._operation_commands(deployment, target, operation)
         job = await self.job_service.execute(
             JobExecuteRequest(
                 target_server_id=target.server_id,
                 operation_type=f"deployment:{deployment.id}:{operation}",
-                command=self._operation_command(deployment, target, operation),
+                command=command,
+                redacted_command=redacted_command,
             )
         )
         next_status = DeploymentStatus.RUNNING if job.exit_code == 0 and operation != "stop" else DeploymentStatus.FAILED
@@ -190,6 +196,7 @@ class DockerComposeDeploymentService:
             description=deployment.description,
             compose_content=deployment.compose_content,
             env_content=deployment.env_content,
+            credential_refs=deployment.credential_refs,
             status=deployment.status,
             target_server_id=target.server_id if target else None,
             target_hostname=server.hostname if server else None,
@@ -198,10 +205,12 @@ class DockerComposeDeploymentService:
             updated_at=deployment.updated_at,
         )
 
-    def _operation_command(self, deployment: Deployment, target: DeploymentTarget, operation: str) -> str:
+    async def _operation_commands(self, deployment: Deployment, target: DeploymentTarget, operation: str) -> tuple[str, str]:
         deployment_path = self._deployment_path(target, deployment)
         compose = self._heredoc("compose.yml", deployment.compose_content)
-        env = self._heredoc(".env", deployment.env_content or "")
+        env_content, redacted_env_content = await self._env_contents(deployment)
+        env = self._heredoc(".env", env_content)
+        redacted_env = self._heredoc(".env", redacted_env_content)
         if operation in {"deploy", "redeploy"}:
             action = "docker compose version && docker compose pull && docker compose up -d"
         elif operation == "restart":
@@ -210,11 +219,29 @@ class DockerComposeDeploymentService:
             action = "docker compose stop"
         else:
             raise DeploymentValidationError("Unsupported deployment operation")
-        return (
+        prefix = (
             f"mkdir -p {self._sh_quote(deployment_path)} && "
             f"cd {self._sh_quote(deployment_path)} && "
-            f"{compose} && {env} && {action}"
         )
+        return f"{prefix}{compose} && {env} && {action}", f"{prefix}{compose} && {redacted_env} && {action}"
+
+    async def _env_contents(self, deployment: Deployment) -> tuple[str, str]:
+        lines = [deployment.env_content or ""]
+        redacted_lines = [deployment.env_content or ""]
+        for env_key, credential_ref in sorted((deployment.credential_refs or {}).items()):
+            clean_key = env_key.strip()
+            clean_ref = credential_ref.strip()
+            if not clean_key or not clean_ref:
+                continue
+            if self.credential_service is None:
+                raise DeploymentValidationError("Credential service is required for deployment credential refs")
+            credential = await self.credential_service.resolve_credential(clean_ref)
+            secret = credential.secret or credential.private_key
+            if not secret:
+                raise DeploymentValidationError(f"Credential for {clean_key} has no usable secret value")
+            lines.append(f"{clean_key}={self._dotenv_quote(secret)}")
+            redacted_lines.append(f"{clean_key}=********")
+        return "\n".join(part for part in lines if part), "\n".join(part for part in redacted_lines if part)
 
     @staticmethod
     def _deployment_path(target: DeploymentTarget, deployment: Deployment) -> str:
@@ -228,3 +255,8 @@ class DockerComposeDeploymentService:
     @staticmethod
     def _sh_quote(value: str) -> str:
         return "'" + value.replace("'", "'\"'\"'") + "'"
+
+    @staticmethod
+    def _dotenv_quote(value: str) -> str:
+        escaped = value.replace("\\", "\\\\").replace("\n", "\\n").replace('"', '\\"')
+        return f'"{escaped}"'

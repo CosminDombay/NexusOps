@@ -2,7 +2,7 @@
 
 ## Implementation Status
 
-NexusOps is currently a modular monolith with a FastAPI backend, a React/Vite frontend, PostgreSQL persistence, and a CMDB-style server inventory. The platform also includes Proxmox infrastructure visibility, controlled VM lifecycle actions, Proxmox template provisioning, Proxmox-to-inventory synchronization, SSH-backed job execution, reusable operational actions, package definitions, infrastructure profiles, editable built-in operational templates, integration records, a credential manager, variable-manager foundations, and credential-backed variable-driven execution.
+NexusOps is currently a modular monolith with a FastAPI backend, a React/Vite frontend, PostgreSQL persistence, and a CMDB-style server inventory. The platform also includes Proxmox infrastructure visibility, controlled VM lifecycle actions, Proxmox template provisioning, NexusOps provisioning blueprints, Proxmox-to-inventory synchronization, SSH-backed job execution, reusable operational actions, package definitions, infrastructure profiles, editable built-in operational templates, integration records, a credential manager, variable-manager foundations, Docker Compose deployments, monitoring foundations, Linux identity orchestration, and credential-backed variable-driven execution.
 
 The implemented system is focused on foundations, visibility, narrowly scoped VM lifecycle control, template provisioning, inventory synchronization, reusable automation templates, and the first orchestration layer. It does not yet perform VM deletion, full secrets vaulting, Terraform execution, Ansible execution, authentication, authorization, or workflow chaining.
 
@@ -56,9 +56,12 @@ The implemented system is focused on foundations, visibility, narrowly scoped VM
   - node detail page with per-node VM visibility
 - Provisioning:
   - Proxmox template selection
+  - NexusOps provisioning blueprints for reusable VM defaults
   - full clone from cloud-init-capable templates
   - cloud-init username/password/SSH key configuration
   - static IP/CIDR, gateway, DNS configuration
+  - configurable root disk sizing
+  - optional additional disk creation after clone
   - Proxmox task polling
   - SSH readiness polling
   - inventory auto-registration
@@ -109,11 +112,14 @@ The implemented system is focused on foundations, visibility, narrowly scoped VM
   - move up/down and drag-and-drop step ordering in the editor
 - Integrations:
   - persisted integration records for infrastructure providers, monitoring, networking, and database integrations
+  - credential reference fields for API tokens and bearer-style auth secrets
   - connection test support for Proxmox, Prometheus, and Grafana
   - Settings page for integration visibility and basic create/toggle/test workflows
 - ESLint 9 flat configuration, TypeScript build, TailwindCSS, and Prettier configuration.
 - Docker Compose deployments:
   - deployment definitions with compose/env storage
+  - credential-backed environment variables resolved server-side at deploy time
+  - redacted deployment command history when secrets are injected into `.env`
   - deployment target and revision persistence
   - deploy/redeploy/restart/stop/status/log operations through Jobs
 - Monitoring foundation:
@@ -197,7 +203,7 @@ Integration records provide a persisted configuration surface for provider and m
 
 Runtime Proxmox, Prometheus, and Grafana services still primarily read local environment configuration. Integration records are the foundation for later runtime adapter selection and secret management, not a production-grade vault.
 
-### Proxmox Template Provisioning
+### Proxmox Template Provisioning and Blueprints
 
 Provisioning uses only Proxmox VM templates and cloud-init customization:
 
@@ -206,6 +212,16 @@ Provisioning request -> Proxmox clone/config/start -> SSH readiness -> Inventory
 ```
 
 Provisioned VMs become Inventory records before any bootstrap profile/package execution. This preserves Inventory as the orchestration source of truth.
+
+NexusOps provisioning blueprints are UI/API-side presets for repeatable VM creation. The actual base image remains a Proxmox template; the blueprint stores the fixed operational defaults around that template:
+
+- Proxmox template ID and target node
+- CPU, RAM, root disk, and additional disks
+- network bridge, gateway, DNS, environment, tags, and start-on-boot behavior
+- default cloud-init username and optional SSH public key
+- bootstrap profile and package selections
+
+Blueprints intentionally do not lock per-machine identity values such as VM name, VMID, cloud-init hostname, or static IP/CIDR. Operators select a blueprint, fill in the unique host identity/network fields, then provisioning registers Inventory before running bootstrap profiles/packages through Jobs.
 
 ### Inventory Synchronization and CMDB Lifecycle
 
@@ -230,6 +246,8 @@ Discovered VMs are shown as unmanaged until an operator imports them. Import cre
 - Credential resolution lives in `backend/app/modules/credentials/` and decrypts secret material only inside backend runtime execution paths.
 - Variable resolution lives in `backend/app/common/variables.py` and intentionally supports placeholder substitution only.
 - Provisioning orchestrates Proxmox, Inventory, and bootstrap Jobs without creating a separate execution path.
+- Provisioning blueprints persist reusable provisioning defaults while keeping Proxmox VM templates as the provider-side base image.
+- Docker Compose deployments reuse Jobs for deploy/redeploy/restart/stop/status/logs and resolve credential-backed env values server-side.
 - Adapter packages are canonicalized under `backend/app/adapters/`.
 - SSH has a concrete Paramiko adapter for key/password command execution.
 - Frontend is feature-based under `frontend/src/features/`.
@@ -239,6 +257,7 @@ Discovered VMs are shown as unmanaged until an operator imports them. Import cre
 
 - Execution module is still a placeholder.
 - Authentication and authorization are not implemented.
+- Workflow chaining is still implicit. Provisioning can bootstrap profiles/packages, but deployment-as-a-profile-step is not fully executed yet.
 - Legacy inline SSH passwords/private key paths still exist for backward compatibility and local MVP use; shared Credential Manager records are the preferred path for reusable secrets.
 - Integration configs are not a secrets vault yet; runtime provider adapters still primarily read local environment configuration.
 - No frontend test framework is configured yet.
@@ -251,6 +270,9 @@ Discovered VMs are shown as unmanaged until an operator imports them. Import cre
 - Jobs run synchronously during the API request; no Celery/Redis/background worker exists yet.
 - Profiles run synchronously and sequentially; no DAG engine, rollback, or workflow scheduler exists yet.
 - Provisioning runs synchronously in the API request; no background worker or websocket status streaming exists yet.
+- Provisioning blueprints do not yet discover valid Proxmox storage targets per node; extra disks currently rely on operator-entered storage names.
+- Deployment logs are pulled on demand from Docker Compose and are not yet indexed as first-class log records.
+- Docker deployment steps are visible in profile editing but do not yet execute as concrete deployment operations inside `ProfileService`.
 - No centralized authentication or domain identity provider. Identity is Linux orchestration only; LDAP, Kerberos, FreeIPA, Active Directory, SSSD, PAM rewriting, and login federation are intentionally out of scope.
 - Existing `docs/architecture.md` is older and less precise than the newer files in `docs/architecture/`.
 - Runtime adapters do not yet load active integration records as their source of truth.

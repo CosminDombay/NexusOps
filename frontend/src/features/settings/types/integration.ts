@@ -6,6 +6,7 @@ export type Integration = {
   type: IntegrationType;
   enabled: boolean;
   config: Record<string, unknown>;
+  credential_refs: Record<string, string>;
   created_at: string;
   updated_at: string;
 };
@@ -15,6 +16,7 @@ export type IntegrationPayload = {
   type: IntegrationType;
   enabled: boolean;
   config: Record<string, unknown>;
+  credential_refs?: Record<string, string>;
 };
 
 export type IntegrationTestResult = {

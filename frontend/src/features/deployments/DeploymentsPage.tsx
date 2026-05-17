@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Play, RefreshCw, Square, Terminal } from 'lucide-react';
+import { KeyRound, Play, Plus, RefreshCw, Square, Terminal, Trash2 } from 'lucide-react';
 
 import { PageHeader } from '../../components/layout/PageHeader';
 import { getApiErrorMessage } from '../../lib/api/client';
 import { listServers } from '../inventory/api/serversApi';
 import type { Server } from '../inventory/types/server';
+import { listCredentials } from '../credentials/api/credentialsApi';
+import type { Credential } from '../credentials/types/credential';
 import { createDeployment, getDeploymentLogs, listDeployments, runDeploymentOperation } from './api/deploymentsApi';
 import type { Deployment } from './types/deployment';
 
@@ -19,11 +21,13 @@ const defaultCompose = `services:
 export function DeploymentsPage() {
   const [deployments, setDeployments] = useState<Deployment[]>([]);
   const [servers, setServers] = useState<Server[]>([]);
+  const [credentials, setCredentials] = useState<Credential[]>([]);
   const [selectedDeploymentId, setSelectedDeploymentId] = useState('');
   const [name, setName] = useState('nginx-demo');
   const [targetServerId, setTargetServerId] = useState('');
   const [composeContent, setComposeContent] = useState(defaultCompose);
   const [envContent, setEnvContent] = useState('');
+  const [credentialRefs, setCredentialRefs] = useState<Array<{ key: string; credentialId: string }>>([]);
   const [logs, setLogs] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -33,9 +37,10 @@ export function DeploymentsPage() {
     setIsLoading(true);
     setError(null);
     try {
-      const [nextDeployments, nextServers] = await Promise.all([listDeployments(), listServers()]);
+      const [nextDeployments, nextServers, nextCredentials] = await Promise.all([listDeployments(), listServers(), listCredentials()]);
       setDeployments(nextDeployments);
       setServers(nextServers);
+      setCredentials(nextCredentials);
       setTargetServerId((current) => current || nextServers[0]?.id || '');
       setSelectedDeploymentId((current) => current || nextDeployments[0]?.id || '');
     } catch (caughtError) {
@@ -57,6 +62,11 @@ export function DeploymentsPage() {
         target_server_id: targetServerId,
         compose_content: composeContent,
         env_content: envContent || null,
+        credential_refs: Object.fromEntries(
+          credentialRefs
+            .filter((item) => item.key.trim() && item.credentialId)
+            .map((item) => [item.key.trim(), item.credentialId]),
+        ),
       });
       setDeployments((current) => [deployment, ...current]);
       setSelectedDeploymentId(deployment.id);
@@ -135,6 +145,56 @@ export function DeploymentsPage() {
           <span className="text-sm font-medium text-zinc-950">Environment file</span>
           <textarea className="mt-2 min-h-24 w-full rounded-md border border-zinc-300 p-3 font-mono text-sm" value={envContent} onChange={(event) => setEnvContent(event.target.value)} />
         </label>
+        <div className="space-y-3 lg:col-span-2">
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-sm font-medium text-zinc-950">Credential-backed env</span>
+            <button
+              className="inline-flex items-center gap-2 rounded-md border border-zinc-300 px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
+              type="button"
+              onClick={() => setCredentialRefs((current) => [...current, { key: '', credentialId: credentials[0]?.id ?? '' }])}
+            >
+              <Plus className="h-4 w-4" aria-hidden="true" />
+              Add secret
+            </button>
+          </div>
+          {credentialRefs.length ? (
+            <div className="space-y-2">
+              {credentialRefs.map((item, index) => (
+                <div key={index} className="grid gap-2 md:grid-cols-[1fr_1fr_auto]">
+                  <input
+                    className="h-10 rounded-md border border-zinc-300 px-3 font-mono text-sm"
+                    placeholder="ENV_KEY"
+                    value={item.key}
+                    onChange={(event) =>
+                      setCredentialRefs((current) => current.map((row, rowIndex) => (rowIndex === index ? { ...row, key: event.target.value } : row)))
+                    }
+                  />
+                  <select
+                    className="h-10 rounded-md border border-zinc-300 px-3 text-sm"
+                    value={item.credentialId}
+                    onChange={(event) =>
+                      setCredentialRefs((current) => current.map((row, rowIndex) => (rowIndex === index ? { ...row, credentialId: event.target.value } : row)))
+                    }
+                  >
+                    <option value="">Select credential</option>
+                    {credentials.map((credential) => (
+                      <option key={credential.id} value={credential.id}>{credential.name}</option>
+                    ))}
+                  </select>
+                  <button
+                    className="inline-flex h-10 items-center justify-center rounded-md border border-rose-300 px-3 text-rose-700 hover:bg-rose-50"
+                    type="button"
+                    onClick={() => setCredentialRefs((current) => current.filter((_, rowIndex) => rowIndex !== index))}
+                  >
+                    <Trash2 className="h-4 w-4" aria-hidden="true" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-sm text-zinc-500">Use credentials for tokens, passwords, and API keys that should not live in the env editor.</p>
+          )}
+        </div>
         <button className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-zinc-950 px-4 text-sm font-semibold text-white disabled:bg-zinc-300" disabled={isWorking} type="button" onClick={handleCreate}>
           <Play className="h-4 w-4" aria-hidden="true" />
           Create
@@ -175,6 +235,14 @@ export function DeploymentsPage() {
                     ) : 'No target'}
                   </td>
                   <td className="py-3 text-zinc-600">{deployment.status}</td>
+                  <td className="py-3 text-zinc-600">
+                    {Object.keys(deployment.credential_refs ?? {}).length ? (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-zinc-100 px-2 py-1 text-xs font-semibold text-zinc-700">
+                        <KeyRound className="h-3 w-3" aria-hidden="true" />
+                        {Object.keys(deployment.credential_refs).length}
+                      </span>
+                    ) : null}
+                  </td>
                 </tr>
               ))}
             </tbody>
