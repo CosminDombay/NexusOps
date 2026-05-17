@@ -10,9 +10,10 @@ from backend.app.modules.packages.repository import PackageDefinitionRepository
 from backend.app.modules.profiles.repository import InfrastructureProfileRepository
 from backend.app.modules.provisioning.repository import (
     ProvisioningBlueprintRepository,
+    ProvisioningBatchRepository,
     ProvisioningRequestRepository,
 )
-from backend.app.modules.provisioning.schemas import ProvisioningCreate
+from backend.app.modules.provisioning.schemas import ProvisioningBatchCreate, ProvisioningBlueprintCreate, ProvisioningCreate
 from backend.app.modules.provisioning.service import ProvisioningService
 
 
@@ -139,6 +140,7 @@ def service(db_session, proxmox: FakeProxmoxAdapter | None = None) -> Provisioni
     return ProvisioningService(
         repository=ProvisioningRequestRepository(db_session),
         blueprint_repository=ProvisioningBlueprintRepository(db_session),
+        batch_repository=ProvisioningBatchRepository(db_session),
         server_repository=ServerRepository(db_session),
         job_repository=JobRepository(db_session),
         package_repository=PackageDefinitionRepository(db_session),
@@ -182,3 +184,46 @@ async def test_provisioning_creates_vm_and_inventory_record(client) -> None:
         servers = await ServerRepository(db_session).list(search="10.3.0.50")
         assert len(servers) == 1
         assert servers[0].provider == "proxmox"
+
+
+@pytest.mark.asyncio
+async def test_provisioning_batch_creates_children_from_blueprint(client) -> None:
+    session = next(iter(client.app.dependency_overrides.values()))
+    async for db_session in session():
+        proxmox = FakeProxmoxAdapter()
+        provisioning_service = service(db_session, proxmox)
+        blueprint = await provisioning_service.create_blueprint(
+            ProvisioningBlueprintCreate(
+                name="Docker hosts",
+                target_node="hellgate",
+                template_id=9000,
+                cpu_cores=2,
+                memory_mb=2048,
+                disk_gb=32,
+                network_bridge="vmbr0",
+                environment="lab",
+                tags=["docker"],
+                cloud_init_username="ubuntu",
+                gateway="10.3.0.1",
+                dns_servers=["1.1.1.1"],
+            )
+        )
+
+        batch = await provisioning_service.provision_batch(
+            ProvisioningBatchCreate(
+                name="Lab Docker Batch",
+                blueprint_id=blueprint.id,
+                count=2,
+                vm_name_pattern="lab-docker-{index}",
+                hostname_pattern="lab-docker-{index}",
+                starting_vm_id=200,
+                starting_ip_cidr="10.3.0.60/24",
+                cloud_init_password="secret",
+            )
+        )
+
+        assert batch.status == "completed"
+        assert batch.completed_count == 2
+        assert batch.failed_count == 0
+        assert [request.new_vm_id for request in batch.requests] == [200, 201]
+        assert [request.static_ip_cidr for request in batch.requests] == ["10.3.0.60/24", "10.3.0.61/24"]

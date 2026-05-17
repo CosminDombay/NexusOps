@@ -1,5 +1,6 @@
 import { NavLink, Outlet } from 'react-router-dom';
 
+import logoImage from '../../assets/logo.png';
 import { useAuth } from '../../features/auth/hooks/useAuth';
 import type { UserRole } from '../../features/auth/types/auth';
 
@@ -51,16 +52,24 @@ export function AppLayout() {
     .filter((group) => group.items.length > 0);
 
   return (
-    <div className="min-h-screen bg-zinc-50 text-zinc-950">
-      <aside className="border-b border-zinc-200 bg-white lg:fixed lg:inset-y-0 lg:left-0 lg:w-64 lg:border-b-0 lg:border-r">
-        <div className="border-b border-zinc-200 px-5 py-4">
-          <h1 className="text-lg font-semibold">NexusOps</h1>
-          <p className="text-sm text-zinc-500">Infrastructure orchestration</p>
+    <div className="min-h-screen bg-zinc-950 text-zinc-950">
+      <aside className="border-b border-cyan-400/15 bg-zinc-950 text-zinc-100 lg:fixed lg:inset-y-0 lg:left-0 lg:w-64 lg:border-b-0 lg:border-r">
+        <div className="border-b border-cyan-400/15 px-5 py-4">
+          <div
+            aria-label="NexusOps"
+            className="h-14 w-44 bg-center bg-no-repeat"
+            role="img"
+            style={{
+              backgroundImage: `url(${logoImage})`,
+              backgroundSize: '250%',
+            }}
+          />
+          <p className="mt-2 text-sm text-zinc-400">Infrastructure orchestration</p>
         </div>
         <nav className="flex gap-3 overflow-x-auto p-3 lg:flex-col lg:overflow-visible">
           {visibleNavGroups.map((group) => (
             <div key={group.label} className="flex shrink-0 gap-1 lg:flex-col">
-              <div className="hidden px-3 pb-1 pt-2 text-xs font-semibold uppercase tracking-normal text-zinc-400 lg:block">
+              <div className="hidden px-3 pb-1 pt-2 text-xs font-semibold uppercase tracking-normal text-cyan-300/60 lg:block">
                 {group.label}
               </div>
               {group.items.map((item) => (
@@ -71,7 +80,9 @@ export function AppLayout() {
                   className={({ isActive }) =>
                     [
                       'whitespace-nowrap rounded-md px-3 py-2 text-sm font-medium',
-                      isActive ? 'bg-zinc-900 text-white' : 'text-zinc-600 hover:bg-zinc-100',
+                      isActive
+                        ? 'bg-cyan-400 text-zinc-950 shadow-sm shadow-cyan-950/30'
+                        : 'text-zinc-300 hover:bg-white/5 hover:text-white',
                     ].join(' ')
                   }
                 >
@@ -82,8 +93,8 @@ export function AppLayout() {
           ))}
         </nav>
       </aside>
-      <main className="min-h-screen p-4 sm:p-6 lg:ml-64 lg:p-8">
-        <header className="mb-6 flex items-center justify-end gap-3 border-b border-zinc-200 pb-4">
+      <main className="min-h-screen bg-zinc-100 p-4 sm:p-6 lg:ml-64 lg:p-8">
+        <header className="mb-6 flex items-center justify-end gap-3 border-b border-zinc-300 pb-4">
           <div className="text-right">
             <p className="text-sm font-semibold text-zinc-900">{user?.username}</p>
             <p className="text-xs uppercase tracking-normal text-zinc-500">{user?.role}</p>

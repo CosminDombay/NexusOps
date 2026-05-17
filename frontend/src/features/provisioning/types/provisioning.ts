@@ -57,6 +57,8 @@ export type ProvisioningRequest = {
   bootstrap_profile_ids: string[];
   bootstrap_package_ids: string[];
   bootstrap_job_ids: string[];
+  batch_id: string | null;
+  batch_index: number | null;
   created_at: string;
   updated_at: string;
 };
@@ -119,3 +121,40 @@ export type ProvisioningBlueprint = {
 export type CreateProvisioningBlueprintPayload = Omit<ProvisioningBlueprint, 'id' | 'created_at' | 'updated_at'>;
 
 export type UpdateProvisioningBlueprintPayload = Partial<CreateProvisioningBlueprintPayload>;
+
+export type ProvisioningBatchStatus =
+  | 'requested'
+  | 'running'
+  | 'completed'
+  | 'partial_failed'
+  | 'failed';
+
+export type ProvisioningBatch = {
+  id: string;
+  name: string;
+  blueprint_id: string;
+  count: number;
+  vm_name_pattern: string;
+  hostname_pattern: string;
+  starting_vm_id: number;
+  starting_ip_cidr: string;
+  status: ProvisioningBatchStatus;
+  completed_count: number;
+  failed_count: number;
+  error_message: string | null;
+  requests: ProvisioningRequest[];
+  created_at: string;
+  updated_at: string;
+};
+
+export type CreateProvisioningBatchPayload = {
+  name: string;
+  blueprint_id: string;
+  count: number;
+  vm_name_pattern: string;
+  hostname_pattern: string | null;
+  starting_vm_id: number;
+  starting_ip_cidr: string;
+  cloud_init_password: string | null;
+  description: string | null;
+};

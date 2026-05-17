@@ -12,6 +12,8 @@ frontend/.vite
 frontend/*.tsbuildinfo
 *.log
 screenshots
+background.png
+logo.png
 .env
 .env.*
 !.env.example

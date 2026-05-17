@@ -24,7 +24,7 @@ from backend.app.modules.jobs.models import Job
 from backend.app.modules.monitoring.models import MetricSample
 from backend.app.modules.packages.models import PackageDefinitionRecord, PackageInstallation
 from backend.app.modules.profiles.models import InfrastructureProfileRecord, StandardizationProfile
-from backend.app.modules.provisioning.models import ProvisioningRequest, VirtualMachine
+from backend.app.modules.provisioning.models import ProvisioningBatch, ProvisioningRequest, VirtualMachine
 from backend.app.modules.variables.models import Variable
 
 config = context.config
@@ -54,6 +54,7 @@ _models = (
     PermissionTemplate,
     InfrastructureProfileRecord,
     ProvisioningRequest,
+    ProvisioningBatch,
     Server,
     StandardizationProfile,
     SSHKey,

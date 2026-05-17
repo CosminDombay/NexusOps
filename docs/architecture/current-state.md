@@ -76,6 +76,7 @@ The implemented system is focused on foundations, visibility, narrowly scoped VM
   - static IP/CIDR, gateway, DNS configuration
   - configurable root disk sizing
   - optional additional disk creation after clone
+  - batch provisioning from blueprints with sequential VMID/IP/name generation
   - Proxmox task polling
   - SSH readiness polling
   - inventory auto-registration
@@ -278,6 +279,7 @@ Discovered VMs are shown as unmanaged until an operator imports them. Import cre
 - Variable resolution lives in `backend/app/common/variables.py` and intentionally supports placeholder substitution only.
 - Provisioning orchestrates Proxmox, Inventory, and bootstrap Jobs without creating a separate execution path.
 - Provisioning blueprints persist reusable provisioning defaults while keeping Proxmox VM templates as the provider-side base image.
+- Batch provisioning creates a parent batch record and normal child provisioning requests. Each generated VM still goes through the existing Proxmox clone, cloud-init, SSH readiness, Inventory registration, and optional bootstrap flow.
 - Docker Compose deployments reuse Jobs for deploy/redeploy/restart/stop/status/logs and resolve credential-backed env values server-side.
 - Adapter packages are canonicalized under `backend/app/adapters/`.
 - SSH has a concrete Paramiko adapter for key/password command execution.

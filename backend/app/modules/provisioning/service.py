@@ -1,5 +1,5 @@
 import asyncio
-from ipaddress import ip_interface
+from ipaddress import ip_address, ip_interface
 from uuid import UUID
 
 import structlog
@@ -10,6 +10,7 @@ from backend.app.adapters.ssh import SshAdapter
 from backend.app.common.constants import (
     InventoryLifecycleState,
     InventorySyncStatus,
+    ServerEnvironment,
     ServerSshAuthMethod,
     ServerStatus,
 )
@@ -33,11 +34,14 @@ from backend.app.modules.profiles.schemas import ProfileApplyRequest
 from backend.app.modules.profiles.service import ProfileService
 from backend.app.modules.provisioning.models import (
     ProvisioningBlueprint,
+    ProvisioningBatch,
+    ProvisioningBatchStatus,
     ProvisioningRequest,
     ProvisioningStatus,
 )
 from backend.app.modules.provisioning.repository import (
     ProvisioningBlueprintRepository,
+    ProvisioningBatchRepository,
     ProvisioningRequestRepository,
 )
 from backend.app.modules.provisioning.schemas import (
@@ -45,6 +49,8 @@ from backend.app.modules.provisioning.schemas import (
     ProvisioningBlueprintCreate,
     ProvisioningBlueprintRead,
     ProvisioningBlueprintUpdate,
+    ProvisioningBatchCreate,
+    ProvisioningBatchRead,
     ProvisioningCreate,
     ProvisioningRead,
 )
@@ -68,6 +74,10 @@ class ProvisioningBlueprintConflictError(Exception):
     """Raised when a provisioning blueprint name already exists."""
 
 
+class ProvisioningBatchNotFoundError(Exception):
+    """Raised when a provisioning batch cannot be found."""
+
+
 class ProvisioningService:
     """Application service for template-based Proxmox VM provisioning."""
 
@@ -76,6 +86,7 @@ class ProvisioningService:
         *,
         repository: ProvisioningRequestRepository,
         blueprint_repository: ProvisioningBlueprintRepository,
+        batch_repository: ProvisioningBatchRepository,
         server_repository: ServerRepository,
         job_repository: JobRepository,
         package_repository: PackageDefinitionRepository,
@@ -86,6 +97,7 @@ class ProvisioningService:
     ) -> None:
         self.repository = repository
         self.blueprint_repository = blueprint_repository
+        self.batch_repository = batch_repository
         self.server_repository = server_repository
         self.job_repository = job_repository
         self.package_repository = package_repository
@@ -102,6 +114,16 @@ class ProvisioningService:
         if request is None:
             raise ProvisioningNotFoundError("Provisioning request not found")
         return ProvisioningRead.model_validate(request)
+
+    async def list_batches(self) -> list[ProvisioningBatchRead]:
+        batches = await self.batch_repository.list()
+        return [await self._batch_read(batch) for batch in batches]
+
+    async def get_batch(self, batch_id: UUID) -> ProvisioningBatchRead:
+        batch = await self.batch_repository.get_by_id(batch_id)
+        if batch is None:
+            raise ProvisioningBatchNotFoundError("Provisioning batch not found")
+        return await self._batch_read(batch)
 
     async def list_templates(self) -> list[ProxmoxTemplateRead]:
         templates = await self.proxmox_adapter.list_vm_templates()
@@ -161,7 +183,13 @@ class ProvisioningService:
         await self.blueprint_repository.delete(blueprint)
         await self.blueprint_repository.session.commit()
 
-    async def provision(self, payload: ProvisioningCreate) -> ProvisioningRead:
+    async def provision(
+        self,
+        payload: ProvisioningCreate,
+        *,
+        batch_id: UUID | None = None,
+        batch_index: int | None = None,
+    ) -> ProvisioningRead:
         static_ip = str(ip_interface(payload.static_ip_cidr).ip)
         request = ProvisioningRequest(
             vm_name=payload.vm_name,
@@ -186,6 +214,8 @@ class ProvisioningService:
             bootstrap_profile_ids=payload.bootstrap_profile_ids,
             bootstrap_package_ids=payload.bootstrap_package_ids,
             status=ProvisioningStatus.REQUESTED,
+            batch_id=batch_id,
+            batch_index=batch_index,
         )
         request = await self.repository.create(request)
         await self.repository.session.commit()
@@ -310,6 +340,97 @@ class ProvisioningService:
         await self.repository.session.refresh(request)
         return ProvisioningRead.model_validate(request)
 
+    async def provision_batch(self, payload: ProvisioningBatchCreate) -> ProvisioningBatchRead:
+        blueprint = await self.blueprint_repository.get_by_id(payload.blueprint_id)
+        if blueprint is None:
+            raise ProvisioningBlueprintNotFoundError("Provisioning blueprint not found")
+
+        batch = ProvisioningBatch(
+            name=payload.name,
+            blueprint_id=payload.blueprint_id,
+            count=payload.count,
+            vm_name_pattern=payload.vm_name_pattern,
+            hostname_pattern=payload.hostname_pattern or payload.vm_name_pattern,
+            starting_vm_id=payload.starting_vm_id,
+            starting_ip_cidr=payload.starting_ip_cidr,
+            status=ProvisioningBatchStatus.REQUESTED,
+            completed_count=0,
+            failed_count=0,
+        )
+        batch = await self.batch_repository.create(batch)
+        await self.batch_repository.session.commit()
+        await self.batch_repository.session.refresh(batch)
+
+        batch.status = ProvisioningBatchStatus.RUNNING
+        await self.batch_repository.session.commit()
+
+        completed = 0
+        failed = 0
+        errors: list[str] = []
+        start_interface = ip_interface(payload.starting_ip_cidr)
+        network = start_interface.network
+
+        for index in range(payload.count):
+            number = index + 1
+            next_ip = ip_address(int(start_interface.ip) + index)
+            if next_ip not in network:
+                failed += 1
+                errors.append(f"Batch IP range exceeded network at item {number}")
+                continue
+
+            vm_id = payload.starting_vm_id + index
+            vm_name = self._render_batch_pattern(payload.vm_name_pattern, number)
+            hostname = self._render_batch_pattern(payload.hostname_pattern or payload.vm_name_pattern, number)
+            child_payload = ProvisioningCreate(
+                vm_name=vm_name,
+                target_node=blueprint.target_node,
+                template_id=blueprint.template_id,
+                new_vm_id=vm_id,
+                cpu_cores=blueprint.cpu_cores,
+                memory_mb=blueprint.memory_mb,
+                disk_gb=blueprint.disk_gb,
+                additional_disks=blueprint.additional_disks,
+                network_bridge=blueprint.network_bridge,
+                environment=ServerEnvironment(blueprint.environment),
+                tags=[*blueprint.tags, f"batch:{batch.name}"],
+                description=payload.description or blueprint.description,
+                start_on_boot=blueprint.start_on_boot,
+                cloud_init_hostname=hostname,
+                cloud_init_username=blueprint.cloud_init_username,
+                cloud_init_password=payload.cloud_init_password,
+                ssh_public_key=blueprint.ssh_public_key,
+                static_ip_cidr=f"{next_ip}/{start_interface.network.prefixlen}",
+                gateway=blueprint.gateway,
+                dns_servers=blueprint.dns_servers,
+                bootstrap_profile_ids=blueprint.bootstrap_profile_ids,
+                bootstrap_package_ids=blueprint.bootstrap_package_ids,
+            )
+            result = await self.provision(child_payload, batch_id=batch.id, batch_index=number)
+            if result.status == ProvisioningStatus.COMPLETED:
+                completed += 1
+            else:
+                failed += 1
+                if result.error_message:
+                    errors.append(f"{vm_name}: {result.error_message}")
+
+            batch.completed_count = completed
+            batch.failed_count = failed
+            batch.error_message = "\n".join(errors) or None
+            await self.batch_repository.session.commit()
+
+        if completed == payload.count:
+            batch.status = ProvisioningBatchStatus.COMPLETED
+        elif completed > 0:
+            batch.status = ProvisioningBatchStatus.PARTIAL_FAILED
+        else:
+            batch.status = ProvisioningBatchStatus.FAILED
+        batch.completed_count = completed
+        batch.failed_count = failed
+        batch.error_message = "\n".join(errors) or None
+        await self.batch_repository.session.commit()
+        await self.batch_repository.session.refresh(batch)
+        return await self._batch_read(batch)
+
     @staticmethod
     def _blueprint_data(
         payload: ProvisioningBlueprintCreate | ProvisioningBlueprintUpdate,
@@ -419,3 +540,16 @@ class ProvisioningService:
 
         request.bootstrap_job_ids = job_ids
         await self.repository.session.commit()
+
+    async def _batch_read(self, batch: ProvisioningBatch) -> ProvisioningBatchRead:
+        requests = await self.repository.list_by_batch(batch.id)
+        return ProvisioningBatchRead(
+            **{
+                **ProvisioningBatchRead.model_validate(batch).model_dump(exclude={"requests"}),
+                "requests": [ProvisioningRead.model_validate(request) for request in requests],
+            }
+        )
+
+    @staticmethod
+    def _render_batch_pattern(pattern: str, number: int) -> str:
+        return pattern.replace("{index}", f"{number:03d}").replace("{number}", str(number))

@@ -1,16 +1,30 @@
 import { apiClient } from '../../../lib/api/client';
 import type {
   CreateProvisioningBlueprintPayload,
+  CreateProvisioningBatchPayload,
   CreateProvisioningPayload,
   ProxmoxStorage,
   ProxmoxTemplate,
   ProvisioningBlueprint,
+  ProvisioningBatch,
   ProvisioningRequest,
   UpdateProvisioningBlueprintPayload,
 } from '../types/provisioning';
 
 export async function listProvisioningRequests(): Promise<ProvisioningRequest[]> {
   const response = await apiClient.get<ProvisioningRequest[]>('/vms');
+  return response.data;
+}
+
+export async function listProvisioningBatches(): Promise<ProvisioningBatch[]> {
+  const response = await apiClient.get<ProvisioningBatch[]>('/vms/batches');
+  return response.data;
+}
+
+export async function createProvisioningBatch(
+  payload: CreateProvisioningBatchPayload,
+): Promise<ProvisioningBatch> {
+  const response = await apiClient.post<ProvisioningBatch>('/vms/batches', payload);
   return response.data;
 }
 

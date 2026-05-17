@@ -17,6 +17,7 @@ from backend.app.modules.packages.repository import PackageDefinitionRepository
 from backend.app.modules.profiles.repository import InfrastructureProfileRepository
 from backend.app.modules.provisioning.repository import (
     ProvisioningBlueprintRepository,
+    ProvisioningBatchRepository,
     ProvisioningRequestRepository,
 )
 from backend.app.modules.provisioning.schemas import (
@@ -24,12 +25,15 @@ from backend.app.modules.provisioning.schemas import (
     ProvisioningBlueprintCreate,
     ProvisioningBlueprintRead,
     ProvisioningBlueprintUpdate,
+    ProvisioningBatchCreate,
+    ProvisioningBatchRead,
     ProvisioningCreate,
     ProvisioningRead,
 )
 from backend.app.modules.provisioning.service import (
     ProvisioningBlueprintConflictError,
     ProvisioningBlueprintNotFoundError,
+    ProvisioningBatchNotFoundError,
     ProvisioningNotFoundError,
     ProvisioningService,
 )
@@ -48,6 +52,7 @@ async def get_provisioning_service(
     return ProvisioningService(
         repository=ProvisioningRequestRepository(session),
         blueprint_repository=ProvisioningBlueprintRepository(session),
+        batch_repository=ProvisioningBatchRepository(session),
         server_repository=ServerRepository(session),
         job_repository=JobRepository(session),
         package_repository=PackageDefinitionRepository(session),
@@ -88,6 +93,37 @@ async def list_blueprints(
     service: Annotated[ProvisioningService, Depends(get_provisioning_service)],
 ) -> list[ProvisioningBlueprintRead]:
     return await service.list_blueprints()
+
+
+@router.get("/batches", response_model=list[ProvisioningBatchRead])
+async def list_batches(
+    service: Annotated[ProvisioningService, Depends(get_provisioning_service)],
+) -> list[ProvisioningBatchRead]:
+    return await service.list_batches()
+
+
+@router.post("/batches", response_model=ProvisioningBatchRead, status_code=status.HTTP_201_CREATED)
+async def provision_batch(
+    payload: ProvisioningBatchCreate,
+    service: Annotated[ProvisioningService, Depends(get_provisioning_service)],
+) -> ProvisioningBatchRead:
+    try:
+        return await service.provision_batch(payload)
+    except ProvisioningBlueprintNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except (ProxmoxConfigurationError, ProxmoxConnectionError) as exc:
+        raise _map_provider_error(exc) from exc
+
+
+@router.get("/batches/{batch_id}", response_model=ProvisioningBatchRead)
+async def get_batch(
+    batch_id: UUID,
+    service: Annotated[ProvisioningService, Depends(get_provisioning_service)],
+) -> ProvisioningBatchRead:
+    try:
+        return await service.get_batch(batch_id)
+    except ProvisioningBatchNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
 
 
 @router.post("/blueprints", response_model=ProvisioningBlueprintRead, status_code=status.HTTP_201_CREATED)

@@ -1,9 +1,12 @@
+from __future__ import annotations
+
 from sqlalchemy import select
 from uuid import UUID
 
 from backend.app.common.repository import BaseRepository
 from backend.app.modules.provisioning.models import (
     ProvisioningBlueprint,
+    ProvisioningBatch,
     ProvisioningRequest,
     VirtualMachine,
 )
@@ -32,6 +35,14 @@ class ProvisioningRequestRepository(BaseRepository[ProvisioningRequest]):
         )
         return list(result.scalars().all())
 
+    async def list_by_batch(self, batch_id: UUID) -> list[ProvisioningRequest]:
+        result = await self.session.execute(
+            select(ProvisioningRequest)
+            .where(ProvisioningRequest.batch_id == batch_id)
+            .order_by(ProvisioningRequest.batch_index.asc())
+        )
+        return list(result.scalars().all())
+
 
 class ProvisioningBlueprintRepository(BaseRepository[ProvisioningBlueprint]):
     async def create(self, blueprint: ProvisioningBlueprint) -> ProvisioningBlueprint:
@@ -54,3 +65,23 @@ class ProvisioningBlueprintRepository(BaseRepository[ProvisioningBlueprint]):
 
     async def delete(self, blueprint: ProvisioningBlueprint) -> None:
         await self.session.delete(blueprint)
+
+
+class ProvisioningBatchRepository(BaseRepository[ProvisioningBatch]):
+    async def create(self, batch: ProvisioningBatch) -> ProvisioningBatch:
+        self.session.add(batch)
+        await self.session.flush()
+        await self.session.refresh(batch)
+        return batch
+
+    async def get_by_id(self, batch_id: UUID) -> ProvisioningBatch | None:
+        result = await self.session.execute(
+            select(ProvisioningBatch).where(ProvisioningBatch.id == batch_id)
+        )
+        return result.scalar_one_or_none()
+
+    async def list(self) -> list[ProvisioningBatch]:
+        result = await self.session.execute(
+            select(ProvisioningBatch).order_by(ProvisioningBatch.created_at.desc())
+        )
+        return list(result.scalars().all())

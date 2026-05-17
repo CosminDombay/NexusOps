@@ -28,6 +28,14 @@ class ProvisioningStatus(StrEnum):
     FAILED = "failed"
 
 
+class ProvisioningBatchStatus(StrEnum):
+    REQUESTED = "requested"
+    RUNNING = "running"
+    COMPLETED = "completed"
+    PARTIAL_FAILED = "partial_failed"
+    FAILED = "failed"
+
+
 class VirtualMachine(Base, UuidPrimaryKeyMixin, TimestampMixin):
     __tablename__ = "virtual_machines"
 
@@ -82,6 +90,12 @@ class ProvisioningRequest(Base, UuidPrimaryKeyMixin, TimestampMixin):
     bootstrap_profile_ids: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
     bootstrap_package_ids: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
     bootstrap_job_ids: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
+    batch_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("provisioning_batches.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    batch_index: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
 
 class ProvisioningBlueprint(Base, UuidPrimaryKeyMixin, TimestampMixin):
@@ -106,3 +120,32 @@ class ProvisioningBlueprint(Base, UuidPrimaryKeyMixin, TimestampMixin):
     dns_servers: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
     bootstrap_profile_ids: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
     bootstrap_package_ids: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
+
+
+class ProvisioningBatch(Base, UuidPrimaryKeyMixin, TimestampMixin):
+    __tablename__ = "provisioning_batches"
+
+    name: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    blueprint_id: Mapped[UUID] = mapped_column(
+        ForeignKey("provisioning_blueprints.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
+    count: Mapped[int] = mapped_column(Integer, nullable=False)
+    vm_name_pattern: Mapped[str] = mapped_column(String(255), nullable=False)
+    hostname_pattern: Mapped[str] = mapped_column(String(255), nullable=False)
+    starting_vm_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    starting_ip_cidr: Mapped[str] = mapped_column(String(64), nullable=False)
+    status: Mapped[ProvisioningBatchStatus] = mapped_column(
+        Enum(
+            ProvisioningBatchStatus,
+            name="provisioning_batch_status",
+            values_callable=lambda enum: [member.value for member in enum],
+        ),
+        default=ProvisioningBatchStatus.REQUESTED,
+        nullable=False,
+        index=True,
+    )
+    completed_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    failed_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)

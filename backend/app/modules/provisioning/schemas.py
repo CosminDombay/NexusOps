@@ -7,7 +7,7 @@ from typing import Self
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from backend.app.modules.inventory.models import ServerEnvironment
-from backend.app.modules.provisioning.models import ProvisioningStatus
+from backend.app.modules.provisioning.models import ProvisioningBatchStatus, ProvisioningStatus
 
 
 class ProxmoxTemplateRead(BaseModel):
@@ -250,6 +250,63 @@ class ProvisioningRead(BaseModel):
     bootstrap_profile_ids: list[str]
     bootstrap_package_ids: list[str]
     bootstrap_job_ids: list[str]
+    batch_id: UUID | None = None
+    batch_index: int | None = None
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ProvisioningBatchCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=255)
+    blueprint_id: UUID
+    count: int = Field(ge=1, le=25)
+    vm_name_pattern: str = Field(min_length=1, max_length=255)
+    hostname_pattern: str | None = Field(default=None, min_length=1, max_length=255)
+    starting_vm_id: int = Field(gt=0)
+    starting_ip_cidr: str
+    cloud_init_password: str | None = Field(default=None, max_length=500)
+    description: str | None = Field(default=None, max_length=2000)
+
+    @field_validator("name", "vm_name_pattern", "hostname_pattern")
+    @classmethod
+    def strip_batch_strings(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("Value cannot be blank")
+        return stripped
+
+    @field_validator("starting_ip_cidr")
+    @classmethod
+    def validate_batch_starting_ip(cls, value: str) -> str:
+        return str(ip_interface(value.strip()))
+
+    @model_validator(mode="after")
+    def validate_patterns(self) -> Self:
+        if "{index}" not in self.vm_name_pattern and "{number}" not in self.vm_name_pattern:
+            raise ValueError("VM name pattern must include {index} or {number}")
+        if self.hostname_pattern and "{index}" not in self.hostname_pattern and "{number}" not in self.hostname_pattern:
+            raise ValueError("Hostname pattern must include {index} or {number}")
+        return self
+
+
+class ProvisioningBatchRead(BaseModel):
+    id: UUID
+    name: str
+    blueprint_id: UUID
+    count: int
+    vm_name_pattern: str
+    hostname_pattern: str
+    starting_vm_id: int
+    starting_ip_cidr: str
+    status: ProvisioningBatchStatus
+    completed_count: int
+    failed_count: int
+    error_message: str | None = None
+    requests: list[ProvisioningRead] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime
 

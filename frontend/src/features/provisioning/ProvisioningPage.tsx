@@ -8,16 +8,19 @@ import { listProfiles } from '../profiles/api/profilesApi';
 import type { InfrastructureProfile } from '../profiles/types/profile';
 import {
   createProvisioningBlueprint,
+  createProvisioningBatch,
   createProvisioningRequest,
   deleteProvisioningBlueprint,
   listProxmoxStorage,
   listProxmoxTemplates,
+  listProvisioningBatches,
   listProvisioningBlueprints,
   listProvisioningRequests,
   updateProvisioningBlueprint,
 } from './api/provisioningApi';
 import type {
   CreateProvisioningPayload,
+  ProvisioningBatch,
   ProxmoxStorage,
   ProxmoxTemplate,
   ProvisioningBlueprint,
@@ -47,6 +50,30 @@ type FormState = {
   dns_servers_text: string;
   bootstrap_profile_ids: string[];
   bootstrap_package_ids: string[];
+};
+
+type BatchFormState = {
+  name: string;
+  blueprint_id: string;
+  count: string;
+  vm_name_pattern: string;
+  hostname_pattern: string;
+  starting_vm_id: string;
+  starting_ip_cidr: string;
+  cloud_init_password: string;
+  description: string;
+};
+
+const initialBatchFormState: BatchFormState = {
+  name: '',
+  blueprint_id: '',
+  count: '2',
+  vm_name_pattern: 'vm-{index}',
+  hostname_pattern: 'vm-{index}',
+  starting_vm_id: '',
+  starting_ip_cidr: '',
+  cloud_init_password: '',
+  description: '',
 };
 
 const initialFormState: FormState = {
@@ -80,10 +107,12 @@ export function ProvisioningPage() {
   const [profiles, setProfiles] = useState<InfrastructureProfile[]>([]);
   const [packages, setPackages] = useState<PackageDefinition[]>([]);
   const [requests, setRequests] = useState<ProvisioningRequest[]>([]);
+  const [batches, setBatches] = useState<ProvisioningBatch[]>([]);
   const [blueprints, setBlueprints] = useState<ProvisioningBlueprint[]>([]);
   const [selectedBlueprintId, setSelectedBlueprintId] = useState('');
   const [blueprintName, setBlueprintName] = useState('');
   const [formState, setFormState] = useState<FormState>(initialFormState);
+  const [batchFormState, setBatchFormState] = useState<BatchFormState>(initialBatchFormState);
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -110,12 +139,13 @@ export function ProvisioningPage() {
       setIsLoading(true);
       setError(null);
       try {
-        const [nextTemplates, nextProfiles, nextPackages, nextRequests, nextBlueprints] = await Promise.all([
+        const [nextTemplates, nextProfiles, nextPackages, nextRequests, nextBlueprints, nextBatches] = await Promise.all([
           listProxmoxTemplates(),
           listProfiles(),
           listPackageDefinitions(),
           listProvisioningRequests(),
           listProvisioningBlueprints(),
+          listProvisioningBatches(),
         ]);
         const nodeNames = Array.from(new Set(nextTemplates.map((template) => template.node).filter(Boolean)));
         const nextStorage = (
@@ -127,6 +157,7 @@ export function ProvisioningPage() {
         setPackages(nextPackages);
         setRequests(nextRequests);
         setBlueprints(nextBlueprints);
+        setBatches(nextBatches);
         const firstTemplate = nextTemplates[0];
         if (firstTemplate) {
           setFormState((current) => ({
@@ -147,6 +178,12 @@ export function ProvisioningPage() {
 
   function updateField(name: keyof FormState, value: FormState[keyof FormState]) {
     setFormState((current) => ({ ...current, [name]: value }));
+    setError(null);
+    setSuccess(null);
+  }
+
+  function updateBatchField(name: keyof BatchFormState, value: string) {
+    setBatchFormState((current) => ({ ...current, [name]: value }));
     setError(null);
     setSuccess(null);
   }
@@ -191,6 +228,21 @@ export function ProvisioningPage() {
       dns_servers_text: blueprint.dns_servers.join(', '),
       bootstrap_profile_ids: blueprint.bootstrap_profile_ids,
       bootstrap_package_ids: blueprint.bootstrap_package_ids,
+    }));
+    const slug = blueprint.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+    setBatchFormState((current) => ({
+      ...current,
+      blueprint_id: blueprint.id,
+      name: current.name || `${blueprint.name} batch`,
+      vm_name_pattern:
+        current.vm_name_pattern === initialBatchFormState.vm_name_pattern
+          ? `${slug}-{index}`
+          : current.vm_name_pattern,
+      hostname_pattern:
+        current.hostname_pattern === initialBatchFormState.hostname_pattern
+          ? `${slug}-{index}`
+          : current.hostname_pattern,
+      description: current.description || blueprint.description || '',
     }));
     setError(null);
     setSuccess(`Loaded blueprint ${blueprint.name}.`);
@@ -321,6 +373,33 @@ export function ProvisioningPage() {
     }
   }
 
+  async function handleBatchSubmit() {
+    const payload = toBatchPayload(batchFormState);
+    if (!payload) {
+      setError('Select a blueprint, count, name pattern, starting VMID, and starting IP/CIDR.');
+      return;
+    }
+
+    const confirmed = window.confirm(`Provision ${payload.count} VMs from this blueprint?`);
+    if (!confirmed) {
+      return;
+    }
+
+    setIsSubmitting(true);
+    setError(null);
+    setSuccess(null);
+    try {
+      const created = await createProvisioningBatch(payload);
+      setBatches((current) => [created, ...current]);
+      setRequests((current) => [...created.requests, ...current]);
+      setSuccess(`Batch finished with status ${created.status}: ${created.completed_count}/${created.count} completed.`);
+    } catch (caughtError) {
+      setError(getApiErrorMessage(caughtError));
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -402,6 +481,53 @@ export function ProvisioningPage() {
         <p className="mt-3 text-sm text-zinc-500">
           Blueprints keep the fixed provisioning shape: Proxmox template, sizing, disks, network, environment, and bootstrap profiles. VMID, hostname, and IP stay per-machine.
         </p>
+      </section>
+
+      <section className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm">
+        <div className="flex flex-col gap-1">
+          <h3 className="text-base font-semibold text-zinc-950">Batch provisioning</h3>
+          <p className="text-sm text-zinc-500">
+            Create multiple VMs from one blueprint using sequential VMIDs and IP addresses.
+          </p>
+        </div>
+        <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+          <label className="text-sm font-medium text-zinc-700">
+            Blueprint
+            <select
+              className="mt-1 w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-950 shadow-sm outline-none transition focus:border-zinc-900 focus:ring-2 focus:ring-zinc-900/10"
+              value={batchFormState.blueprint_id}
+              onChange={(event) => updateBatchField('blueprint_id', event.target.value)}
+            >
+              <option value="">Select blueprint</option>
+              {blueprints.map((blueprint) => (
+                <option key={blueprint.id} value={blueprint.id}>
+                  {blueprint.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <BatchTextInput label="Batch name" name="name" value={batchFormState.name} onChange={updateBatchField} />
+          <BatchTextInput label="Count" name="count" type="number" value={batchFormState.count} onChange={updateBatchField} />
+          <BatchTextInput label="VM name pattern" name="vm_name_pattern" value={batchFormState.vm_name_pattern} onChange={updateBatchField} />
+          <BatchTextInput label="Hostname pattern" name="hostname_pattern" value={batchFormState.hostname_pattern} onChange={updateBatchField} />
+          <BatchTextInput label="Starting VMID" name="starting_vm_id" type="number" value={batchFormState.starting_vm_id} onChange={updateBatchField} />
+          <BatchTextInput label="Starting IP/CIDR" name="starting_ip_cidr" value={batchFormState.starting_ip_cidr} onChange={updateBatchField} />
+          <BatchTextInput label="Cloud-init password" name="cloud_init_password" type="password" value={batchFormState.cloud_init_password} onChange={updateBatchField} />
+          <BatchTextInput label="Description" name="description" value={batchFormState.description} onChange={updateBatchField} />
+        </div>
+        <p className="mt-3 text-xs text-zinc-500">
+          Patterns support <code>{'{index}'}</code> as zero-padded numbers like 001 and <code>{'{number}'}</code> as plain numbers.
+        </p>
+        <div className="mt-5 flex justify-end">
+          <button
+            className="rounded-md bg-zinc-950 px-4 py-2 text-sm font-semibold text-white transition hover:bg-zinc-800 disabled:bg-zinc-300"
+            disabled={isSubmitting}
+            type="button"
+            onClick={() => void handleBatchSubmit()}
+          >
+            {isSubmitting ? 'Provisioning batch' : 'Provision batch'}
+          </button>
+        </div>
       </section>
 
       <section className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm">
@@ -573,6 +699,7 @@ export function ProvisioningPage() {
         ) : null}
       </section>
 
+      <ProvisioningBatchHistory batches={batches} />
       <ProvisioningHistory requests={requests} />
     </div>
   );
@@ -590,6 +717,32 @@ function TextInput({
   value: string;
   type?: string;
   onChange: (name: keyof FormState, value: string) => void;
+}) {
+  return (
+    <label className="text-sm font-medium text-zinc-700">
+      {label}
+      <input
+        className="mt-1 w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-950 shadow-sm outline-none transition focus:border-zinc-900 focus:ring-2 focus:ring-zinc-900/10"
+        type={type}
+        value={value}
+        onChange={(event) => onChange(name, event.target.value)}
+      />
+    </label>
+  );
+}
+
+function BatchTextInput({
+  label,
+  name,
+  value,
+  onChange,
+  type = 'text',
+}: {
+  label: string;
+  name: keyof BatchFormState;
+  value: string;
+  type?: string;
+  onChange: (name: keyof BatchFormState, value: string) => void;
 }) {
   return (
     <label className="text-sm font-medium text-zinc-700">
@@ -690,6 +843,52 @@ function ProvisioningHistory({ requests }: { requests: ProvisioningRequest[] }) 
   );
 }
 
+function ProvisioningBatchHistory({ batches }: { batches: ProvisioningBatch[] }) {
+  return (
+    <section className="rounded-lg border border-zinc-200 bg-white shadow-sm">
+      <div className="border-b border-zinc-200 px-5 py-4">
+        <h3 className="text-base font-semibold text-zinc-950">Batch history</h3>
+        <p className="mt-1 text-sm text-zinc-500">{batches.length} batch requests tracked.</p>
+      </div>
+      <div className="grid gap-3 p-4">
+        {batches.map((batch) => (
+          <article key={batch.id} className="rounded-lg border border-zinc-200 p-4">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <h4 className="font-semibold text-zinc-950">{batch.name}</h4>
+                <p className="mt-1 text-sm text-zinc-500">
+                  {batch.count} VMs from VMID {batch.starting_vm_id}, starting at {batch.starting_ip_cidr}
+                </p>
+              </div>
+              <span className="inline-flex w-fit rounded-full bg-zinc-100 px-2.5 py-1 text-xs font-medium text-zinc-700 ring-1 ring-zinc-200">
+                {batch.status}
+              </span>
+            </div>
+            <div className="mt-4 grid gap-3 md:grid-cols-3">
+              <MetricCard label="Completed" value={`${batch.completed_count}`} />
+              <MetricCard label="Failed" value={`${batch.failed_count}`} />
+              <MetricCard label="Children" value={`${batch.requests.length}`} />
+            </div>
+            {batch.error_message ? (
+              <p className="mt-3 whitespace-pre-line text-sm text-rose-700">{batch.error_message}</p>
+            ) : null}
+          </article>
+        ))}
+        {batches.length === 0 ? <p className="text-sm text-zinc-500">No batch requests yet.</p> : null}
+      </div>
+    </section>
+  );
+}
+
+function MetricCard({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-md border border-zinc-200 bg-zinc-50 px-3 py-2">
+      <div className="text-xs font-medium uppercase tracking-normal text-zinc-500">{label}</div>
+      <div className="mt-1 text-lg font-semibold text-zinc-950">{value}</div>
+    </div>
+  );
+}
+
 function ProvisioningTimeline({ request }: { request: ProvisioningRequest }) {
   const items = provisioningTimelineItems(request);
   return (
@@ -786,6 +985,31 @@ function toBlueprintPayload(formState: FormState, name: string) {
     dns_servers: splitCsv(formState.dns_servers_text),
     bootstrap_profile_ids: formState.bootstrap_profile_ids,
     bootstrap_package_ids: formState.bootstrap_package_ids,
+  };
+}
+
+function toBatchPayload(formState: BatchFormState) {
+  if (
+    !formState.name.trim() ||
+    !formState.blueprint_id ||
+    !formState.count ||
+    !formState.vm_name_pattern.trim() ||
+    !formState.starting_vm_id ||
+    !formState.starting_ip_cidr.trim()
+  ) {
+    return null;
+  }
+
+  return {
+    name: formState.name.trim(),
+    blueprint_id: formState.blueprint_id,
+    count: Number(formState.count),
+    vm_name_pattern: formState.vm_name_pattern.trim(),
+    hostname_pattern: formState.hostname_pattern.trim() || null,
+    starting_vm_id: Number(formState.starting_vm_id),
+    starting_ip_cidr: formState.starting_ip_cidr.trim(),
+    cloud_init_password: formState.cloud_init_password.trim() || null,
+    description: formState.description.trim() || null,
   };
 }
 
