@@ -30,6 +30,7 @@ Current routing pattern:
 
 Current implemented domain routes include:
 
+- `/api/v1/auth` for local login, JWT refresh, logout hooks, and current-user lookup
 - `/api/v1/servers` for CMDB inventory, lifecycle operations, Proxmox import, and reconciliation
 - `/api/v1/proxmox` for Proxmox visibility and controlled lifecycle actions
 - `/api/v1/vms` for template-based Proxmox provisioning
@@ -61,6 +62,17 @@ backend/app/modules/<domain>/
 ```
 
 Not every file is fully implemented yet. Inventory and Jobs are implemented database-backed modules. Proxmox is implemented as an external infrastructure integration module.
+
+Authentication is implemented as a platform module under `backend/app/modules/auth/` with separate API, model, repository, schema, service, and security folders. Local platform users are stored in the `users` table with `admin`, `operator`, or `viewer` roles. Passwords are hashed with passlib/bcrypt and are never returned by API schemas.
+
+Authentication and authorization are separate internally:
+
+- authentication resolves the current platform user from a JWT access token
+- authorization is expressed through reusable dependencies: `get_current_user()`, `require_admin()`, `require_operator()`, and `require_viewer()`
+
+Access tokens are short lived, refresh tokens are longer lived, and both include `sub`, `username`, `role`, and `exp` claims. Startup can bootstrap a local admin from `NEXUSOPS_ADMIN_USER`, `NEXUSOPS_ADMIN_EMAIL`, and `NEXUSOPS_ADMIN_PASSWORD`; admin users are not hardcoded in migrations.
+
+Platform identity remains distinct from Linux infrastructure identity. The auth module controls who can log into NexusOps. The Identity module continues to orchestrate Linux users, groups, SSH keys, sudo snippets, and filesystem permissions on managed hosts.
 
 ## Repository-Service Pattern
 
@@ -191,6 +203,12 @@ Important settings include:
 - `SSH_COMMAND_TIMEOUT_SECONDS`
 - `SSH_PRIVATE_KEY_PATH`
 - `NEXUSOPS_MASTER_KEY`
+- `NEXUSOPS_ADMIN_USER`
+- `NEXUSOPS_ADMIN_EMAIL`
+- `NEXUSOPS_ADMIN_PASSWORD`
+- `ACCESS_TOKEN_EXPIRE_MINUTES`
+- `REFRESH_TOKEN_EXPIRE_DAYS`
+- `JWT_ALGORITHM`
 
 Proxmox secrets are not committed. They should be supplied by local environment variables or an ignored `.env`.
 

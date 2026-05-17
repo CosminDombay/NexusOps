@@ -13,6 +13,7 @@ from backend.app.modules.credentials.service import CredentialService
 from backend.app.modules.integrations.repository import IntegrationRepository
 from backend.app.modules.integrations.service import IntegrationService
 from backend.app.modules.inventory.repository import ServerRepository
+from backend.app.modules.auth.security.dependencies import require_operator
 from backend.app.modules.proxmox.schemas import (
     ProxmoxClusterSummaryRead,
     ProxmoxDashboardRead,
@@ -134,7 +135,11 @@ async def get_dashboard(
         raise _map_proxmox_error(exc) from exc
 
 
-@router.post("/vms/{vm_id}/start", response_model=ProxmoxVmActionRead)
+@router.post(
+    "/vms/{vm_id}/start",
+    response_model=ProxmoxVmActionRead,
+    dependencies=[Depends(require_operator)],
+)
 async def start_vm(
     vm_id: int,
     service: Annotated[ProxmoxService, Depends(get_proxmox_service)],
@@ -150,7 +155,11 @@ async def start_vm(
         raise _map_proxmox_error(exc) from exc
 
 
-@router.post("/vms/{vm_id}/stop", response_model=ProxmoxVmActionRead)
+@router.post(
+    "/vms/{vm_id}/stop",
+    response_model=ProxmoxVmActionRead,
+    dependencies=[Depends(require_operator)],
+)
 async def stop_vm(
     vm_id: int,
     service: Annotated[ProxmoxService, Depends(get_proxmox_service)],
@@ -166,7 +175,11 @@ async def stop_vm(
         raise _map_proxmox_error(exc) from exc
 
 
-@router.post("/vms/{vm_id}/reboot", response_model=ProxmoxVmActionRead)
+@router.post(
+    "/vms/{vm_id}/reboot",
+    response_model=ProxmoxVmActionRead,
+    dependencies=[Depends(require_operator)],
+)
 async def reboot_vm(
     vm_id: int,
     service: Annotated[ProxmoxService, Depends(get_proxmox_service)],
@@ -182,7 +195,11 @@ async def reboot_vm(
         raise _map_proxmox_error(exc) from exc
 
 
-@router.post("/vms/{vm_id}/shutdown", response_model=ProxmoxVmActionRead)
+@router.post(
+    "/vms/{vm_id}/shutdown",
+    response_model=ProxmoxVmActionRead,
+    dependencies=[Depends(require_operator)],
+)
 async def shutdown_vm(
     vm_id: int,
     service: Annotated[ProxmoxService, Depends(get_proxmox_service)],

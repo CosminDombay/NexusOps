@@ -44,14 +44,62 @@ infrastructure profiles, editable operational templates, credential-backed secre
 - User/group standardization profiles
 - Job execution tracking and logging
 
-## Quick Start
+## Quick Start With Docker
+
+Copy the example environment file and set a local admin password:
 
 ```bash
 cp .env.example .env
-docker compose -f infra/docker-compose.dev.yml up --build
 ```
 
+Then start the full stack:
+
+```bash
+docker compose up --build
+```
+
+On Windows PowerShell, you can use:
+
+```powershell
+.\scripts\start-docker.ps1 -Build
+```
+
+The full Docker stack includes:
+
+- PostgreSQL
+- FastAPI backend
+- React frontend served by Nginx
+- automatic Alembic migrations before backend startup
+- frontend `/api` proxy to the backend
+
+Frontend will be available at `http://localhost:5173`.
 Backend API docs will be available at `http://localhost:8000/docs`.
+
+Stop the Docker stack with:
+
+```bash
+docker compose down
+```
+
+or:
+
+```powershell
+.\scripts\stop-docker.ps1
+```
+
+## Local Dev Server Quick Start
+
+For hot-reload local development without fully containerizing the app:
+
+```powershell
+.\scripts\start-dev.ps1
+```
+
+The older development Compose file is still available:
+
+```bash
+docker compose -f infra/docker-compose.dev.yml up --build
+```
 
 ## Implemented Workflows
 

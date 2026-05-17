@@ -1,6 +1,7 @@
 import { AlertCircle, GitCompareArrows, RefreshCw } from 'lucide-react';
 
 import { PageHeader } from '../../../components/layout/PageHeader';
+import { useAuth } from '../../auth/hooks/useAuth';
 import { NodeCards } from '../components/NodeCards';
 import { SummaryCards } from '../components/SummaryCards';
 import { VmTable } from '../components/VmTable';
@@ -9,6 +10,8 @@ import type { ProxmoxVm, ProxmoxVmAction } from '../types/proxmox';
 import { titleCase } from '../utils/format';
 
 export function InfrastructurePage() {
+  const { user } = useAuth();
+  const allowActions = user?.role === 'admin' || user?.role === 'operator';
   const {
     dashboard,
     isLoading,
@@ -81,20 +84,23 @@ export function InfrastructurePage() {
               onDismiss={clearNotification}
             />
           ) : null}
-          <div className="flex justify-end">
-            <button
-              className="inline-flex items-center gap-2 rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm font-semibold text-zinc-700 transition hover:bg-zinc-50"
-              type="button"
-              onClick={() => void reconcileInventory()}
-            >
-              <GitCompareArrows className="h-4 w-4" aria-hidden="true" />
-              Reconcile Inventory
-            </button>
-          </div>
+          {allowActions ? (
+            <div className="flex justify-end">
+              <button
+                className="inline-flex items-center gap-2 rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm font-semibold text-zinc-700 transition hover:bg-zinc-50"
+                type="button"
+                onClick={() => void reconcileInventory()}
+              >
+                <GitCompareArrows className="h-4 w-4" aria-hidden="true" />
+                Reconcile Inventory
+              </button>
+            </div>
+          ) : null}
           <SummaryCards summary={dashboard.summary} />
           <NodeCards nodes={dashboard.nodes} />
           <VmTable
             actionByVmId={actionByVmId}
+            allowActions={allowActions}
             vms={dashboard.vms}
             onAction={handleVmAction}
             onImport={handleImportVm}

@@ -7,11 +7,12 @@ import { StatusBadge } from './StatusBadge';
 type VmTableProps = {
   vms: ProxmoxVm[];
   actionByVmId: Record<number, ProxmoxVmAction | undefined>;
+  allowActions: boolean;
   onAction: (vm: ProxmoxVm, action: ProxmoxVmAction) => void;
   onImport: (vm: ProxmoxVm) => void;
 };
 
-export function VmTable({ vms, actionByVmId, onAction, onImport }: VmTableProps) {
+export function VmTable({ vms, actionByVmId, allowActions, onAction, onImport }: VmTableProps) {
   return (
     <section className="rounded-lg border border-zinc-200 bg-white shadow-sm">
       <div className="border-b border-zinc-200 px-5 py-4">
@@ -61,6 +62,7 @@ export function VmTable({ vms, actionByVmId, onAction, onImport }: VmTableProps)
                   <VmActions
                     activeAction={actionByVmId[vm.vm_id]}
                     vm={vm}
+                    allowActions={allowActions}
                     onAction={onAction}
                     onImport={onImport}
                   />
@@ -99,6 +101,7 @@ export function VmTable({ vms, actionByVmId, onAction, onImport }: VmTableProps)
               <VmActions
                 activeAction={actionByVmId[vm.vm_id]}
                 vm={vm}
+                allowActions={allowActions}
                 onAction={onAction}
                 onImport={onImport}
               />
@@ -113,17 +116,23 @@ export function VmTable({ vms, actionByVmId, onAction, onImport }: VmTableProps)
 function VmActions({
   vm,
   activeAction,
+  allowActions,
   onAction,
   onImport,
 }: {
   vm: ProxmoxVm;
   activeAction: ProxmoxVmAction | undefined;
+  allowActions: boolean;
   onAction: (vm: ProxmoxVm, action: ProxmoxVmAction) => void;
   onImport: (vm: ProxmoxVm) => void;
 }) {
   const isRunning = vm.status === 'running';
   const isBusy = Boolean(activeAction);
   const canImport = vm.inventory_sync_status === 'unmanaged' || vm.inventory_sync_status === 'archived';
+
+  if (!allowActions) {
+    return <span className="text-xs font-medium text-zinc-500">Read only</span>;
+  }
 
   return (
     <div className="flex flex-wrap gap-2">

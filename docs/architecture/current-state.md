@@ -2,15 +2,29 @@
 
 ## Implementation Status
 
-NexusOps is currently a modular monolith with a FastAPI backend, a React/Vite frontend, PostgreSQL persistence, and a CMDB-style server inventory. The platform also includes Proxmox infrastructure visibility, controlled VM lifecycle actions, Proxmox template provisioning, NexusOps provisioning blueprints, Proxmox-to-inventory synchronization, SSH-backed job execution, persistent workflow runs, scheduled automations, reusable operational actions, package definitions, infrastructure profiles, editable built-in operational templates, integration records, a credential manager, variable-manager foundations, Docker Compose deployments, monitoring foundations, Linux identity orchestration, and credential-backed variable-driven execution.
+NexusOps is currently a modular monolith with a FastAPI backend, a React/Vite frontend, PostgreSQL persistence, local platform authentication, JWT sessions, RBAC foundations, and a CMDB-style server inventory. The platform also includes Proxmox infrastructure visibility, controlled VM lifecycle actions, Proxmox template provisioning, NexusOps provisioning blueprints, Proxmox-to-inventory synchronization, SSH-backed job execution, persistent workflow runs, scheduled automations, reusable operational actions, package definitions, infrastructure profiles, editable built-in operational templates, integration records, a credential manager, variable-manager foundations, Docker Compose deployments, monitoring foundations, Linux identity orchestration, and credential-backed variable-driven execution.
 
-The implemented system is focused on foundations, visibility, narrowly scoped VM lifecycle control, template provisioning, inventory synchronization, reusable automation templates, and the first orchestration layer. It does not yet perform VM deletion, full secrets vaulting, Terraform execution, Ansible execution, authentication, authorization, or workflow chaining.
+The implemented system is focused on foundations, visibility, narrowly scoped VM lifecycle control, template provisioning, inventory synchronization, reusable automation templates, local platform login, role-based access boundaries, and the first orchestration layer. It does not yet perform VM deletion, full secrets vaulting, Terraform execution, Ansible execution, SSO/federated identity, MFA, or workflow chaining.
 
 ## Working Functionality
 
 - Backend API startup through FastAPI.
 - Versioned API routing under `/api/v1`.
 - Health endpoint.
+- Local platform authentication:
+  - username/email and password login
+  - bcrypt password hashing
+  - JWT access and refresh tokens
+  - `/api/v1/auth/me` current-user lookup
+  - environment-based initial admin bootstrap
+  - reusable RBAC dependencies for admin, operator, and viewer access
+- Frontend authentication:
+  - login page
+  - session restore
+  - logout
+  - protected route guards
+  - role-aware sidebar navigation
+  - 401 redirect and 403 access-denied handling
 - Server inventory CRUD:
   - list servers
   - get server
@@ -273,7 +287,7 @@ Discovered VMs are shown as unmanaged until an operator imports them. Import cre
 ## Current Technical Debt
 
 - Execution module is still a placeholder.
-- Authentication and authorization are not implemented.
+- Authentication and authorization foundations are implemented for local users. Google SSO, OIDC, LDAP, SAML, MFA, API keys, and fine-grained permissions are not implemented.
 - Workflow chaining is still implicit. Provisioning can bootstrap profiles/packages, but deployment-as-a-profile-step is not fully executed yet.
 - Legacy inline SSH passwords/private key paths still exist for backward compatibility and local MVP use; shared Credential Manager records are the preferred path for reusable secrets.
 - Integration configs are not a secrets vault yet; runtime provider adapters still primarily read local environment configuration.
@@ -290,11 +304,11 @@ Discovered VMs are shown as unmanaged until an operator imports them. Import cre
 - Provisioning blueprints do not yet discover valid Proxmox storage targets per node; extra disks currently rely on operator-entered storage names.
 - Deployment logs are pulled on demand from Docker Compose and are not yet indexed as first-class log records.
 - Docker deployment steps are visible in profile editing but do not yet execute as concrete deployment operations inside `ProfileService`.
-- No centralized authentication or domain identity provider. Identity is Linux orchestration only; LDAP, Kerberos, FreeIPA, Active Directory, SSSD, PAM rewriting, and login federation are intentionally out of scope.
+- No centralized domain identity provider. Identity is Linux orchestration only; LDAP, Kerberos, FreeIPA, Active Directory, SSSD, PAM rewriting, and login federation are intentionally out of scope.
 - Existing `docs/architecture.md` is older and less precise than the newer files in `docs/architecture/`.
 - Runtime adapters do not yet load active integration records as their source of truth.
 - Runtime adapter selection from persisted integration records is not implemented yet.
 
 ## Current Safety Boundary
 
-The platform can mutate NexusOps-owned inventory data, import and reconcile discovered Proxmox VMs into Inventory, request controlled Proxmox VM lifecycle actions, provision VMs from Proxmox templates, edit reusable automation templates, execute commands/actions/packages/profiles against inventory-managed Linux hosts over SSH, resolve encrypted runtime secrets server-side, deploy Docker Compose projects, query Prometheus metrics, and replicate Linux identity state. Inventory deletion and archival are CMDB operations only; they do not destroy Proxmox VMs. Template reset restores NexusOps defaults only; it does not alter historical Jobs. The platform does not expose VM deletion, ISO installation, Kubernetes, Terraform execution, centralized authentication, or arbitrary provider-side infrastructure mutation.
+The platform can authenticate local NexusOps users, enforce coarse RBAC boundaries, mutate NexusOps-owned inventory data, import and reconcile discovered Proxmox VMs into Inventory, request controlled Proxmox VM lifecycle actions, provision VMs from Proxmox templates, edit reusable automation templates, execute commands/actions/packages/profiles against inventory-managed Linux hosts over SSH, resolve encrypted runtime secrets server-side, deploy Docker Compose projects, query Prometheus metrics, and replicate Linux identity state. Inventory deletion and archival are CMDB operations only; they do not destroy Proxmox VMs. Template reset restores NexusOps defaults only; it does not alter historical Jobs. The platform does not expose VM deletion, ISO installation, Kubernetes, Terraform execution, SSO/federated login, or arbitrary provider-side infrastructure mutation.

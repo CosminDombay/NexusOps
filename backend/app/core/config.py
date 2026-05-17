@@ -8,6 +8,9 @@ class Settings(BaseSettings):
     environment: str = "development"
     log_level: str = "INFO"
     secret_key: str = Field(default="change-me", min_length=8)
+    jwt_algorithm: str = "HS256"
+    access_token_expire_minutes: int = Field(default=30, ge=15, le=60)
+    refresh_token_expire_days: int = Field(default=14, ge=7, le=30)
     api_v1_prefix: str = "/api/v1"
     cors_origins: list[str] = ["http://localhost:5173", "http://127.0.0.1:5173"]
     database_url: str = "postgresql+asyncpg://nexusops:nexusops@localhost:5432/nexusops"
@@ -26,6 +29,9 @@ class Settings(BaseSettings):
     grafana_base_url: str | None = None
     monitoring_timeout_seconds: int = Field(default=10, ge=1, le=60)
     nexusops_master_key: str | None = None
+    nexusops_admin_user: str | None = None
+    nexusops_admin_email: str | None = None
+    nexusops_admin_password: str | None = None
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 

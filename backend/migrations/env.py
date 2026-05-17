@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from backend.app.core.config import settings
 from backend.app.db.base import Base
+from backend.app.modules.auth.models import User
 from backend.app.modules.credentials.models import Credential, CredentialUsage
 from backend.app.modules.deployments.models import Deployment, DeploymentRevision, DeploymentTarget
 from backend.app.modules.execution.models import CommandExecution
@@ -35,6 +36,7 @@ if config.config_file_name is not None:
 target_metadata = Base.metadata
 
 _models = (
+    User,
     CommandExecution,
     Credential,
     CredentialUsage,
