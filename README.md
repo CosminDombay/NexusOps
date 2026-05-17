@@ -72,6 +72,12 @@ The full Docker stack includes:
 - automatic Alembic migrations before backend startup
 - frontend `/api` proxy to the backend
 
+PostgreSQL is available only inside the Docker network by default, so it does not collide with a local Postgres service on port `5432`. If you need to expose the Docker database to your host machine, start with:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.db-port.yml up --build
+```
+
 Frontend will be available at `http://localhost:5173`.
 Backend API docs will be available at `http://localhost:8000/docs`.
 

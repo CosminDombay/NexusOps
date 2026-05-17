@@ -1,6 +1,7 @@
 param(
     [switch]$Build,
-    [switch]$Detached
+    [switch]$Detached,
+    [switch]$ExposeDatabase
 )
 
 $ErrorActionPreference = "Stop"
@@ -16,7 +17,11 @@ if (-not (Test-Path $EnvFile)) {
     Write-Host "Created .env from .env.example. Edit admin/password values if needed."
 }
 
-$args = @("compose", "up")
+$args = @("compose")
+if ($ExposeDatabase) {
+    $args += @("-f", "docker-compose.yml", "-f", "docker-compose.db-port.yml")
+}
+$args += "up"
 if ($Build) {
     $args += "--build"
 }
