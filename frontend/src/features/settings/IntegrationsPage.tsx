@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { CheckCircle2, Plug, RefreshCw, TestTube2, XCircle } from 'lucide-react';
+import { CheckCircle2, Plug, RefreshCw, TestTube2, Trash2, XCircle } from 'lucide-react';
 
 import { PageHeader } from '../../components/layout/PageHeader';
 import { getApiErrorMessage } from '../../lib/api/client';
 import { listCredentials } from '../credentials/api/credentialsApi';
 import type { Credential } from '../credentials/types/credential';
-import { createIntegration, listIntegrations, testIntegration, updateIntegration } from './api/integrationsApi';
+import { createIntegration, deleteIntegration, listIntegrations, testIntegration, updateIntegration } from './api/integrationsApi';
 import type { Integration, IntegrationPayload, IntegrationTestResult, IntegrationType } from './types/integration';
 
 type AuthMode = 'url_only' | 'username_password' | 'token' | 'username_token';
@@ -83,23 +83,34 @@ export function IntegrationsPage() {
   const [credentials, setCredentials] = useState<Credential[]>([]);
   const [form, setForm] = useState<FormState>(() => formFromPreset('proxmox'));
   const [tests, setTests] = useState<Record<string, IntegrationTestResult>>({});
-  const [error, setError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [integrationLoadError, setIntegrationLoadError] = useState<string | null>(null);
+  const [credentialLoadError, setCredentialLoadError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   const configPreview = useMemo(() => buildConfig(form), [form]);
 
   const refresh = useCallback(async () => {
     setIsLoading(true);
-    setError(null);
-    try {
-      const [nextIntegrations, nextCredentials] = await Promise.all([listIntegrations(), listCredentials()]);
-      setIntegrations(nextIntegrations);
-      setCredentials(nextCredentials);
-    } catch (requestError) {
-      setError(getApiErrorMessage(requestError));
-    } finally {
-      setIsLoading(false);
+    setActionError(null);
+    setIntegrationLoadError(null);
+    setCredentialLoadError(null);
+
+    const [integrationResult, credentialResult] = await Promise.allSettled([listIntegrations(), listCredentials()]);
+
+    if (integrationResult.status === 'fulfilled') {
+      setIntegrations(integrationResult.value);
+    } else {
+      setIntegrationLoadError(getApiErrorMessage(integrationResult.reason));
     }
+
+    if (credentialResult.status === 'fulfilled') {
+      setCredentials(credentialResult.value);
+    } else {
+      setCredentialLoadError(getApiErrorMessage(credentialResult.reason));
+    }
+
+    setIsLoading(false);
   }, []);
 
   useEffect(() => {
@@ -107,7 +118,7 @@ export function IntegrationsPage() {
   }, [refresh]);
 
   async function submit() {
-    setError(null);
+    setActionError(null);
     try {
       const advancedConfig = form.advancedOpen ? JSON.parse(form.advancedJson || '{}') : {};
       const payload: IntegrationPayload = {
@@ -120,7 +131,7 @@ export function IntegrationsPage() {
       const created = await createIntegration(payload);
       setIntegrations((current) => [created, ...current]);
     } catch (requestError) {
-      setError(requestError instanceof SyntaxError ? 'Advanced configuration must be valid JSON.' : getApiErrorMessage(requestError));
+      setActionError(requestError instanceof SyntaxError ? 'Advanced configuration must be valid JSON.' : getApiErrorMessage(requestError));
     }
   }
 
@@ -129,7 +140,7 @@ export function IntegrationsPage() {
       const updated = await updateIntegration(integration.id, { enabled: !integration.enabled });
       setIntegrations((current) => current.map((item) => (item.id === updated.id ? updated : item)));
     } catch (requestError) {
-      setError(getApiErrorMessage(requestError));
+      setActionError(getApiErrorMessage(requestError));
     }
   }
 
@@ -138,7 +149,25 @@ export function IntegrationsPage() {
       const result = await testIntegration(integration.id);
       setTests((current) => ({ ...current, [integration.id]: result }));
     } catch (requestError) {
-      setError(getApiErrorMessage(requestError));
+      setActionError(getApiErrorMessage(requestError));
+    }
+  }
+
+  async function remove(integration: Integration) {
+    if (!window.confirm(`Delete integration ${integration.name}? Provider connections using it will fall back to environment configuration or become unavailable.`)) {
+      return;
+    }
+    setActionError(null);
+    try {
+      await deleteIntegration(integration.id);
+      setIntegrations((current) => current.filter((item) => item.id !== integration.id));
+      setTests((current) => {
+        const next = { ...current };
+        delete next[integration.id];
+        return next;
+      });
+    } catch (requestError) {
+      setActionError(getApiErrorMessage(requestError));
     }
   }
 
@@ -150,13 +179,16 @@ export function IntegrationsPage() {
     <div className="space-y-6">
       <PageHeader title="Integrations" description="Structured provider, monitoring, and networking configuration with credential-backed secrets." />
 
-      {error ? <p className="rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</p> : null}
+      {integrationLoadError ? <p className="rounded-md border border-rose-400/30 bg-rose-950/50 px-3 py-2 text-sm text-rose-200">{integrationLoadError}</p> : null}
+      {actionError ? <p className="rounded-md border border-rose-400/30 bg-rose-950/50 px-3 py-2 text-sm text-rose-200">{actionError}</p> : null}
 
       <section className="rounded-lg border border-zinc-200 bg-white shadow-sm">
         <div className="flex items-center justify-between gap-3 border-b border-zinc-200 px-5 py-4">
           <div>
             <h3 className="text-base font-semibold text-zinc-950">Configured Integrations</h3>
-            <p className="mt-1 text-sm text-zinc-500">{integrations.length} integration records.</p>
+            <p className="mt-1 text-sm text-zinc-500">
+              {integrationLoadError ? 'Unable to load integration records.' : `${integrations.length} integration records.`}
+            </p>
           </div>
           <button className="inline-flex items-center gap-2 rounded-md border border-zinc-300 px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50" type="button" onClick={() => void refresh()}>
             <RefreshCw className="h-4 w-4" aria-hidden="true" />
@@ -199,14 +231,18 @@ export function IntegrationsPage() {
                   <button className="rounded-md border border-zinc-300 px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50" type="button" onClick={() => void toggle(integration)}>
                     {integration.enabled ? 'Disable' : 'Enable'}
                   </button>
-                  <button className="inline-flex items-center gap-2 rounded-md bg-zinc-900 px-3 py-2 text-sm font-semibold text-white hover:bg-zinc-800" type="button" onClick={() => void runTest(integration)}>
+                  <button className="inline-flex items-center gap-2 rounded-md bg-cyan-400 px-3 py-2 text-sm font-semibold text-zinc-950 transition hover:bg-cyan-300" type="button" onClick={() => void runTest(integration)}>
                     <TestTube2 className="h-4 w-4" aria-hidden="true" />
                     Test
+                  </button>
+                  <button className="inline-flex items-center gap-2 rounded-md border border-rose-400/50 px-3 py-2 text-sm font-semibold text-rose-200 transition hover:bg-rose-950/40" type="button" onClick={() => void remove(integration)}>
+                    <Trash2 className="h-4 w-4" aria-hidden="true" />
+                    Delete
                   </button>
                 </div>
               </article>
             ))}
-            {integrations.length === 0 ? <p className="p-5 text-sm text-zinc-500">No integrations configured yet.</p> : null}
+            {!integrationLoadError && integrations.length === 0 ? <p className="p-5 text-sm text-zinc-500">No integrations configured yet.</p> : null}
           </div>
         ) : null}
       </section>
@@ -219,7 +255,16 @@ export function IntegrationsPage() {
           </div>
           <div className="flex flex-wrap gap-2">
             {(Object.keys(presets) as IntegrationKind[]).map((kind) => (
-              <button key={kind} className="rounded-md border border-zinc-300 px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50" type="button" onClick={() => choosePreset(kind)}>
+              <button
+                key={kind}
+                className={`rounded-md border px-3 py-2 text-sm font-semibold transition ${
+                  form.kind === kind
+                    ? 'border-cyan-400 bg-cyan-400 text-zinc-950'
+                    : 'border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50'
+                }`}
+                type="button"
+                onClick={() => choosePreset(kind)}
+              >
                 {presets[kind].name}
               </button>
             ))}
@@ -227,6 +272,11 @@ export function IntegrationsPage() {
         </div>
 
         <div className="mt-5 grid gap-4 lg:grid-cols-3">
+          {credentialLoadError ? (
+            <p className="rounded-md border border-amber-400/30 bg-amber-950/40 px-3 py-2 text-sm text-amber-100 lg:col-span-3">
+              Credential references could not be loaded. You can still view integrations, but secret selectors may be incomplete.
+            </p>
+          ) : null}
           <TextInput label="Name" value={form.name} onChange={(name) => setForm({ ...form, name })} />
           <label className="text-sm font-medium text-zinc-700">
             Auth mode
@@ -267,7 +317,7 @@ export function IntegrationsPage() {
         </details>
 
         <div className="mt-4 flex justify-end">
-          <button className="rounded-md bg-zinc-900 px-4 py-2 text-sm font-semibold text-white hover:bg-zinc-800" type="button" onClick={() => void submit()}>
+          <button className="rounded-md bg-cyan-400 px-4 py-2 text-sm font-semibold text-zinc-950 transition hover:bg-cyan-300" type="button" onClick={() => void submit()}>
             Add Integration
           </button>
         </div>

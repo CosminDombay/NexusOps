@@ -14,12 +14,14 @@ export function InventoryDashboardPage() {
     createError,
     mutationError,
     isCheckingHealth,
+    isRunningVmLifecycleAction,
     refreshServers,
     addServer,
     editServer,
     removeServer,
     archiveInventoryServer,
     refreshHealth,
+    runVmLifecycleAction,
     clearCreateError,
     clearMutationError,
   } = useServers();
@@ -57,7 +59,9 @@ export function InventoryDashboardPage() {
         onDelete={removeServer}
         onEdit={editServer}
         onHealthCheck={refreshHealth}
+        onVmLifecycleAction={runVmLifecycleAction}
         isCheckingHealth={isCheckingHealth}
+        isRunningVmLifecycleAction={isRunningVmLifecycleAction}
         onRetry={refreshServers}
       />
     </div>

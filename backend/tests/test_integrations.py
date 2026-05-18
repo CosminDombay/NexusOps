@@ -3,6 +3,7 @@ import pytest
 from backend.app.modules.credentials.repository import CredentialRepository
 from backend.app.modules.credentials.schemas import CredentialCreate
 from backend.app.modules.credentials.service import CredentialService
+from backend.app.modules.integrations.models import Integration, IntegrationType
 from backend.app.modules.integrations.repository import IntegrationRepository
 from backend.app.modules.integrations.schemas import IntegrationCreate
 from backend.app.modules.integrations.service import IntegrationService
@@ -41,3 +42,52 @@ async def test_proxmox_adapter_uses_enabled_integration_and_credential(client) -
         assert adapter.token_id == "root@pam!nexusops"
         assert adapter.token_secret == "secret-value"
         assert adapter.verify_ssl is False
+
+
+def test_delete_integration_removes_record(client) -> None:
+    create_response = client.post(
+        "/api/v1/integrations",
+        json={
+            "name": "Prometheus Test",
+            "type": "monitoring",
+            "enabled": True,
+            "config": {"url": "http://prometheus.example:9090", "verify_ssl": False},
+            "credential_refs": {},
+        },
+    )
+    assert create_response.status_code == 201
+    integration_id = create_response.json()["id"]
+
+    delete_response = client.delete(f"/api/v1/integrations/{integration_id}")
+
+    assert delete_response.status_code == 204
+    assert client.get("/api/v1/integrations").json() == []
+
+
+def test_delete_missing_integration_returns_404(client) -> None:
+    response = client.delete("/api/v1/integrations/11111111-1111-1111-1111-111111111111")
+
+    assert response.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_list_integrations_includes_legacy_invalid_records(client) -> None:
+    session = next(iter(client.app.dependency_overrides.values()))
+    async for db_session in session():
+        integration = Integration(
+            name="Proxmox",
+            type=IntegrationType.INFRASTRUCTURE_PROVIDER,
+            enabled=True,
+            config={"verify_ssl": False},
+            credential_refs={},
+        )
+        db_session.add(integration)
+        await db_session.commit()
+        await db_session.refresh(integration)
+        integration_id = str(integration.id)
+
+    response = client.get("/api/v1/integrations")
+
+    assert response.status_code == 200
+    assert response.json()[0]["id"] == integration_id
+    assert response.json()[0]["config"] == {"verify_ssl": False}

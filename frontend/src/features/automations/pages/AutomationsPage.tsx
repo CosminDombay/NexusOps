@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Play } from 'lucide-react';
+import { Pencil, Play, Trash2, X } from 'lucide-react';
 
 import { PageHeader } from '../../../components/layout/PageHeader';
 import { getApiErrorMessage } from '../../../lib/api/client';
@@ -13,7 +13,15 @@ import { listPackageDefinitions } from '../../packages/api/packagesApi';
 import type { PackageDefinition } from '../../packages/types/package';
 import { listProfiles } from '../../profiles/api/profilesApi';
 import type { InfrastructureProfile } from '../../profiles/types/profile';
-import { createAutomation, disableAutomation, enableAutomation, listAutomations, runAutomation } from '../api/automationsApi';
+import {
+  createAutomation,
+  deleteAutomation,
+  disableAutomation,
+  enableAutomation,
+  listAutomations,
+  runAutomation,
+  updateAutomation,
+} from '../api/automationsApi';
 import type { Automation, AutomationPayload } from '../types/automation';
 
 type FormState = {
@@ -47,6 +55,7 @@ export function AutomationsPage() {
   const [success, setSuccess] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isWorking, setIsWorking] = useState(false);
+  const [editingAutomationId, setEditingAutomationId] = useState<string | null>(null);
   const targetSelector = useTargetSelection('bulk');
 
   const operationOptions = useMemo(() => {
@@ -83,7 +92,7 @@ export function AutomationsPage() {
     }
   }
 
-  async function handleCreate() {
+  async function handleSave() {
     const payload = toPayload(form);
     if (!payload) {
       setError('Automation needs a name, target host, schedule, and operation reference.');
@@ -93,9 +102,68 @@ export function AutomationsPage() {
     setError(null);
     setSuccess(null);
     try {
-      const created = await createAutomation(payload);
-      setAutomations((current) => [created, ...current]);
-      setSuccess(`Created automation ${created.name}.`);
+      if (editingAutomationId) {
+        const updated = await updateAutomation(editingAutomationId, payload);
+        setAutomations((current) => current.map((automation) => (automation.id === updated.id ? updated : automation)));
+        setSuccess(`Updated automation ${updated.name}.`);
+        resetForm();
+      } else {
+        const created = await createAutomation(payload);
+        setAutomations((current) => [created, ...current]);
+        setSuccess(`Created automation ${created.name}.`);
+      }
+    } catch (caughtError) {
+      setError(getApiErrorMessage(caughtError));
+    } finally {
+      setIsWorking(false);
+    }
+  }
+
+  function startEdit(automation: Automation) {
+    setEditingAutomationId(automation.id);
+    setForm({
+      name: automation.name,
+      schedule_type: automation.schedule_type,
+      interval_seconds: String(automation.interval_seconds ?? 3600),
+      cron_expression: automation.cron_expression ?? '0 2 * * *',
+      target_server_ids: automation.target_server_ids,
+      operation_type: automation.operation_type === 'profile' || automation.operation_type === 'package' ? automation.operation_type : 'action',
+      reference_id: automation.reference_id ?? '',
+    });
+    targetSelector.setMode(automation.target_server_ids.length > 1 ? 'bulk' : 'single');
+    targetSelector.setSelectedId(automation.target_server_ids[0] ?? '');
+    targetSelector.setSelectedIds(automation.target_server_ids);
+    setError(null);
+    setSuccess(null);
+  }
+
+  function resetForm() {
+    setEditingAutomationId(null);
+    setForm({
+      ...initialForm,
+      target_server_ids: servers[0] ? [servers[0].id] : [],
+      reference_id: actions[0]?.id ?? '',
+    });
+    targetSelector.setMode('bulk');
+    targetSelector.setSelectedId(servers[0]?.id ?? '');
+    targetSelector.setSelectedIds(servers[0] ? [servers[0].id] : []);
+  }
+
+  async function handleDelete(automation: Automation) {
+    const confirmed = window.confirm(`Delete automation ${automation.name}? Scheduled runs will stop, but existing workflow/job history remains.`);
+    if (!confirmed) {
+      return;
+    }
+    setIsWorking(true);
+    setError(null);
+    setSuccess(null);
+    try {
+      await deleteAutomation(automation.id);
+      setAutomations((current) => current.filter((item) => item.id !== automation.id));
+      if (editingAutomationId === automation.id) {
+        resetForm();
+      }
+      setSuccess(`Deleted automation ${automation.name}.`);
     } catch (caughtError) {
       setError(getApiErrorMessage(caughtError));
     } finally {
@@ -140,7 +208,15 @@ export function AutomationsPage() {
       {success ? <p className="rounded-md bg-emerald-50 px-3 py-2 text-sm text-emerald-700">{success}</p> : null}
 
       <section className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm">
-        <h3 className="text-base font-semibold text-zinc-950">Create automation</h3>
+        <div className="flex items-center justify-between gap-3">
+          <h3 className="text-base font-semibold text-zinc-950">{editingAutomationId ? 'Edit automation' : 'Create automation'}</h3>
+          {editingAutomationId ? (
+            <button className="inline-flex items-center gap-2 rounded-md border border-zinc-300 px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50" type="button" onClick={resetForm}>
+              <X className="h-4 w-4" aria-hidden="true" />
+              Cancel edit
+            </button>
+          ) : null}
+        </div>
         <div className="mt-4 grid gap-4 lg:grid-cols-3">
           <TextInput label="Name" value={form.name} onChange={(value) => setForm({ ...form, name: value })} />
           <label className="text-sm font-medium text-zinc-700">
@@ -198,8 +274,8 @@ export function AutomationsPage() {
           </div>
         </div>
         <div className="mt-4 flex justify-end">
-          <button className="rounded-md bg-zinc-950 px-4 py-2 text-sm font-semibold text-white disabled:bg-zinc-300" disabled={isWorking} type="button" onClick={() => void handleCreate()}>
-            Create automation
+          <button className="rounded-md bg-zinc-950 px-4 py-2 text-sm font-semibold text-white disabled:bg-zinc-300" disabled={isWorking} type="button" onClick={() => void handleSave()}>
+            {editingAutomationId ? 'Save automation' : 'Create automation'}
           </button>
         </div>
       </section>
@@ -228,9 +304,17 @@ export function AutomationsPage() {
                   <button className="rounded-md border border-zinc-300 px-3 py-2 text-sm font-semibold text-zinc-700" disabled={isWorking} type="button" onClick={() => void toggle(automation)}>
                     {automation.enabled ? 'Disable' : 'Enable'}
                   </button>
+                  <button className="inline-flex items-center gap-2 rounded-md border border-zinc-300 px-3 py-2 text-sm font-semibold text-zinc-700" disabled={isWorking} type="button" onClick={() => startEdit(automation)}>
+                    <Pencil className="h-4 w-4" aria-hidden="true" />
+                    Edit
+                  </button>
                   <button className="inline-flex items-center gap-2 rounded-md bg-zinc-950 px-3 py-2 text-sm font-semibold text-white disabled:bg-zinc-300" disabled={isWorking} type="button" onClick={() => void runNow(automation)}>
                     <Play className="h-4 w-4" aria-hidden="true" />
                     Run now
+                  </button>
+                  <button className="inline-flex items-center gap-2 rounded-md border border-rose-300 px-3 py-2 text-sm font-semibold text-rose-700" disabled={isWorking} type="button" onClick={() => void handleDelete(automation)}>
+                    <Trash2 className="h-4 w-4" aria-hidden="true" />
+                    Delete
                   </button>
                 </div>
               </article>

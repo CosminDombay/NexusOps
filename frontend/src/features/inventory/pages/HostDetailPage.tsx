@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { Activity, Box, ExternalLink, HardDrive, RefreshCw, ServerIcon, ShieldCheck, TerminalSquare } from 'lucide-react';
+import { Activity, Box, ExternalLink, HardDrive, Loader2, Play, Power, RefreshCw, RotateCw, ServerIcon, ShieldCheck, TerminalSquare } from 'lucide-react';
 
 import { PageHeader } from '../../../components/layout/PageHeader';
 import { getApiErrorMessage } from '../../../lib/api/client';
+import { useAuth } from '../../auth/hooks/useAuth';
 import { listDeployments } from '../../deployments/api/deploymentsApi';
 import type { Deployment } from '../../deployments/types/deployment';
 import { listLinuxGroups, listLinuxUsers, listSSHKeys } from '../../identity/api/identityApi';
@@ -13,6 +14,8 @@ import { listJobs } from '../../jobs/api/jobsApi';
 import type { Job } from '../../jobs/types/job';
 import { getServerMetrics, getPrometheusHealth } from '../../monitoring/api/monitoringApi';
 import type { PrometheusHealth, ServerMetrics } from '../../monitoring/types/monitoring';
+import { runVmAction } from '../../proxmox/api/proxmoxApi';
+import type { ProxmoxVmAction } from '../../proxmox/types/proxmox';
 import {
   getServer,
   getServerDocker,
@@ -36,7 +39,7 @@ type LoadState = {
   sshKeys: SSHKey[];
 };
 
-type HostTab = 'overview' | 'metrics' | 'terminal' | 'files' | 'deployments' | 'jobs' | 'workflows' | 'packages' | 'profiles' | 'identity';
+type HostTab = 'overview' | 'management' | 'metrics' | 'terminal' | 'files' | 'deployments' | 'jobs' | 'workflows' | 'packages' | 'profiles' | 'identity';
 
 const initialState: LoadState = {
   server: null,
@@ -54,10 +57,14 @@ const initialState: LoadState = {
 
 export function HostDetailPage() {
   const { id } = useParams();
+  const { user } = useAuth();
   const [state, setState] = useState<LoadState>(initialState);
   const [errors, setErrors] = useState<string[]>([]);
+  const [notice, setNotice] = useState<{ tone: 'success' | 'error'; message: string } | null>(null);
+  const [activeVmAction, setActiveVmAction] = useState<ProxmoxVmAction | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<HostTab>('overview');
+  const allowManagement = user?.role === 'admin' || user?.role === 'operator';
 
   const refresh = useCallback(async () => {
     if (!id) {
@@ -114,6 +121,34 @@ export function HostDetailPage() {
 
   const exporterState = useMemo(() => detectExporters(state), [state]);
 
+  async function handleVmLifecycle(action: ProxmoxVmAction) {
+    const server = state.server;
+    const vmId = getProviderVmId(server);
+    if (!server || vmId === null) {
+      setNotice({ tone: 'error', message: 'This inventory host is not linked to a Proxmox VMID.' });
+      return;
+    }
+
+    if (action !== 'start') {
+      const confirmed = window.confirm(`${actionLabel(action)} VM ${server.hostname} (${vmId})?`);
+      if (!confirmed) {
+        return;
+      }
+    }
+
+    setActiveVmAction(action);
+    setNotice(null);
+    try {
+      const response = await runVmAction(vmId, action);
+      setNotice({ tone: 'success', message: response.message });
+      await refresh();
+    } catch (caughtError) {
+      setNotice({ tone: 'error', message: getApiErrorMessage(caughtError) });
+    } finally {
+      setActiveVmAction(null);
+    }
+  }
+
   if (isLoading && !state.server) {
     return <div className="h-80 animate-pulse rounded-lg bg-zinc-100" />;
   }
@@ -130,6 +165,8 @@ export function HostDetailPage() {
         title={server.hostname}
         description="Inventory, provider, system, network, deployment, identity, and monitoring context for this host."
       />
+
+      {notice ? <HostNotice message={notice.message} tone={notice.tone} onDismiss={() => setNotice(null)} /> : null}
 
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap gap-2">
@@ -173,7 +210,14 @@ export function HostDetailPage() {
       </nav>
 
       {activeTab !== 'overview' ? (
-        <HostTabPanel tab={activeTab} server={server} state={state} />
+        <HostTabPanel
+          activeVmAction={activeVmAction}
+          allowManagement={allowManagement}
+          server={server}
+          state={state}
+          tab={activeTab}
+          onVmLifecycle={(action) => void handleVmLifecycle(action)}
+        />
       ) : null}
 
       {activeTab === 'overview' ? (
@@ -333,6 +377,7 @@ export function HostDetailPage() {
 
 const hostTabs: Array<{ id: HostTab; label: string }> = [
   { id: 'overview', label: 'Overview' },
+  { id: 'management', label: 'Management' },
   { id: 'metrics', label: 'Metrics' },
   { id: 'terminal', label: 'Terminal' },
   { id: 'files', label: 'Files' },
@@ -344,7 +389,42 @@ const hostTabs: Array<{ id: HostTab; label: string }> = [
   { id: 'identity', label: 'Identity' },
 ];
 
-function HostTabPanel({ tab, server, state }: { tab: HostTab; server: Server; state: LoadState }) {
+function HostTabPanel({
+  activeVmAction,
+  allowManagement,
+  tab,
+  server,
+  state,
+  onVmLifecycle,
+}: {
+  activeVmAction: ProxmoxVmAction | null;
+  allowManagement: boolean;
+  tab: HostTab;
+  server: Server;
+  state: LoadState;
+  onVmLifecycle: (action: ProxmoxVmAction) => void;
+}) {
+  if (tab === 'management') {
+    return (
+      <Panel title="VM management">
+        <div className="space-y-4">
+          <div className="grid gap-3 md:grid-cols-3">
+            <Info label="Provider" value={server.provider} />
+            <Info label="Node" value={server.provider_node ?? 'Unknown'} />
+            <Info label="VMID" value={String(getProviderVmId(server) ?? 'Not linked')} />
+          </div>
+          <VmLifecycleActions
+            activeAction={activeVmAction}
+            allowManagement={allowManagement}
+            server={server}
+            onAction={onVmLifecycle}
+          />
+          {!allowManagement ? <p className="text-sm text-zinc-500">Operator or admin role required for VM lifecycle actions.</p> : null}
+        </div>
+      </Panel>
+    );
+  }
+
   if (tab === 'terminal' || tab === 'files') {
     return (
       <Panel title={tab === 'terminal' ? 'Terminal' : 'Files'}>
@@ -405,6 +485,134 @@ function HostTabPanel({ tab, server, state }: { tab: HostTab; server: Server; st
       <LinkList items={links[tab]} />
     </Panel>
   );
+}
+
+function HostNotice({
+  message,
+  tone,
+  onDismiss,
+}: {
+  message: string;
+  tone: 'success' | 'error';
+  onDismiss: () => void;
+}) {
+  const className =
+    tone === 'success'
+      ? 'border-emerald-400/30 bg-emerald-950/40 text-emerald-100'
+      : 'border-rose-400/30 bg-rose-950/50 text-rose-100';
+  return (
+    <div className={`flex items-center justify-between gap-4 rounded-lg border px-4 py-3 ${className}`}>
+      <p className="text-sm font-medium">{message}</p>
+      <button className="text-sm font-semibold underline-offset-2 hover:underline" type="button" onClick={onDismiss}>
+        Dismiss
+      </button>
+    </div>
+  );
+}
+
+function VmLifecycleActions({
+  activeAction,
+  allowManagement,
+  server,
+  onAction,
+}: {
+  activeAction: ProxmoxVmAction | null;
+  allowManagement: boolean;
+  server: Server;
+  onAction: (action: ProxmoxVmAction) => void;
+}) {
+  const vmId = getProviderVmId(server);
+  const isBusy = activeAction !== null;
+  const isLinkedProxmoxVm = server.provider === 'proxmox' && vmId !== null;
+  const isOnline = server.status === 'online' || server.last_health_status === 'online';
+  const commonDisabled = !allowManagement || !isLinkedProxmoxVm || isBusy;
+
+  return (
+    <div className="flex flex-wrap gap-2">
+      <LifecycleButton
+        action="start"
+        disabled={commonDisabled || isOnline}
+        icon={Play}
+        isLoading={activeAction === 'start'}
+        label="Start"
+        tone="primary"
+        onClick={() => onAction('start')}
+      />
+      <LifecycleButton
+        action="shutdown"
+        disabled={commonDisabled || !isOnline}
+        icon={Power}
+        isLoading={activeAction === 'shutdown'}
+        label="Shutdown"
+        onClick={() => onAction('shutdown')}
+      />
+      <LifecycleButton
+        action="reboot"
+        disabled={commonDisabled || !isOnline}
+        icon={RotateCw}
+        isLoading={activeAction === 'reboot'}
+        label="Reboot"
+        onClick={() => onAction('reboot')}
+      />
+      <LifecycleButton
+        action="stop"
+        disabled={commonDisabled || !isOnline}
+        icon={Power}
+        isLoading={activeAction === 'stop'}
+        label="Stop"
+        tone="danger"
+        onClick={() => onAction('stop')}
+      />
+    </div>
+  );
+}
+
+function LifecycleButton({
+  disabled,
+  icon: Icon,
+  isLoading,
+  label,
+  onClick,
+  tone = 'secondary',
+}: {
+  action: ProxmoxVmAction;
+  disabled: boolean;
+  icon: typeof Play;
+  isLoading: boolean;
+  label: string;
+  onClick: () => void;
+  tone?: 'primary' | 'secondary' | 'danger';
+}) {
+  const className =
+    tone === 'primary'
+      ? 'border-cyan-400 bg-cyan-400 text-zinc-950 hover:bg-cyan-300 disabled:border-zinc-300 disabled:bg-zinc-100 disabled:text-zinc-400'
+      : tone === 'danger'
+        ? 'border-rose-400/50 bg-white text-rose-700 hover:bg-rose-50 disabled:border-zinc-300 disabled:bg-zinc-100 disabled:text-zinc-400'
+        : 'border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 disabled:bg-zinc-100 disabled:text-zinc-400';
+  return (
+    <button
+      className={`inline-flex items-center gap-2 rounded-md border px-3 py-2 text-sm font-semibold transition disabled:cursor-not-allowed ${className}`}
+      disabled={disabled}
+      type="button"
+      onClick={onClick}
+    >
+      {isLoading ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Icon className="h-4 w-4" aria-hidden="true" />}
+      {label}
+    </button>
+  );
+}
+
+function getProviderVmId(server: Server | null): number | null {
+  const raw = server?.vmid ?? server?.external_id ?? null;
+  if (!raw) {
+    return null;
+  }
+  const value = Number(raw);
+  return Number.isInteger(value) && value > 0 ? value : null;
+}
+
+function actionLabel(action: ProxmoxVmAction): string {
+  return action.charAt(0).toUpperCase() + action.slice(1);
 }
 
 async function settle<T>(fn: () => Promise<T>): Promise<{ ok: true; value: T } | { ok: false; error: string }> {

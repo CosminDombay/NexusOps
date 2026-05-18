@@ -52,6 +52,7 @@ export type OperationalAction = {
   description: string;
   command: string;
   destructive: boolean;
+  is_builtin: boolean;
 };
 
 export type ExecuteActionPayload = {
@@ -59,3 +60,14 @@ export type ExecuteActionPayload = {
   action_id: string;
   credential_ref?: string | null;
 };
+
+export type CreateOperationalActionPayload = {
+  id: string;
+  name: string;
+  category: string;
+  description: string;
+  command: string;
+  destructive: boolean;
+};
+
+export type UpdateOperationalActionPayload = Omit<CreateOperationalActionPayload, 'id'>;

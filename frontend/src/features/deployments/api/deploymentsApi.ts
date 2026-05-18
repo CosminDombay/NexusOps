@@ -1,5 +1,5 @@
 import { apiClient } from '../../../lib/api/client';
-import type { CreateDeploymentPayload, Deployment, DeploymentLogs, DeploymentOperation } from '../types/deployment';
+import type { CreateDeploymentPayload, Deployment, DeploymentLogs, DeploymentOperation, UpdateDeploymentPayload } from '../types/deployment';
 
 export async function listDeployments(): Promise<Deployment[]> {
   const response = await apiClient.get<Deployment[]>('/deployments');
@@ -8,6 +8,15 @@ export async function listDeployments(): Promise<Deployment[]> {
 
 export async function createDeployment(payload: CreateDeploymentPayload): Promise<Deployment> {
   const response = await apiClient.post<Deployment>('/deployments', payload);
+  return response.data;
+}
+
+export async function deleteDeployment(deploymentId: string): Promise<void> {
+  await apiClient.delete(`/deployments/${deploymentId}`);
+}
+
+export async function updateDeployment(deploymentId: string, payload: UpdateDeploymentPayload): Promise<Deployment> {
+  const response = await apiClient.put<Deployment>(`/deployments/${deploymentId}`, payload);
   return response.data;
 }
 

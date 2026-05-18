@@ -94,6 +94,8 @@ The implemented system is focused on foundations, visibility, narrowly scoped VM
   - persist redacted command, status, stdout, stderr, exit code, and timestamps
   - support key-based, password-based, shared-credential, and explicit credential-ref execution
   - expose reusable operational actions backed by the jobs pipeline
+  - custom operational actions with create/update/delete support for operator-defined command sequences
+  - custom actions can be executed directly from Jobs and referenced by Profiles and Automations
   - frontend Jobs page with shared target selection, action runner, raw command runner, history, and tabbed stdout/stderr/command/metadata result viewer
   - bulk command execution foundation for sequential multi-host fanout
 - Remote access:
@@ -112,16 +114,17 @@ The implemented system is focused on foundations, visibility, narrowly scoped VM
   - step status lifecycle: pending, running, success, failed, skipped
   - ordered step logs and errors
   - workflow list/detail API
-  - frontend Workflows page with timeline/log view
+  - frontend Workflows page with timeline/log view and target host visibility for workflow steps
 - Scheduled automations foundation:
   - interval and cron schedules
   - predefined action automations
+  - custom action automations
   - package execution automations
   - profile execution automations
-  - enable/disable/run-now API
+  - create/update/delete/enable/disable/run-now API
   - APScheduler startup/shutdown integration
   - automation runs create WorkflowRuns and execute through existing Jobs/Profile/Package services
-  - frontend Automations page
+  - frontend Automations page with edit and delete controls
 - Inventory health:
   - lightweight TCP reachability check against SSH port
   - per-host last health state, timestamp, and error metadata
@@ -170,8 +173,11 @@ The implemented system is focused on foundations, visibility, narrowly scoped VM
   - deployment definitions with compose/env storage
   - credential-backed environment variables resolved server-side at deploy time
   - redacted deployment command history when secrets are injected into `.env`
+  - configurable remote base path for deployment project directories
+  - generated remote compose file name is `docker-compose.yaml`
   - deployment target and revision persistence
   - deploy/redeploy/restart/stop/status/log operations through Jobs
+  - deployment edit and delete API/UI
   - shared target selector and request-shape support for future bulk deployment fanout while preserving current single-target execution
 - Monitoring foundation:
   - Prometheus HTTP API health check
@@ -182,6 +188,11 @@ The implemented system is focused on foundations, visibility, narrowly scoped VM
   - SSH public key records
   - filesystem permission templates
   - user/group/key/permission replication across selected inventory hosts
+  - existing Linux user and group discovery through Jobs
+  - managed user edit/delete and managed group edit/delete flows
+  - optional Credential Manager password selection when creating/updating Linux users; passwords are applied with `chpasswd` and redacted from Job history
+  - live user group inspection per host using `id -nG`
+  - live group member inspection per host, combining supplementary members from `getent group` with primary-group members from `getent passwd`
   - per-host execution history through Jobs and identity execution records
   - guided access profiles for administrator, deployment, Docker, log viewer, read-only, and service-account workflows
   - distro-aware administrator group resolution
@@ -349,6 +360,7 @@ Remote Access now presents files and the file editor above a persistent terminal
 - Deployment logs are pulled on demand from Docker Compose and are not yet indexed as first-class log records.
 - Docker deployment steps are visible in profile editing but do not yet execute as concrete deployment operations inside `ProfileService`.
 - No centralized domain identity provider. Identity is Linux orchestration only; LDAP, Kerberos, FreeIPA, Active Directory, SSSD, PAM rewriting, and login federation are intentionally out of scope.
+- Identity discovery reads live Linux state through Jobs and does not yet persist per-host user/group membership snapshots as first-class inventory records.
 - Existing `docs/architecture.md` is older and less precise than the newer files in `docs/architecture/`.
 - Runtime adapter support from persisted integration records is partial; Proxmox can resolve active integration records, while other adapters still need deeper runtime integration.
 - Remote shell WebSocket authentication uses the current JWT as a query parameter for MVP browser compatibility; a short-lived scoped remote-access token is still planned.

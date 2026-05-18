@@ -1,4 +1,4 @@
-import { Play } from 'lucide-react';
+import { Pencil, Play, Trash2 } from 'lucide-react';
 
 import { TargetSelector } from '../../inventory/components/TargetSelector';
 import { useTargetSelection } from '../../inventory/hooks/useTargetSelection';
@@ -13,6 +13,8 @@ type OperationalActionsPanelProps = {
   selectedServerId: string;
   servers: Server[];
   onExecute: () => void;
+  onDeleteAction: (action: OperationalAction) => void;
+  onEditAction: (action: OperationalAction) => void;
   onSelectedActionChange: (value: string) => void;
   onSelectedServerChange: (value: string) => void;
 };
@@ -25,6 +27,8 @@ export function OperationalActionsPanel({
   selectedServerId,
   servers,
   onExecute,
+  onDeleteAction,
+  onEditAction,
   onSelectedActionChange,
   onSelectedServerChange,
 }: OperationalActionsPanelProps) {
@@ -94,6 +98,18 @@ export function OperationalActionsPanel({
               <span className="inline-flex w-fit rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700">
                 Changes host
               </span>
+            ) : null}
+            {!selectedAction.is_builtin ? (
+              <div className="flex shrink-0 gap-2">
+                <button className="inline-flex h-9 items-center gap-2 rounded-md border border-zinc-300 px-3 text-sm font-semibold text-zinc-700 hover:bg-white" type="button" onClick={() => onEditAction(selectedAction)}>
+                  <Pencil className="h-4 w-4" aria-hidden="true" />
+                  Edit
+                </button>
+                <button className="inline-flex h-9 items-center gap-2 rounded-md border border-rose-300 px-3 text-sm font-semibold text-rose-700 hover:bg-white" type="button" onClick={() => onDeleteAction(selectedAction)}>
+                  <Trash2 className="h-4 w-4" aria-hidden="true" />
+                  Delete
+                </button>
+              </div>
             ) : null}
           </div>
         </div>

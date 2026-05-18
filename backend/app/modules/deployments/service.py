@@ -18,6 +18,7 @@ from backend.app.modules.deployments.schemas import (
     DeploymentRead,
     DeploymentRevisionRead,
     DeploymentStatusRead,
+    DeploymentUpdate,
 )
 from backend.app.modules.credentials.service import CredentialService
 from backend.app.modules.inventory.models import InventoryLifecycleState
@@ -36,6 +37,9 @@ class DeploymentValidationError(Exception):
 
 class DockerComposeDeploymentService:
     """SSH-backed Docker Compose deployment orchestration."""
+
+    COMPOSE_FILENAME = "docker-compose.yaml"
+    ENV_FILENAME = ".env"
 
     def __init__(
         self,
@@ -84,6 +88,45 @@ class DockerComposeDeploymentService:
         await self.repository.session.commit()
         return await self._to_read(deployment)
 
+    async def delete_deployment(self, deployment_id: UUID) -> None:
+        deployment = await self.repository.get_by_id(deployment_id)
+        if deployment is None:
+            raise DeploymentNotFoundError("Deployment not found")
+
+        await self.revision_repository.delete_for_deployment(deployment.id)
+        await self.target_repository.delete_for_deployment(deployment.id)
+        await self.repository.delete(deployment)
+        await self.repository.session.commit()
+
+    async def update_deployment(self, deployment_id: UUID, payload: DeploymentUpdate) -> DeploymentRead:
+        deployment = await self.repository.get_by_id(deployment_id)
+        if deployment is None:
+            raise DeploymentNotFoundError("Deployment not found")
+
+        target_ids = payload.target_server_ids or ([payload.target_server_id] if payload.target_server_id else [])
+        if not target_ids:
+            raise DeploymentValidationError("Select at least one deployment target")
+        server = await self._managed_server(target_ids[0])
+
+        target = await self.target_repository.get_for_deployment(deployment.id)
+        if target is None:
+            raise DeploymentValidationError("Deployment has no target host")
+
+        deployment.name = payload.name
+        deployment.description = payload.description
+        deployment.compose_content = payload.compose_content
+        deployment.env_content = payload.env_content
+        deployment.credential_refs = payload.credential_refs
+        deployment.status = DeploymentStatus.DRAFT
+        target.server_id = server.id
+        target.remote_path = payload.remote_path
+        target.status = DeploymentStatus.DRAFT
+        target.last_job_id = None
+
+        await self.repository.session.commit()
+        await self.repository.session.refresh(deployment)
+        return await self._to_read(deployment)
+
     async def deploy(self, deployment_id: UUID) -> DeploymentOperationRead:
         return await self._run_operation(deployment_id, "deploy")
 
@@ -104,7 +147,7 @@ class DockerComposeDeploymentService:
 
     async def status(self, deployment_id: UUID) -> DeploymentStatusRead:
         deployment, target = await self._deployment_and_target(deployment_id)
-        command = f"cd {self._sh_quote(self._deployment_path(target, deployment))} && docker compose ps"
+        command = self._compose_command(target, deployment, "ps")
         job = await self.job_service.execute(
             JobExecuteRequest(
                 target_server_id=target.server_id,
@@ -116,7 +159,7 @@ class DockerComposeDeploymentService:
 
     async def logs(self, deployment_id: UUID) -> DeploymentLogsRead:
         deployment, target = await self._deployment_and_target(deployment_id)
-        command = f"cd {self._sh_quote(self._deployment_path(target, deployment))} && docker compose logs --tail=200"
+        command = self._compose_command(target, deployment, "logs --tail=200")
         job = await self.job_service.execute(
             JobExecuteRequest(
                 target_server_id=target.server_id,
@@ -217,23 +260,32 @@ class DockerComposeDeploymentService:
 
     async def _operation_commands(self, deployment: Deployment, target: DeploymentTarget, operation: str) -> tuple[str, str]:
         deployment_path = self._deployment_path(target, deployment)
-        compose = self._heredoc("compose.yml", deployment.compose_content)
+        compose = self._heredoc(self.COMPOSE_FILENAME, deployment.compose_content, "NEXUSOPS_COMPOSE_EOF")
         env_content, redacted_env_content = await self._env_contents(deployment)
-        env = self._heredoc(".env", env_content)
-        redacted_env = self._heredoc(".env", redacted_env_content)
+        env = self._heredoc(self.ENV_FILENAME, env_content, "NEXUSOPS_ENV_EOF")
+        redacted_env = self._heredoc(self.ENV_FILENAME, redacted_env_content, "NEXUSOPS_ENV_EOF")
         if operation in {"deploy", "redeploy"}:
-            action = "docker compose version && docker compose pull && docker compose up -d"
+            actions = [
+                self._docker_compose("version"),
+                self._docker_compose("pull"),
+                self._docker_compose("up -d"),
+            ]
         elif operation == "restart":
-            action = "docker compose restart"
+            actions = [self._docker_compose("restart")]
         elif operation == "stop":
-            action = "docker compose stop"
+            actions = [self._docker_compose("stop")]
         else:
             raise DeploymentValidationError("Unsupported deployment operation")
-        prefix = (
-            f"mkdir -p {self._sh_quote(deployment_path)} && "
-            f"cd {self._sh_quote(deployment_path)} && "
+
+        prefix = [
+            "set -e",
+            f"mkdir -p {self._sh_quote(deployment_path)}",
+            f"cd {self._sh_quote(deployment_path)}",
+        ]
+        return (
+            "\n".join([*prefix, compose, env, *actions]),
+            "\n".join([*prefix, compose, redacted_env, *actions]),
         )
-        return f"{prefix}{compose} && {env} && {action}", f"{prefix}{compose} && {redacted_env} && {action}"
 
     async def _env_contents(self, deployment: Deployment) -> tuple[str, str]:
         lines = [deployment.env_content or ""]
@@ -259,8 +311,23 @@ class DockerComposeDeploymentService:
         return f"{target.remote_path.rstrip('/')}/{safe_name}"
 
     @staticmethod
-    def _heredoc(filename: str, content: str) -> str:
-        return f"cat > {filename} <<'NEXUSOPS_EOF'\n{content}\nNEXUSOPS_EOF"
+    def _heredoc(filename: str, content: str, marker: str) -> str:
+        return f"cat > {filename} <<'{marker}'\n{content}\n{marker}"
+
+    @classmethod
+    def _compose_command(cls, target: DeploymentTarget, deployment: Deployment, compose_args: str) -> str:
+        deployment_path = cls._deployment_path(target, deployment)
+        return "\n".join(
+            [
+                "set -e",
+                f"cd {cls._sh_quote(deployment_path)}",
+                cls._docker_compose(compose_args),
+            ]
+        )
+
+    @classmethod
+    def _docker_compose(cls, compose_args: str) -> str:
+        return f"docker compose -f {cls.COMPOSE_FILENAME} --env-file {cls.ENV_FILENAME} {compose_args}"
 
     @staticmethod
     def _sh_quote(value: str) -> str:

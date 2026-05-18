@@ -173,7 +173,94 @@ async def test_profile_apply_runs_deployment_step(client) -> None:
         assert result.status == "success"
         assert len(result.jobs) == 1
         assert result.jobs[0].operation_type == f"deployment:{deployment.id}:deploy"
-        assert "docker compose up -d" in adapter.calls[0]["command"]
+        command = adapter.calls[0]["command"]
+        assert "cat > docker-compose.yaml <<'NEXUSOPS_COMPOSE_EOF'" in command
+        assert "\nNEXUSOPS_COMPOSE_EOF\ncat > .env <<'NEXUSOPS_ENV_EOF'" in command
+        assert "docker compose -f docker-compose.yaml --env-file .env up -d" in command
+
+
+@pytest.mark.asyncio
+async def test_deployment_service_deletes_record_with_history(client) -> None:
+    session = next(iter(client.app.dependency_overrides.values()))
+    async for db_session in session():
+        server = await InventoryService(ServerRepository(db_session)).create_server(
+            ServerCreate(**server_payload(hostname="delete-deploy-01", ip_address="10.2.0.12"))
+        )
+        adapter = FakeSshAdapter()
+        server_repository = ServerRepository(db_session)
+        service = DockerComposeDeploymentService(
+            repository=DeploymentRepository(db_session),
+            target_repository=DeploymentTargetRepository(db_session),
+            revision_repository=DeploymentRevisionRepository(db_session),
+            server_repository=server_repository,
+            job_service=JobService(
+                job_repository=JobRepository(db_session),
+                server_repository=server_repository,
+                ssh_adapter=adapter,
+            ),
+        )
+        deployment = await service.create_deployment(
+            DeploymentCreate(
+                name="delete-me",
+                target_server_id=server.id,
+                compose_content="services:\n  web:\n    image: nginx:alpine\n",
+            )
+        )
+        await service.deploy(deployment.id)
+
+        await service.delete_deployment(deployment.id)
+
+        assert await service.repository.get_by_id(deployment.id) is None
+        assert await service.target_repository.get_for_deployment(deployment.id) is None
+        assert await service.revision_repository.list_for_deployment(deployment.id) == []
+
+
+@pytest.mark.asyncio
+async def test_deployment_service_updates_record_and_marks_draft(client) -> None:
+    session = next(iter(client.app.dependency_overrides.values()))
+    async for db_session in session():
+        server = await InventoryService(ServerRepository(db_session)).create_server(
+            ServerCreate(**server_payload(hostname="update-deploy-01", ip_address="10.2.0.13"))
+        )
+        adapter = FakeSshAdapter()
+        server_repository = ServerRepository(db_session)
+        service = DockerComposeDeploymentService(
+            repository=DeploymentRepository(db_session),
+            target_repository=DeploymentTargetRepository(db_session),
+            revision_repository=DeploymentRevisionRepository(db_session),
+            server_repository=server_repository,
+            job_service=JobService(
+                job_repository=JobRepository(db_session),
+                server_repository=server_repository,
+                ssh_adapter=adapter,
+            ),
+        )
+        deployment = await service.create_deployment(
+            DeploymentCreate(
+                name="update-me",
+                target_server_id=server.id,
+                compose_content="services:\n  web:\n    image: nginx:alpine\n",
+            )
+        )
+        deployed = await service.deploy(deployment.id)
+        assert deployed.deployment.status == "running"
+
+        updated = await service.update_deployment(
+            deployment.id,
+            DeploymentCreate(
+                name="updated-deployment",
+                target_server_id=server.id,
+                compose_content="services:\n  web:\n    image: caddy:alpine\n",
+                env_content="APP_ENV=lab",
+                remote_path="/home/ubuntu/nexusops/deployments",
+            ),
+        )
+
+        assert updated.name == "updated-deployment"
+        assert updated.status == "draft"
+        assert "image: caddy:alpine" in updated.compose_content
+        assert updated.env_content == "APP_ENV=lab"
+        assert updated.remote_path == "/home/ubuntu/nexusops/deployments"
 
 
 def test_profiles_router_lists_profiles(client) -> None:

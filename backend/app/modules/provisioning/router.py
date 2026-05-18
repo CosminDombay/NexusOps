@@ -173,6 +173,17 @@ async def get_provisioning_request(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
 
 
+@router.delete("/{request_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_provisioning_request(
+    request_id: UUID,
+    service: Annotated[ProvisioningService, Depends(get_provisioning_service)],
+) -> None:
+    try:
+        await service.delete_request(request_id)
+    except ProvisioningNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+
 @router.post("", response_model=ProvisioningRead, status_code=status.HTTP_201_CREATED)
 async def provision_vm(
     payload: ProvisioningCreate,

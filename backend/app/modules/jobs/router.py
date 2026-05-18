@@ -10,19 +10,24 @@ from backend.app.modules.credentials.repository import CredentialRepository
 from backend.app.modules.credentials.service import CredentialService
 from backend.app.modules.inventory.repository import ServerRepository
 from backend.app.modules.jobs.repository import JobRepository
+from backend.app.modules.jobs.repository import CustomOperationalActionRepository
 from backend.app.modules.jobs.schemas import (
     BulkExecutionRead,
     JobActionExecuteRequest,
     JobBulkExecuteRequest,
     JobExecuteRequest,
     JobRead,
+    OperationalActionCreate,
     OperationalActionRead,
+    OperationalActionUpdate,
 )
 from backend.app.modules.jobs.service import (
+    BuiltinOperationalActionError,
     JobNotFoundError,
     JobService,
     JobTargetNotFoundError,
     JobTargetNotManagedError,
+    OperationalActionConflictError,
     OperationalActionNotFoundError,
 )
 
@@ -36,6 +41,7 @@ async def get_job_service(
         job_repository=JobRepository(session),
         server_repository=ServerRepository(session),
         ssh_adapter=ParamikoSshAdapter(),
+        action_repository=CustomOperationalActionRepository(session),
         credential_service=CredentialService(repository=CredentialRepository(session)),
     )
 
@@ -64,6 +70,44 @@ async def execute_action(
     except JobTargetNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except JobTargetNotManagedError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    except OperationalActionNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+
+@router.post("/actions", response_model=OperationalActionRead, status_code=status.HTTP_201_CREATED)
+async def create_action(
+    payload: OperationalActionCreate,
+    service: Annotated[JobService, Depends(get_job_service)],
+) -> OperationalActionRead:
+    try:
+        return await service.create_action(payload)
+    except OperationalActionConflictError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+
+
+@router.put("/actions/{action_id}", response_model=OperationalActionRead)
+async def update_action(
+    action_id: str,
+    payload: OperationalActionUpdate,
+    service: Annotated[JobService, Depends(get_job_service)],
+) -> OperationalActionRead:
+    try:
+        return await service.update_action(action_id, payload)
+    except BuiltinOperationalActionError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    except OperationalActionNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+
+@router.delete("/actions/{action_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_action(
+    action_id: str,
+    service: Annotated[JobService, Depends(get_job_service)],
+) -> None:
+    try:
+        await service.delete_action(action_id)
+    except BuiltinOperationalActionError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     except OperationalActionNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc

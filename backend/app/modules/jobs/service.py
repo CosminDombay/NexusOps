@@ -8,8 +8,8 @@ from backend.app.modules.credentials.service import CredentialNotFoundError, Cre
 from backend.app.modules.inventory.repository import ServerRepository
 from backend.app.modules.inventory.models import InventoryLifecycleState, ServerSshAuthMethod
 from backend.app.modules.jobs.actions import get_action, list_actions
-from backend.app.modules.jobs.models import Job, JobStatus
-from backend.app.modules.jobs.repository import JobRepository
+from backend.app.modules.jobs.models import CustomOperationalAction, Job, JobStatus
+from backend.app.modules.jobs.repository import CustomOperationalActionRepository, JobRepository
 from backend.app.modules.jobs.schemas import (
     BulkExecutionHostResult,
     BulkExecutionRead,
@@ -17,7 +17,9 @@ from backend.app.modules.jobs.schemas import (
     JobBulkExecuteRequest,
     JobExecuteRequest,
     JobRead,
+    OperationalActionCreate,
     OperationalActionRead,
+    OperationalActionUpdate,
 )
 
 logger = structlog.get_logger(__name__)
@@ -39,6 +41,14 @@ class OperationalActionNotFoundError(Exception):
     """Raised when a predefined operational action cannot be found."""
 
 
+class OperationalActionConflictError(Exception):
+    """Raised when an operational action id is already in use."""
+
+
+class BuiltinOperationalActionError(Exception):
+    """Raised when trying to mutate a built-in action."""
+
+
 class JobService:
     """Application service for orchestration job execution and history."""
 
@@ -48,11 +58,13 @@ class JobService:
         job_repository: JobRepository,
         server_repository: ServerRepository,
         ssh_adapter: SshAdapter,
+        action_repository: CustomOperationalActionRepository | None = None,
         credential_service: CredentialService | None = None,
     ) -> None:
         self.job_repository = job_repository
         self.server_repository = server_repository
         self.ssh_adapter = ssh_adapter
+        self.action_repository = action_repository
         self.credential_service = credential_service
 
     async def list_jobs(self) -> list[JobRead]:
@@ -66,17 +78,76 @@ class JobService:
         return await self._to_read(job)
 
     async def list_actions(self) -> list[OperationalActionRead]:
-        return [OperationalActionRead(**action.__dict__) for action in list_actions()]
+        builtin_actions = [
+            OperationalActionRead(**action.__dict__, is_builtin=True)
+            for action in list_actions()
+        ]
+        custom_actions = []
+        if self.action_repository is not None:
+            custom_actions = [
+                self._custom_action_to_read(action)
+                for action in await self.action_repository.list()
+            ]
+        custom_ids = {action.id for action in custom_actions}
+        return [action for action in builtin_actions if action.id not in custom_ids] + custom_actions
+
+    async def create_action(self, payload: OperationalActionCreate) -> OperationalActionRead:
+        if self.action_repository is None:
+            raise RuntimeError("Action repository is required")
+        if get_action(payload.id) or await self.action_repository.get_by_slug(payload.id):
+            raise OperationalActionConflictError("Operational action already exists")
+        action = await self.action_repository.create(
+            CustomOperationalAction(
+                slug=payload.id,
+                name=payload.name,
+                category=payload.category,
+                description=payload.description,
+                command=payload.command,
+                destructive=payload.destructive,
+            )
+        )
+        await self.action_repository.session.commit()
+        return self._custom_action_to_read(action)
+
+    async def update_action(self, action_id: str, payload: OperationalActionUpdate) -> OperationalActionRead:
+        if get_action(action_id):
+            raise BuiltinOperationalActionError("Built-in actions cannot be edited")
+        if self.action_repository is None:
+            raise RuntimeError("Action repository is required")
+        action = await self.action_repository.get_by_slug(action_id)
+        if action is None:
+            raise OperationalActionNotFoundError("Operational action not found")
+        action.name = payload.name
+        action.category = payload.category
+        action.description = payload.description
+        action.command = payload.command
+        action.destructive = payload.destructive
+        await self.action_repository.session.commit()
+        await self.action_repository.session.refresh(action)
+        return self._custom_action_to_read(action)
+
+    async def delete_action(self, action_id: str) -> None:
+        if get_action(action_id):
+            raise BuiltinOperationalActionError("Built-in actions cannot be deleted")
+        if self.action_repository is None:
+            raise RuntimeError("Action repository is required")
+        action = await self.action_repository.get_by_slug(action_id)
+        if action is None:
+            raise OperationalActionNotFoundError("Operational action not found")
+        await self.action_repository.delete(action)
+        await self.action_repository.session.commit()
 
     async def execute_action(self, payload: JobActionExecuteRequest) -> JobRead:
         action = get_action(payload.action_id)
+        if action is None and self.action_repository is not None:
+            action = await self.action_repository.get_by_slug(payload.action_id)
         if action is None:
             raise OperationalActionNotFoundError("Operational action not found")
 
         return await self.execute(
             JobExecuteRequest(
                 target_server_id=payload.target_server_id,
-                operation_type=f"action:{action.id}",
+                operation_type=f"action:{payload.action_id}",
                 command=action.command,
                 credential_ref=payload.credential_ref,
             )
@@ -219,3 +290,15 @@ class JobService:
         server = await self.server_repository.get_by_id(job.target_server_id)
         data = JobRead.model_validate(job)
         return data.model_copy(update={"target_hostname": server.hostname if server else None})
+
+    @staticmethod
+    def _custom_action_to_read(action: CustomOperationalAction) -> OperationalActionRead:
+        return OperationalActionRead(
+            id=action.slug,
+            name=action.name,
+            category=action.category,
+            description=action.description,
+            command=action.command,
+            destructive=action.destructive,
+            is_builtin=False,
+        )

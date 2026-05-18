@@ -29,6 +29,8 @@ export type CreateDeploymentPayload = {
   remote_path?: string;
 };
 
+export type UpdateDeploymentPayload = CreateDeploymentPayload;
+
 export type DeploymentOperation = {
   deployment: Deployment;
   job: Job;

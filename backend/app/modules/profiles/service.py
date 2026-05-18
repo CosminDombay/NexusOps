@@ -318,6 +318,8 @@ class ProfileService:
 
         if kind == "action":
             action = get_action(reference_id)
+            if action is None and self.job_service.action_repository is not None:
+                action = await self.job_service.action_repository.get_by_slug(reference_id)
             if action is None:
                 raise ProfileStepResolutionError(f"Unknown action reference: {reference_id}")
             return self.variable_service.resolve_text(
@@ -364,6 +366,8 @@ class ProfileService:
 
         if kind == "action":
             action = get_action(reference_id)
+            if action is None and self.job_service.action_repository is not None:
+                action = await self.job_service.action_repository.get_by_slug(reference_id)
             if action is None:
                 raise ProfileStepResolutionError(f"Unknown action reference: {reference_id}")
             return await self._resolve_text_pair(action.command, profile_variables, variables, credential_refs)

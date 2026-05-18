@@ -49,8 +49,8 @@ export function TargetSelector({
             {(['single', 'bulk'] as const).map((mode) => (
               <button
                 key={mode}
-                className={`rounded px-3 py-1.5 text-sm font-semibold ${
-                  selection.mode === mode ? 'bg-zinc-950 text-white' : 'text-zinc-600 hover:text-zinc-950'
+                className={`rounded px-3 py-1.5 text-sm font-semibold transition ${
+                  selection.mode === mode ? 'bg-cyan-400 text-zinc-950' : 'text-zinc-600 hover:text-zinc-950'
                 }`}
                 type="button"
                 onClick={() => updateSelection({ mode })}
@@ -123,13 +123,13 @@ export function TargetSelector({
             return (
               <label
                 key={server.id}
-                className={`flex min-h-16 items-start gap-3 rounded-md border px-3 py-2 text-sm ${
-                  checked ? 'border-sky-400 bg-sky-50' : 'border-zinc-200 bg-white'
+                className={`flex min-h-16 items-start gap-3 rounded-md border px-3 py-2 text-sm transition ${
+                  checked ? 'border-cyan-400/70 bg-cyan-400/10 shadow-sm shadow-cyan-950/20' : 'border-zinc-200 bg-white'
                 }`}
               >
                 <input
                   checked={checked}
-                  className="mt-1 h-4 w-4 rounded border-zinc-300 text-sky-600 focus:ring-sky-500"
+                  className="mt-1 h-4 w-4 rounded border-zinc-300 text-cyan-500 focus:ring-cyan-400"
                   type="checkbox"
                   onChange={(event) =>
                     updateSelection({

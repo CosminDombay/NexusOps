@@ -37,3 +37,14 @@ class Job(Base, UuidPrimaryKeyMixin, TimestampMixin):
     exit_code: Mapped[int | None] = mapped_column(Integer)
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class CustomOperationalAction(Base, UuidPrimaryKeyMixin, TimestampMixin):
+    __tablename__ = "custom_operational_actions"
+
+    slug: Mapped[str] = mapped_column(String(100), unique=True, index=True)
+    name: Mapped[str] = mapped_column(String(255), index=True)
+    category: Mapped[str] = mapped_column(String(100), index=True, default="Custom")
+    description: Mapped[str] = mapped_column(Text, default="")
+    command: Mapped[str] = mapped_column(Text)
+    destructive: Mapped[bool] = mapped_column(default=False, nullable=False)

@@ -38,6 +38,7 @@ class WorkflowStepRead(BaseModel):
     log_output: str = ""
     error_output: str = ""
     metadata_json: dict = Field(default_factory=dict)
+    target_hostname: str | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -52,6 +53,7 @@ class WorkflowRunRead(BaseModel):
     started_at: datetime | None = None
     finished_at: datetime | None = None
     target_server_id: UUID | None = None
+    target_hostname: str | None = None
     initiated_by: str | None = None
     context_json: dict = Field(default_factory=dict)
     result_summary: dict = Field(default_factory=dict)

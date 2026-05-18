@@ -14,6 +14,7 @@ export type WorkflowStep = {
   log_output: string;
   error_output: string;
   metadata_json: Record<string, unknown>;
+  target_hostname: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -26,6 +27,7 @@ export type WorkflowRun = {
   started_at: string | null;
   finished_at: string | null;
   target_server_id: string | null;
+  target_hostname: string | null;
   initiated_by: string | null;
   context_json: Record<string, unknown>;
   result_summary: Record<string, unknown>;

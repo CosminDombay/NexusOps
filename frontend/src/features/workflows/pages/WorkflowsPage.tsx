@@ -65,6 +65,7 @@ export function WorkflowsPage() {
               <thead className="bg-zinc-50 text-left text-xs font-semibold uppercase text-zinc-500">
                 <tr>
                   <th className="px-5 py-3">Type</th>
+                  <th className="px-5 py-3">Target</th>
                   <th className="px-5 py-3">Status</th>
                   <th className="px-5 py-3">Trigger</th>
                   <th className="px-5 py-3">Duration</th>
@@ -75,6 +76,7 @@ export function WorkflowsPage() {
                 {workflows.map((workflow) => (
                   <tr key={workflow.id} className="cursor-pointer hover:bg-zinc-50" onClick={() => setSelectedId(workflow.id)}>
                     <td className="px-5 py-3 font-medium text-zinc-950">{formatLabel(workflow.workflow_type)}</td>
+                    <td className="px-5 py-3 text-zinc-600">{workflowTargetLabel(workflow)}</td>
                     <td className="px-5 py-3"><WorkflowBadge status={workflow.status} /></td>
                     <td className="px-5 py-3 text-zinc-600">{formatLabel(workflow.trigger_source)}</td>
                     <td className="px-5 py-3 text-zinc-600">{duration(workflow.started_at, workflow.finished_at)}</td>
@@ -104,6 +106,7 @@ function WorkflowDetail({ workflow }: { workflow: WorkflowRun | null }) {
           <h3 className="text-base font-semibold text-zinc-950">{formatLabel(workflow.workflow_type)}</h3>
           <WorkflowBadge status={workflow.status} />
         </div>
+        <p className="mt-2 text-sm text-zinc-500">Target: {workflowTargetLabel(workflow)}</p>
         {workflow.error_message ? <p className="mt-2 text-sm text-rose-700">{workflow.error_message}</p> : null}
       </div>
       <ol className="divide-y divide-zinc-100">
@@ -111,7 +114,7 @@ function WorkflowDetail({ workflow }: { workflow: WorkflowRun | null }) {
           <li key={step.id} className="p-5">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
               <div>
-                <p className="text-sm font-semibold text-zinc-950">{step.step_order}. {step.name}</p>
+                <p className="text-sm font-semibold text-zinc-950">{step.step_order}. {stepTitle(step)}</p>
                 <p className="mt-1 text-xs text-zinc-500">{formatLabel(step.step_type)} - {duration(step.started_at, step.finished_at)}</p>
               </div>
               <span className="rounded-full bg-zinc-100 px-2.5 py-1 text-xs font-semibold text-zinc-700">{step.status}</span>
@@ -141,6 +144,28 @@ function formatLabel(value: string): string {
 
 function formatDate(value: string | null): string {
   return value ? new Date(value).toLocaleString() : 'Not started';
+}
+
+function workflowTargetLabel(workflow: WorkflowRun): string {
+  if (workflow.target_hostname) {
+    return workflow.target_hostname;
+  }
+  const stepHosts = Array.from(new Set(workflow.steps.map((step) => step.target_hostname).filter(Boolean)));
+  if (stepHosts.length === 1) {
+    return stepHosts[0] ?? 'Unknown target';
+  }
+  if (stepHosts.length > 1) {
+    return `${stepHosts.length} hosts`;
+  }
+  return workflow.target_server_id ?? 'Multiple/unknown';
+}
+
+function stepTitle(step: WorkflowRun['steps'][number]): string {
+  if (!step.target_hostname) {
+    return step.name;
+  }
+  const targetId = typeof step.metadata_json.target_server_id === 'string' ? step.metadata_json.target_server_id : '';
+  return targetId ? step.name.replace(targetId, step.target_hostname) : `${step.name} on ${step.target_hostname}`;
 }
 
 function duration(startedAt: string | null, finishedAt: string | null): string {

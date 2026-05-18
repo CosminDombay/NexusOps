@@ -7,7 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from backend.app.modules.integrations.models import IntegrationType
 
 
-class IntegrationBase(BaseModel):
+class IntegrationFields(BaseModel):
     name: str = Field(min_length=1, max_length=255)
     type: IntegrationType
     enabled: bool = True
@@ -22,6 +22,8 @@ class IntegrationBase(BaseModel):
             raise ValueError("Value cannot be blank")
         return stripped
 
+
+class IntegrationBase(IntegrationFields):
     @model_validator(mode="after")
     def validate_known_config(self) -> Self:
         validate_integration_config(self.name, self.config)
@@ -58,7 +60,7 @@ class IntegrationUpdate(BaseModel):
         return self
 
 
-class IntegrationRead(IntegrationBase):
+class IntegrationRead(IntegrationFields):
     id: UUID
     created_at: datetime
     updated_at: datetime

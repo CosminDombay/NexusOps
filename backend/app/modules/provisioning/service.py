@@ -115,6 +115,13 @@ class ProvisioningService:
             raise ProvisioningNotFoundError("Provisioning request not found")
         return ProvisioningRead.model_validate(request)
 
+    async def delete_request(self, request_id: UUID) -> None:
+        request = await self.repository.get_by_id(request_id)
+        if request is None:
+            raise ProvisioningNotFoundError("Provisioning request not found")
+        await self.repository.delete(request)
+        await self.repository.session.commit()
+
     async def list_batches(self) -> list[ProvisioningBatchRead]:
         batches = await self.batch_repository.list()
         return [await self._batch_read(batch) for batch in batches]
@@ -223,7 +230,22 @@ class ProvisioningService:
 
         try:
             await self._set_status(request, ProvisioningStatus.VALIDATING_IP)
-            if await self.server_repository.get_by_ip_address(static_ip):
+            archived_inventory = await self._archived_inventory_candidate(
+                hostname=payload.cloud_init_hostname,
+                ip_address=static_ip,
+            )
+            if archived_inventory is None:
+                if await self._active_inventory_exists(hostname=payload.cloud_init_hostname, ip_address=static_ip):
+                    raise ProvisioningValidationError("Requested static IP or hostname already exists in inventory")
+            else:
+                active_hostname = await self.server_repository.get_by_hostname(payload.cloud_init_hostname)
+                if active_hostname and active_hostname.id != archived_inventory.id:
+                    raise ProvisioningValidationError("Requested hostname already exists in inventory")
+                active_ip = await self.server_repository.get_by_ip_address(static_ip)
+                if active_ip and active_ip.id != archived_inventory.id:
+                    raise ProvisioningValidationError("Requested static IP already exists in inventory")
+
+            if await self.server_repository.get_by_ip_address(static_ip) and archived_inventory is None:
                 raise ProvisioningValidationError("Requested static IP already exists in inventory")
 
             await self._set_status(request, ProvisioningStatus.CLONING)
@@ -293,35 +315,38 @@ class ProvisioningService:
             )
 
             await self._set_status(request, ProvisioningStatus.INVENTORY_REGISTRATION)
-            server = await InventoryService(self.server_repository).create_server(
-                ServerCreate(
-                    hostname=payload.cloud_init_hostname,
-                    ip_address=static_ip,
-                    operating_system="cloud-init Linux",
-                    vmid=str(payload.new_vm_id),
-                    environment=payload.environment,
-                    tags=[*payload.tags, "source:provisioned", "managed"],
-                    ssh_port=22,
-                    ssh_username=payload.cloud_init_username,
-                    ssh_auth_method=ServerSshAuthMethod.PASSWORD
-                    if payload.cloud_init_password
-                    else ServerSshAuthMethod.KEY,
-                    ssh_password=payload.cloud_init_password,
-                    status=ServerStatus.ONLINE,
-                    provider="proxmox",
-                    external_id=str(payload.new_vm_id),
-                    source="provisioned",
-                    managed=True,
-                    lifecycle_state=InventoryLifecycleState.PROVISIONED,
-                    sync_status=InventorySyncStatus.SYNCED,
-                    provider_node=payload.target_node,
-                    provider_type="qemu",
-                    provider_metadata={
-                        "template_id": payload.template_id,
-                        "vm_name": payload.vm_name,
-                        "additional_disks": [disk.model_dump() for disk in payload.additional_disks],
-                    },
-                )
+            server_payload = ServerCreate(
+                hostname=payload.cloud_init_hostname,
+                ip_address=static_ip,
+                operating_system="cloud-init Linux",
+                vmid=str(payload.new_vm_id),
+                environment=payload.environment,
+                tags=[*payload.tags, "source:provisioned", "managed"],
+                ssh_port=22,
+                ssh_username=payload.cloud_init_username,
+                ssh_auth_method=ServerSshAuthMethod.PASSWORD
+                if payload.cloud_init_password
+                else ServerSshAuthMethod.KEY,
+                ssh_password=payload.cloud_init_password,
+                status=ServerStatus.ONLINE,
+                provider="proxmox",
+                external_id=str(payload.new_vm_id),
+                source="provisioned",
+                managed=True,
+                lifecycle_state=InventoryLifecycleState.PROVISIONED,
+                sync_status=InventorySyncStatus.SYNCED,
+                provider_node=payload.target_node,
+                provider_type="qemu",
+                provider_metadata={
+                    "template_id": payload.template_id,
+                    "vm_name": payload.vm_name,
+                    "additional_disks": [disk.model_dump() for disk in payload.additional_disks],
+                },
+            )
+            server = (
+                await self._restore_archived_inventory(archived_inventory, server_payload)
+                if archived_inventory
+                else await InventoryService(self.server_repository).create_server(server_payload)
             )
             request.server_id = server.id
             await self.repository.session.commit()
@@ -339,6 +364,33 @@ class ProvisioningService:
 
         await self.repository.session.refresh(request)
         return ProvisioningRead.model_validate(request)
+
+    async def _active_inventory_exists(self, *, hostname: str, ip_address: str) -> bool:
+        for server in (
+            await self.server_repository.get_by_hostname(hostname),
+            await self.server_repository.get_by_ip_address(ip_address),
+        ):
+            if server and server.lifecycle_state != InventoryLifecycleState.ARCHIVED:
+                return True
+        return False
+
+    async def _archived_inventory_candidate(self, *, hostname: str, ip_address: str):
+        ip_match = await self.server_repository.get_by_ip_address(ip_address)
+        hostname_match = await self.server_repository.get_by_hostname(hostname)
+        candidates = [server for server in (ip_match, hostname_match) if server and server.lifecycle_state == InventoryLifecycleState.ARCHIVED]
+        if not candidates:
+            return None
+        candidate = candidates[0]
+        if any(server.id != candidate.id for server in candidates):
+            raise ProvisioningValidationError("Requested static IP and hostname belong to different archived inventory records")
+        return candidate
+
+    async def _restore_archived_inventory(self, server, payload: ServerCreate):
+        for key, value in payload.model_dump().items():
+            setattr(server, key, value)
+        await self.server_repository.session.commit()
+        await self.server_repository.session.refresh(server)
+        return server
 
     async def provision_batch(self, payload: ProvisioningBatchCreate) -> ProvisioningBatchRead:
         blueprint = await self.blueprint_repository.get_by_id(payload.blueprint_id)

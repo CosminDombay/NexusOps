@@ -22,6 +22,32 @@ export type LinuxGroup = {
   updated_at: string;
 };
 
+export type UserGroupMembershipHost = {
+  target_server_id: string;
+  target_hostname: string | null;
+  groups: string[];
+  error: string | null;
+};
+
+export type UserGroupMembership = {
+  username: string;
+  hosts: UserGroupMembershipHost[];
+};
+
+export type GroupMembershipHost = {
+  target_server_id: string;
+  target_hostname: string | null;
+  members: string[];
+  primary_members: string[];
+  supplementary_members: string[];
+  error: string | null;
+};
+
+export type GroupMembership = {
+  group: string;
+  hosts: GroupMembershipHost[];
+};
+
 export type SSHKey = {
   id: string;
   name: string;
@@ -78,6 +104,16 @@ export type DiscoveredGroup = {
   name: string;
   hosts: string[];
   gid: number | null;
+  members: string[];
+};
+
+export type DiscoveredUser = {
+  username: string;
+  hosts: string[];
+  uid: number | null;
+  gid: number | null;
+  home_directory: string | null;
+  shell: string | null;
 };
 
 export type IdentityMutationResponse<T> = {
@@ -89,6 +125,7 @@ export type CreateLinuxUserPayload = {
   username: string;
   shell: string;
   home_directory?: string | null;
+  password_credential_ref?: string | null;
   sudo_enabled: boolean;
   sudo_nopasswd: boolean;
   locked: boolean;
@@ -97,12 +134,16 @@ export type CreateLinuxUserPayload = {
   target_server_ids: string[];
 };
 
+export type UpdateLinuxUserPayload = Omit<CreateLinuxUserPayload, 'username'>;
+
 export type CreateLinuxGroupPayload = {
   name: string;
   description?: string | null;
   managed: boolean;
   target_server_ids: string[];
 };
+
+export type UpdateLinuxGroupPayload = CreateLinuxGroupPayload;
 
 export type CreateSSHKeyPayload = {
   name: string;

@@ -116,7 +116,7 @@ export function VmTable({ vms, actionByVmId, allowActions, allowImport = allowAc
   );
 }
 
-function VmActions({
+export function VmActions({
   vm,
   activeAction,
   allowActions,
@@ -139,15 +139,17 @@ function VmActions({
     return (
       <div className="flex flex-wrap gap-2">
         <span className="text-xs font-medium text-zinc-500">Lifecycle actions live in Inventory</span>
-        <button
-          className="inline-flex items-center gap-1.5 rounded-md border border-emerald-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-emerald-700 transition hover:bg-emerald-50 disabled:cursor-not-allowed disabled:border-zinc-300 disabled:bg-zinc-100 disabled:text-zinc-400"
-          disabled={!allowImport || !canImport}
-          type="button"
-          onClick={() => onImport(vm)}
-        >
-          <Download className="h-3.5 w-3.5" aria-hidden="true" />
-          {vm.inventory_sync_status === 'archived' ? 'Re-import' : 'Import'}
-        </button>
+        {allowImport ? (
+          <button
+            className="inline-flex items-center gap-1.5 rounded-md border border-emerald-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-emerald-700 transition hover:bg-emerald-50 disabled:cursor-not-allowed disabled:border-zinc-300 disabled:bg-zinc-100 disabled:text-zinc-400"
+            disabled={!canImport}
+            type="button"
+            onClick={() => onImport(vm)}
+          >
+            <Download className="h-3.5 w-3.5" aria-hidden="true" />
+            {vm.inventory_sync_status === 'archived' ? 'Re-import' : 'Import'}
+          </button>
+        ) : null}
       </div>
     );
   }
@@ -188,15 +190,17 @@ function VmActions({
         tone="danger"
         onClick={() => onAction(vm, 'stop')}
       />
-      <button
-        className="inline-flex items-center gap-1.5 rounded-md border border-emerald-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-emerald-700 transition hover:bg-emerald-50 disabled:cursor-not-allowed disabled:border-zinc-300 disabled:bg-zinc-100 disabled:text-zinc-400"
-        disabled={!canImport}
-        type="button"
-        onClick={() => onImport(vm)}
-      >
-        <Download className="h-3.5 w-3.5" aria-hidden="true" />
-        {vm.inventory_sync_status === 'archived' ? 'Re-import' : 'Import'}
-      </button>
+      {allowImport ? (
+        <button
+          className="inline-flex items-center gap-1.5 rounded-md border border-emerald-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-emerald-700 transition hover:bg-emerald-50 disabled:cursor-not-allowed disabled:border-zinc-300 disabled:bg-zinc-100 disabled:text-zinc-400"
+          disabled={!canImport}
+          type="button"
+          onClick={() => onImport(vm)}
+        >
+          <Download className="h-3.5 w-3.5" aria-hidden="true" />
+          {vm.inventory_sync_status === 'archived' ? 'Re-import' : 'Import'}
+        </button>
+      ) : null}
     </div>
   );
 }

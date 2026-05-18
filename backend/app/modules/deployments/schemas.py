@@ -31,6 +31,10 @@ class DeploymentCreate(BaseModel):
         return list(dict.fromkeys(value))
 
 
+class DeploymentUpdate(DeploymentCreate):
+    pass
+
+
 class DeploymentRead(BaseModel):
     id: UUID
     name: str

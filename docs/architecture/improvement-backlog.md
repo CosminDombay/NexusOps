@@ -38,6 +38,7 @@ This backlog captures near-term product and engineering improvements from the Ma
 - Add storage target discovery for Proxmox disks instead of requiring operators to type `local-lvm`.
 - Add confirmation dialogs for deployment stop/redeploy and any operation likely to disrupt services.
 - Make job/deployment logs easier to read with wrapping, copy, search, timestamps, and stdout/stderr tabs.
+- Turn Identity live discovery results into richer, filterable tables with per-host drilldowns for users, groups, memberships, and replication drift.
 
 ## Backend Improvements
 
@@ -69,6 +70,7 @@ This backlog captures near-term product and engineering improvements from the Ma
 - Add credential rotation workflow and "last used" metadata.
 - Avoid returning sensitive-ish config fields in integration/deployment reads unless redacted.
 - Decide whether deployment plaintext `.env` content should remain supported or be split into explicit non-secret env vars plus credential-backed secret env vars.
+- Decide whether Identity should persist per-host Linux user/group membership snapshots or keep membership inspection as live, on-demand host state.
 
 ### Testing and Tooling
 

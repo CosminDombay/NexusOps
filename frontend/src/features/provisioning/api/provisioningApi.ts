@@ -47,6 +47,10 @@ export async function createProvisioningRequest(
   return response.data;
 }
 
+export async function deleteProvisioningRequest(requestId: string): Promise<void> {
+  await apiClient.delete(`/vms/${requestId}`);
+}
+
 export async function listProvisioningBlueprints(): Promise<ProvisioningBlueprint[]> {
   const response = await apiClient.get<ProvisioningBlueprint[]>('/vms/blueprints');
   return response.data;

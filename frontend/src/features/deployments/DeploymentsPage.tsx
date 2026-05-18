@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { KeyRound, Play, Plus, RefreshCw, Square, Terminal, Trash2 } from 'lucide-react';
+import { KeyRound, Pencil, Play, Plus, RefreshCw, Square, Terminal, Trash2, X } from 'lucide-react';
 
 import { PageHeader } from '../../components/layout/PageHeader';
 import { getApiErrorMessage } from '../../lib/api/client';
@@ -11,8 +11,8 @@ import type { Server } from '../inventory/types/server';
 import { selectedTargetIds } from '../inventory/types/targetSelection';
 import { listCredentials } from '../credentials/api/credentialsApi';
 import type { Credential } from '../credentials/types/credential';
-import { createDeployment, getDeploymentLogs, listDeployments, runDeploymentOperation } from './api/deploymentsApi';
-import type { Deployment } from './types/deployment';
+import { createDeployment, deleteDeployment, getDeploymentLogs, listDeployments, runDeploymentOperation, updateDeployment } from './api/deploymentsApi';
+import type { CreateDeploymentPayload, Deployment } from './types/deployment';
 
 const defaultCompose = `services:
   web:
@@ -20,6 +20,8 @@ const defaultCompose = `services:
     ports:
       - "8080:80"
 `;
+
+const defaultRemotePath = '/opt/nexusops/deployments';
 
 export function DeploymentsPage() {
   const [deployments, setDeployments] = useState<Deployment[]>([]);
@@ -31,11 +33,13 @@ export function DeploymentsPage() {
   const targetSelector = useTargetSelection('single');
   const [composeContent, setComposeContent] = useState(defaultCompose);
   const [envContent, setEnvContent] = useState('');
+  const [remotePath, setRemotePath] = useState(defaultRemotePath);
   const [credentialRefs, setCredentialRefs] = useState<Array<{ key: string; credentialId: string }>>([]);
   const [logs, setLogs] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isWorking, setIsWorking] = useState(false);
+  const [editingDeploymentId, setEditingDeploymentId] = useState<string | null>(null);
 
   async function refresh() {
     setIsLoading(true);
@@ -54,36 +58,81 @@ export function DeploymentsPage() {
     }
   }
 
-  async function handleCreate() {
+  function deploymentPayload(targets: string[]): CreateDeploymentPayload {
+    return {
+      name: name.trim(),
+      target_server_id: targets[0],
+      target_server_ids: targets,
+      compose_content: composeContent,
+      env_content: envContent || null,
+      remote_path: remotePath.trim(),
+      credential_refs: Object.fromEntries(
+        credentialRefs
+          .filter((item) => item.key.trim() && item.credentialId)
+          .map((item) => [item.key.trim(), item.credentialId]),
+      ),
+    };
+  }
+
+  function resetForm() {
+    setEditingDeploymentId(null);
+    setName('nginx-demo');
+    setComposeContent(defaultCompose);
+    setEnvContent('');
+    setRemotePath(defaultRemotePath);
+    setCredentialRefs([]);
+    targetSelector.setMode('single');
+    targetSelector.setSelectedId(targetServerId);
+    targetSelector.setSelectedIds([]);
+  }
+
+  async function handleSave() {
     const targets = selectedTargetIds({
       ...targetSelector.selection,
       selectedId: targetSelector.selection.selectedId || targetServerId,
     });
-    if (!name.trim() || targets.length === 0 || !composeContent.trim()) {
+    if (!name.trim() || targets.length === 0 || !composeContent.trim() || !remotePath.trim()) {
       return;
     }
     setIsWorking(true);
     setError(null);
     try {
-      const deployment = await createDeployment({
-        name,
-        target_server_id: targets[0],
-        target_server_ids: targets,
-        compose_content: composeContent,
-        env_content: envContent || null,
-        credential_refs: Object.fromEntries(
-          credentialRefs
-            .filter((item) => item.key.trim() && item.credentialId)
-            .map((item) => [item.key.trim(), item.credentialId]),
-        ),
-      });
-      setDeployments((current) => [deployment, ...current]);
-      setSelectedDeploymentId(deployment.id);
+      const payload = deploymentPayload(targets);
+      if (editingDeploymentId) {
+        const deployment = await updateDeployment(editingDeploymentId, payload);
+        setDeployments((current) => current.map((item) => (item.id === deployment.id ? deployment : item)));
+        setSelectedDeploymentId(deployment.id);
+        setEditingDeploymentId(null);
+      } else {
+        const deployment = await createDeployment(payload);
+        setDeployments((current) => [deployment, ...current]);
+        setSelectedDeploymentId(deployment.id);
+      }
     } catch (caughtError) {
       setError(getApiErrorMessage(caughtError));
     } finally {
       setIsWorking(false);
     }
+  }
+
+  function handleEditDeployment() {
+    const deployment = selectedDeployment;
+    if (!deployment) {
+      return;
+    }
+    setEditingDeploymentId(deployment.id);
+    setName(deployment.name);
+    setComposeContent(deployment.compose_content);
+    setEnvContent(deployment.env_content ?? '');
+    setRemotePath(deployment.remote_path ?? defaultRemotePath);
+    setCredentialRefs(
+      Object.entries(deployment.credential_refs ?? {}).map(([key, credentialId]) => ({ key, credentialId })),
+    );
+    targetSelector.setMode('single');
+    targetSelector.setSelectedId(deployment.target_server_id ?? '');
+    targetSelector.setSelectedIds([]);
+    setTargetServerId(deployment.target_server_id ?? '');
+    setError(null);
   }
 
   async function run(operation: 'deploy' | 'redeploy' | 'restart' | 'stop') {
@@ -120,6 +169,32 @@ export function DeploymentsPage() {
     }
   }
 
+  async function handleDeleteDeployment() {
+    const deployment = selectedDeployment;
+    if (!deployment) {
+      return;
+    }
+    const confirmed = window.confirm(
+      `Delete deployment ${deployment.name}? This removes the NexusOps record and history only. It does not stop containers or remove files from the server.`,
+    );
+    if (!confirmed) {
+      return;
+    }
+    setIsWorking(true);
+    setError(null);
+    try {
+      await deleteDeployment(deployment.id);
+      const nextDeployments = deployments.filter((item) => item.id !== deployment.id);
+      setDeployments(nextDeployments);
+      setSelectedDeploymentId(nextDeployments[0]?.id ?? '');
+      setLogs('');
+    } catch (caughtError) {
+      setError(getApiErrorMessage(caughtError));
+    } finally {
+      setIsWorking(false);
+    }
+  }
+
   useEffect(() => {
     void refresh();
   }, []);
@@ -133,6 +208,15 @@ export function DeploymentsPage() {
       {error ? <div className="rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</div> : null}
 
       <section className="grid gap-4 rounded-lg border border-zinc-200 bg-white p-5 shadow-sm lg:grid-cols-2">
+        <div className="flex items-center justify-between gap-3 lg:col-span-2">
+          <h2 className="text-base font-semibold text-zinc-950">{editingDeploymentId ? 'Edit deployment' : 'Create deployment'}</h2>
+          {editingDeploymentId ? (
+            <button className="inline-flex items-center gap-2 rounded-md border border-zinc-300 px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50" type="button" onClick={resetForm}>
+              <X className="h-4 w-4" aria-hidden="true" />
+              Cancel edit
+            </button>
+          ) : null}
+        </div>
         <label className="block">
           <span className="text-sm font-medium text-zinc-950">Deployment name</span>
           <input className="mt-2 h-10 w-full rounded-md border border-zinc-300 px-3 text-sm" value={name} onChange={(event) => setName(event.target.value)} />
@@ -157,6 +241,25 @@ export function DeploymentsPage() {
           <span className="text-sm font-medium text-zinc-950">Compose YAML</span>
           <textarea className="mt-2 min-h-56 w-full rounded-md border border-zinc-300 p-3 font-mono text-sm" value={composeContent} onChange={(event) => setComposeContent(event.target.value)} />
         </label>
+        <section className="space-y-3 rounded-md border border-zinc-200 bg-zinc-50 p-4 lg:col-span-2">
+          <div>
+            <h3 className="text-sm font-semibold text-zinc-950">Host deployment settings</h3>
+            <p className="mt-1 text-sm text-zinc-500">NexusOps writes docker-compose.yaml and .env under this base directory on the selected server.</p>
+          </div>
+          <label className="block">
+            <span className="text-sm font-medium text-zinc-950">Remote base path</span>
+            <input
+              className="mt-2 h-10 w-full rounded-md border border-zinc-300 px-3 font-mono text-sm"
+              placeholder={defaultRemotePath}
+              value={remotePath}
+              onChange={(event) => setRemotePath(event.target.value)}
+            />
+          </label>
+          <div className="grid gap-2 text-xs text-zinc-500 md:grid-cols-2">
+            <p>Default requires the SSH user to own or write to /opt/nexusops.</p>
+            <p>For non-root SSH users, use a path like /home/ubuntu/nexusops/deployments.</p>
+          </div>
+        </section>
         <label className="block lg:col-span-2">
           <span className="text-sm font-medium text-zinc-950">Environment file</span>
           <textarea className="mt-2 min-h-24 w-full rounded-md border border-zinc-300 p-3 font-mono text-sm" value={envContent} onChange={(event) => setEnvContent(event.target.value)} />
@@ -211,9 +314,9 @@ export function DeploymentsPage() {
             <p className="text-sm text-zinc-500">Use credentials for tokens, passwords, and API keys that should not live in the env editor.</p>
           )}
         </div>
-        <button className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-zinc-950 px-4 text-sm font-semibold text-white disabled:bg-zinc-300" disabled={isWorking} type="button" onClick={handleCreate}>
-          <Play className="h-4 w-4" aria-hidden="true" />
-          Create
+        <button className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-zinc-950 px-4 text-sm font-semibold text-white disabled:bg-zinc-300" disabled={isWorking} type="button" onClick={handleSave}>
+          {editingDeploymentId ? <Pencil className="h-4 w-4" aria-hidden="true" /> : <Play className="h-4 w-4" aria-hidden="true" />}
+          {editingDeploymentId ? 'Save changes' : 'Create'}
         </button>
       </section>
 
@@ -234,6 +337,8 @@ export function DeploymentsPage() {
             <ActionButton icon={RefreshCw} label="Restart" disabled={!selectedDeployment || isWorking} onClick={() => void run('restart')} />
             <ActionButton icon={Square} label="Stop" disabled={!selectedDeployment || isWorking} onClick={() => void run('stop')} />
             <ActionButton icon={Terminal} label="Logs" disabled={!selectedDeployment || isWorking} onClick={() => void loadLogs()} />
+            <ActionButton icon={Pencil} label="Edit" disabled={!selectedDeployment || isWorking} onClick={handleEditDeployment} />
+            <ActionButton icon={Trash2} label="Delete" disabled={!selectedDeployment || isWorking} tone="danger" onClick={() => void handleDeleteDeployment()} />
           </div>
         </div>
         <div className="mt-4 overflow-x-auto">
@@ -249,6 +354,9 @@ export function DeploymentsPage() {
                         {deployment.target_hostname ?? 'Open host'}
                       </Link>
                     ) : 'No target'}
+                  </td>
+                  <td className="py-3 font-mono text-xs text-zinc-500">
+                    {deployment.remote_path ? deploymentPathPreview(deployment) : null}
                   </td>
                   <td className="py-3 text-zinc-600"><DeploymentStatusBadge status={deployment.status} /></td>
                   <td className="py-3 text-zinc-600">
@@ -272,6 +380,11 @@ export function DeploymentsPage() {
       </section>
     </div>
   );
+}
+
+function deploymentPathPreview(deployment: Deployment): string {
+  const safeName = deployment.name.toLowerCase().replace(/[^a-z0-9_-]/g, '-');
+  return `${deployment.remote_path?.replace(/\/$/, '')}/${safeName}`;
 }
 
 function deploymentStatusLabel(status: Deployment['status']): string {
@@ -301,15 +414,20 @@ function ActionButton({
   icon: Icon,
   label,
   disabled,
+  tone = 'default',
   onClick,
 }: {
   icon: typeof Play;
   label: string;
   disabled: boolean;
+  tone?: 'default' | 'danger';
   onClick: () => void;
 }) {
+  const className = tone === 'danger'
+    ? 'inline-flex h-10 items-center gap-2 rounded-md border border-rose-300 px-3 text-sm font-semibold text-rose-700 disabled:opacity-50'
+    : 'inline-flex h-10 items-center gap-2 rounded-md border border-zinc-300 px-3 text-sm font-semibold text-zinc-700 disabled:opacity-50';
   return (
-    <button className="inline-flex h-10 items-center gap-2 rounded-md border border-zinc-300 px-3 text-sm font-semibold text-zinc-700 disabled:opacity-50" disabled={disabled} type="button" onClick={onClick}>
+    <button className={className} disabled={disabled} type="button" onClick={onClick}>
       <Icon className="h-4 w-4" aria-hidden="true" />
       {label}
     </button>

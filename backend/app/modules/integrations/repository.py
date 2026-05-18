@@ -19,6 +19,10 @@ class IntegrationRepository(BaseRepository[Integration]):
         result = await self.session.execute(select(Integration).where(Integration.id == integration_id))
         return result.scalar_one_or_none()
 
+    async def delete(self, integration: Integration) -> None:
+        await self.session.delete(integration)
+        await self.session.flush()
+
     async def list(self) -> list[Integration]:
         result = await self.session.execute(select(Integration).order_by(Integration.name.asc()))
         return list(result.scalars().all())

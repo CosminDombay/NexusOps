@@ -32,6 +32,7 @@ class LinuxUserCreate(BaseModel):
     username: str = Field(min_length=1, max_length=32)
     shell: str = "/bin/bash"
     home_directory: str | None = None
+    password_credential_ref: str | None = Field(default=None, max_length=255)
     sudo_enabled: bool = False
     sudo_nopasswd: bool = False
     locked: bool = False
@@ -63,6 +64,14 @@ class LinuxUserCreate(BaseModel):
             return None
         return validate_absolute_path(value)
 
+    @field_validator("password_credential_ref")
+    @classmethod
+    def validate_password_credential_ref(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        stripped = value.strip()
+        return stripped or None
+
     @field_validator("supplementary_groups")
     @classmethod
     def validate_groups(cls, value: list[str]) -> list[str]:
@@ -93,6 +102,55 @@ class LinuxUserRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class LinuxUserUpdate(BaseModel):
+    shell: str = "/bin/bash"
+    home_directory: str | None = None
+    password_credential_ref: str | None = Field(default=None, max_length=255)
+    sudo_enabled: bool = False
+    sudo_nopasswd: bool = False
+    locked: bool = False
+    managed: bool = True
+    supplementary_groups: list[str] = Field(default_factory=list)
+    target_server_ids: list[UUID] = Field(default_factory=list)
+
+    @field_validator("shell")
+    @classmethod
+    def validate_shell(cls, value: str) -> str:
+        stripped = value.strip()
+        if stripped not in ALLOWED_SHELLS:
+            raise ValueError("Unsupported shell")
+        return stripped
+
+    @field_validator("home_directory")
+    @classmethod
+    def validate_home(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        return validate_absolute_path(value)
+
+    @field_validator("password_credential_ref")
+    @classmethod
+    def validate_password_credential_ref(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        stripped = value.strip()
+        return stripped or None
+
+    @field_validator("supplementary_groups")
+    @classmethod
+    def validate_groups(cls, value: list[str]) -> list[str]:
+        normalized = []
+        for group in value:
+            stripped = group.strip()
+            if stripped == "__admin__":
+                normalized.append(stripped)
+                continue
+            if not GROUP_PATTERN.match(stripped):
+                raise ValueError("Invalid Linux group name")
+            normalized.append(stripped)
+        return normalized
+
+
 class LinuxGroupCreate(BaseModel):
     name: str = Field(min_length=1, max_length=32)
     description: str | None = Field(default=None, max_length=2000)
@@ -117,6 +175,21 @@ class LinuxGroupRead(BaseModel):
     updated_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class LinuxGroupUpdate(BaseModel):
+    name: str = Field(min_length=1, max_length=32)
+    description: str | None = Field(default=None, max_length=2000)
+    managed: bool = True
+    target_server_ids: list[UUID] = Field(default_factory=list)
+
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, value: str) -> str:
+        stripped = value.strip()
+        if not GROUP_PATTERN.match(stripped):
+            raise ValueError("Invalid Linux group name")
+        return stripped
 
 
 class GroupMembersRequest(BaseModel):
@@ -300,10 +373,50 @@ class DiscoveredGroupRead(BaseModel):
     name: str
     hosts: list[str]
     gid: int | None = None
+    members: list[str] = Field(default_factory=list)
+
+
+class DiscoveredUserRead(BaseModel):
+    username: str
+    hosts: list[str]
+    uid: int | None = None
+    gid: int | None = None
+    home_directory: str | None = None
+    shell: str | None = None
 
 
 class GroupDiscoveryRead(BaseModel):
     groups: list[DiscoveredGroupRead]
+
+
+class UserDiscoveryRead(BaseModel):
+    users: list[DiscoveredUserRead]
+
+
+class UserGroupMembershipHostRead(BaseModel):
+    target_server_id: UUID
+    target_hostname: str | None = None
+    groups: list[str] = Field(default_factory=list)
+    error: str | None = None
+
+
+class UserGroupMembershipRead(BaseModel):
+    username: str
+    hosts: list[UserGroupMembershipHostRead]
+
+
+class GroupMemberHostRead(BaseModel):
+    target_server_id: UUID
+    target_hostname: str | None = None
+    members: list[str] = Field(default_factory=list)
+    primary_members: list[str] = Field(default_factory=list)
+    supplementary_members: list[str] = Field(default_factory=list)
+    error: str | None = None
+
+
+class GroupMembershipRead(BaseModel):
+    group: str
+    hosts: list[GroupMemberHostRead]
 
 
 class IdentityMutationRead(BaseModel):

@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.db.session import get_db_session
+from backend.app.modules.inventory.repository import ServerRepository
 from backend.app.modules.workflows.repository import WorkflowRunRepository, WorkflowStepRepository
 from backend.app.modules.workflows.schemas import WorkflowRunRead
 from backend.app.modules.workflows.service import WorkflowNotFoundError, WorkflowService
@@ -18,6 +19,7 @@ async def get_workflow_service(
     return WorkflowService(
         workflow_repository=WorkflowRunRepository(session),
         step_repository=WorkflowStepRepository(session),
+        server_repository=ServerRepository(session),
     )
 
 

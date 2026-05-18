@@ -1,7 +1,8 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { AlertCircle, Archive, CheckSquare, Pencil, RefreshCw, ServerIcon, Trash2 } from 'lucide-react';
+import { AlertCircle, Archive, CheckSquare, Pencil, Play, Power, RefreshCw, RotateCw, ServerIcon, Trash2 } from 'lucide-react';
 
+import type { ProxmoxVmAction } from '../../proxmox/types/proxmox';
 import type { Server, UpdateServerPayload } from '../types/server';
 import { formatLabel } from '../utils/options';
 import { EnvironmentBadge, HealthBadge, LifecycleBadge, SyncBadge } from './ServerBadges';
@@ -17,7 +18,9 @@ type ServerListProps = {
   onDelete: (serverId: string) => Promise<boolean>;
   onArchive: (serverId: string) => Promise<boolean>;
   onHealthCheck: (serverIds?: string[]) => Promise<boolean>;
+  onVmLifecycleAction: (serverIds: string[], action: ProxmoxVmAction) => Promise<boolean>;
   isCheckingHealth: boolean;
+  isRunningVmLifecycleAction: boolean;
   onClearMutationError: () => void;
 };
 
@@ -31,13 +34,20 @@ export function ServerList({
   onDelete,
   onArchive,
   onHealthCheck,
+  onVmLifecycleAction,
   isCheckingHealth,
+  isRunningVmLifecycleAction,
   onClearMutationError,
 }: ServerListProps) {
   const [editingServer, setEditingServer] = useState<Server | null>(null);
   const [selectedServerIds, setSelectedServerIds] = useState<string[]>([]);
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const serverIds = new Set(servers.map((server) => server.id));
+    setSelectedServerIds((current) => current.filter((serverId) => serverIds.has(serverId)));
+  }, [servers]);
 
   if (isLoading) {
     return (
@@ -83,18 +93,88 @@ export function ServerList({
     );
   }
 
+  const selectedServers = servers.filter((server) => selectedServerIds.includes(server.id));
+  const selectedLifecycleTargets = selectedServers.filter(hasInventoryVmId);
+  const allServersSelected = selectedServerIds.length === servers.length;
+  const hasSelection = selectedServerIds.length > 0;
+
+  function toggleAllServers(checked: boolean) {
+    setSelectedServerIds(checked ? servers.map((server) => server.id) : []);
+  }
+
+  async function runSelectedLifecycleAction(action: ProxmoxVmAction) {
+    if (!hasSelection) {
+      return;
+    }
+
+    if (action !== 'start') {
+      const actionLabel = action === 'shutdown' ? 'shut down' : action;
+      const confirmed = window.confirm(
+        `${actionLabel.charAt(0).toUpperCase() + actionLabel.slice(1)} ${selectedServerIds.length} selected inventory host(s)?`,
+      );
+      if (!confirmed) {
+        return;
+      }
+    }
+
+    const success = await onVmLifecycleAction(selectedServerIds, action);
+    if (success) {
+      setSelectedServerIds([]);
+    }
+  }
+
   return (
     <section className="rounded-lg border border-zinc-200 bg-white shadow-sm">
       <div className="flex items-center justify-between gap-4 border-b border-zinc-200 px-5 py-4">
         <div>
           <h3 className="text-base font-semibold text-zinc-950">Registered servers</h3>
-          <p className="mt-1 text-sm text-zinc-500">{servers.length} hosts tracked by inventory</p>
+          <p className="mt-1 text-sm text-zinc-500">
+            {servers.length} hosts tracked by inventory
+            {hasSelection ? ` · ${selectedServerIds.length} selected` : ''}
+          </p>
         </div>
         <div className="flex flex-wrap gap-2">
+          {hasSelection ? (
+            <div className="flex flex-wrap gap-2">
+              <LifecycleActionButton
+                action="start"
+                count={selectedLifecycleTargets.length}
+                disabled={isRunningVmLifecycleAction || selectedLifecycleTargets.length === 0}
+                icon={Play}
+                label="Start"
+                onClick={runSelectedLifecycleAction}
+              />
+              <LifecycleActionButton
+                action="shutdown"
+                count={selectedLifecycleTargets.length}
+                disabled={isRunningVmLifecycleAction || selectedLifecycleTargets.length === 0}
+                icon={Power}
+                label="Shutdown"
+                onClick={runSelectedLifecycleAction}
+              />
+              <LifecycleActionButton
+                action="reboot"
+                count={selectedLifecycleTargets.length}
+                disabled={isRunningVmLifecycleAction || selectedLifecycleTargets.length === 0}
+                icon={RotateCw}
+                label="Reboot"
+                onClick={runSelectedLifecycleAction}
+              />
+              <LifecycleActionButton
+                action="stop"
+                count={selectedLifecycleTargets.length}
+                disabled={isRunningVmLifecycleAction || selectedLifecycleTargets.length === 0}
+                icon={Power}
+                label="Stop"
+                onClick={runSelectedLifecycleAction}
+                variant="danger"
+              />
+            </div>
+          ) : null}
           <button
             className="inline-flex items-center gap-2 rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm font-semibold text-zinc-700 transition hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-60"
             type="button"
-            disabled={isCheckingHealth}
+            disabled={isCheckingHealth || isRunningVmLifecycleAction}
             onClick={() => void onHealthCheck(selectedServerIds.length ? selectedServerIds : undefined)}
           >
             <CheckSquare className="h-4 w-4" aria-hidden="true" />
@@ -125,7 +205,16 @@ export function ServerList({
         <table className="min-w-full divide-y divide-zinc-200">
           <thead className="bg-zinc-50">
             <tr>
-              {['', 'Hostname', 'IP address', 'Environment', 'Provider', 'Lifecycle', 'Sync', 'Health', 'Last checked', 'Actions'].map((heading) => (
+              <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-normal text-zinc-500">
+                <input
+                  aria-label={allServersSelected ? 'Clear selected servers' : 'Select all servers'}
+                  checked={allServersSelected}
+                  className="h-4 w-4 rounded border-zinc-300 text-zinc-950 focus:ring-zinc-950"
+                  type="checkbox"
+                  onChange={(event) => toggleAllServers(event.target.checked)}
+                />
+              </th>
+              {['Hostname', 'IP address', 'Environment', 'Provider', 'Lifecycle', 'Sync', 'Health', 'Last checked', 'Actions'].map((heading) => (
                 <th key={heading} className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-normal text-zinc-500">
                   {heading}
                 </th>
@@ -194,11 +283,26 @@ export function ServerList({
         {servers.map((server) => (
           <article key={server.id} className="rounded-lg border border-zinc-200 p-4">
             <div className="flex items-start justify-between gap-3">
-              <div>
-                <Link className="font-semibold text-zinc-950 hover:text-zinc-700" to={`/inventory/${server.id}`}>
-                  {server.hostname}
-                </Link>
-                <p className="mt-1 font-mono text-sm text-zinc-600">{server.ip_address}</p>
+              <div className="flex items-start gap-3">
+                <input
+                  aria-label={`Select ${server.hostname}`}
+                  checked={selectedServerIds.includes(server.id)}
+                  className="mt-1 h-4 w-4 rounded border-zinc-300 text-zinc-950 focus:ring-zinc-950"
+                  type="checkbox"
+                  onChange={(event) => {
+                    setSelectedServerIds((current) =>
+                      event.target.checked
+                        ? [...current, server.id]
+                        : current.filter((serverId) => serverId !== server.id),
+                    );
+                  }}
+                />
+                <div>
+                  <Link className="font-semibold text-zinc-950 hover:text-zinc-700" to={`/inventory/${server.id}`}>
+                    {server.hostname}
+                  </Link>
+                  <p className="mt-1 font-mono text-sm text-zinc-600">{server.ip_address}</p>
+                </div>
               </div>
               <HealthBadge status={server.last_health_status} />
             </div>
@@ -270,6 +374,56 @@ function formatTimestamp(value: string | null): string {
     dateStyle: 'short',
     timeStyle: 'short',
   }).format(new Date(value));
+}
+
+function hasInventoryVmId(server: Server): boolean {
+  if (server.provider?.toLowerCase() !== 'proxmox') {
+    return false;
+  }
+
+  const rawVmId = server.vmid ?? server.external_id;
+  if (rawVmId === null || rawVmId === undefined || rawVmId === '') {
+    return false;
+  }
+
+  const vmId = Number(rawVmId);
+  return Number.isInteger(vmId) && vmId > 0;
+}
+
+function LifecycleActionButton({
+  action,
+  count,
+  disabled,
+  icon: Icon,
+  label,
+  onClick,
+  variant = 'default',
+}: {
+  action: ProxmoxVmAction;
+  count: number;
+  disabled: boolean;
+  icon: typeof Play;
+  label: string;
+  onClick: (action: ProxmoxVmAction) => Promise<void>;
+  variant?: 'default' | 'danger';
+}) {
+  const buttonClass =
+    variant === 'danger'
+      ? 'border-rose-400 bg-white text-rose-700 hover:bg-rose-50'
+      : 'border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50';
+
+  return (
+    <button
+      className={`inline-flex items-center gap-2 rounded-md border px-3 py-2 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-60 ${buttonClass}`}
+      type="button"
+      disabled={disabled}
+      title={count === 0 ? 'Selected hosts need Proxmox VMIDs before lifecycle actions can run.' : undefined}
+      onClick={() => void onClick(action)}
+    >
+      <Icon className="h-4 w-4" aria-hidden="true" />
+      {label} {count}
+    </button>
+  );
 }
 
 function ServerActions({

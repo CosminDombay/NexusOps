@@ -1,6 +1,6 @@
 from uuid import UUID
 
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 
 from backend.app.common.repository import BaseRepository
 from backend.app.modules.deployments.models import (
@@ -25,6 +25,9 @@ class DeploymentRepository(BaseRepository[Deployment]):
         result = await self.session.execute(select(Deployment).order_by(Deployment.created_at.desc()))
         return list(result.scalars().all())
 
+    async def delete(self, deployment: Deployment) -> None:
+        await self.session.delete(deployment)
+
 
 class DeploymentTargetRepository(BaseRepository[DeploymentTarget]):
     async def create(self, target: DeploymentTarget) -> DeploymentTarget:
@@ -38,6 +41,9 @@ class DeploymentTargetRepository(BaseRepository[DeploymentTarget]):
             select(DeploymentTarget).where(DeploymentTarget.deployment_id == deployment_id)
         )
         return result.scalar_one_or_none()
+
+    async def delete_for_deployment(self, deployment_id: UUID) -> None:
+        await self.session.execute(delete(DeploymentTarget).where(DeploymentTarget.deployment_id == deployment_id))
 
 
 class DeploymentRevisionRepository(BaseRepository[DeploymentRevision]):
@@ -62,3 +68,6 @@ class DeploymentRevisionRepository(BaseRepository[DeploymentRevision]):
             )
         )
         return int(result.scalar_one_or_none() or 0) + 1
+
+    async def delete_for_deployment(self, deployment_id: UUID) -> None:
+        await self.session.execute(delete(DeploymentRevision).where(DeploymentRevision.deployment_id == deployment_id))

@@ -3,9 +3,10 @@ from typing import Any
 import pytest
 
 from backend.app.adapters.ssh import SshAdapter, SshExecutionResult
-from backend.app.modules.identity.repository import IdentityExecutionRepository, LinuxUserRepository
-from backend.app.modules.identity.schemas import LinuxUserCreate, ReplicationRequest
-from backend.app.modules.identity.service import IdentityReplicationService, LinuxUserService
+from backend.app.modules.credentials.schemas import ResolvedCredential
+from backend.app.modules.identity.repository import IdentityExecutionRepository, LinuxGroupRepository, LinuxUserRepository
+from backend.app.modules.identity.schemas import LinuxGroupCreate, LinuxGroupUpdate, LinuxUserCreate, ReplicationRequest
+from backend.app.modules.identity.service import IdentityReplicationService, LinuxGroupService, LinuxUserService
 from backend.app.modules.inventory.repository import ServerRepository
 from backend.app.modules.inventory.schemas import ServerCreate
 from backend.app.modules.inventory.service import InventoryService
@@ -14,8 +15,9 @@ from backend.app.modules.jobs.service import JobService
 
 
 class FakeSshAdapter(SshAdapter):
-    def __init__(self) -> None:
+    def __init__(self, *, stdout: str = "identity ok\n") -> None:
         self.calls: list[dict[str, Any]] = []
+        self.stdout = stdout
 
     @property
     def name(self) -> str:
@@ -32,10 +34,20 @@ class FakeSshAdapter(SshAdapter):
         private_key_path: str | None = None,
     ) -> SshExecutionResult:
         self.calls.append({"host": host, "command": command, "user": user})
-        return SshExecutionResult(exit_code=0, stdout="identity ok\n", stderr="")
+        return SshExecutionResult(exit_code=0, stdout=self.stdout, stderr="")
 
     async def upload_file(self, host: str, local_path: str, remote_path: str, user: str) -> None:
         raise NotImplementedError
+
+
+class FakeCredentialService:
+    async def resolve_credential(self, credential_id_or_name):
+        return ResolvedCredential(
+            id="11111111-1111-1111-1111-111111111111",
+            name=str(credential_id_or_name),
+            credential_type="password",
+            secret="SuperSecret123!",
+        )
 
 
 def server_payload(**overrides):
@@ -87,8 +99,169 @@ async def test_linux_user_replication_uses_jobs_pipeline(client) -> None:
         assert "visudo -cf" in adapter.calls[0]["command"]
 
 
+@pytest.mark.asyncio
+async def test_linux_user_password_credential_is_redacted_in_job_history(client) -> None:
+    session = next(iter(client.app.dependency_overrides.values()))
+    async for db_session in session():
+        server = await InventoryService(ServerRepository(db_session)).create_server(
+            ServerCreate(**server_payload(hostname="identity-target-02", ip_address="10.4.0.12"))
+        )
+        adapter = FakeSshAdapter()
+        service = LinuxUserService(
+            repository=LinuxUserRepository(db_session),
+            replication_service=IdentityReplicationService(
+                job_service=JobService(
+                    job_repository=JobRepository(db_session),
+                    server_repository=ServerRepository(db_session),
+                    ssh_adapter=adapter,
+                ),
+                execution_repository=IdentityExecutionRepository(db_session),
+            ),
+            credential_service=FakeCredentialService(),
+        )
+
+        created = await service.create_user(
+            LinuxUserCreate(
+                username="deploy",
+                password_credential_ref="deploy-password",
+                target_server_ids=[server.id],
+            )
+        )
+
+        job = created.replication.results[0].job
+        assert "SuperSecret123!" in adapter.calls[0]["command"]
+        assert "chpasswd" in adapter.calls[0]["command"]
+        assert job is not None
+        assert "SuperSecret123!" not in job.command
+        assert "deploy:********" in job.command
+
+
 def test_identity_router_lists_users(client) -> None:
     response = client.get("/api/v1/identity/users")
 
     assert response.status_code == 200
     assert response.json() == []
+
+
+@pytest.mark.asyncio
+async def test_identity_discovery_parses_existing_users_and_groups(client) -> None:
+    session = next(iter(client.app.dependency_overrides.values()))
+    async for db_session in session():
+        server = await InventoryService(ServerRepository(db_session)).create_server(
+            ServerCreate(**server_payload(hostname="discover-identity-01", ip_address="10.4.0.11"))
+        )
+        user_adapter = FakeSshAdapter(
+            stdout=(
+                "root:x:0:0:root:/root:/bin/bash\n"
+                "deploy:x:1001:1001::/home/deploy:/bin/bash\n"
+                "daemon:x:1:1:daemon:/usr/sbin:/usr/sbin/nologin\n"
+            )
+        )
+        user_discovery = await IdentityReplicationService(
+            job_service=JobService(
+                job_repository=JobRepository(db_session),
+                server_repository=ServerRepository(db_session),
+                ssh_adapter=user_adapter,
+            ),
+            execution_repository=IdentityExecutionRepository(db_session),
+        ).discover_users([server.id])
+
+        group_adapter = FakeSshAdapter(stdout="docker:x:998:deploy\nwww-data:x:33:\n")
+        group_discovery = await IdentityReplicationService(
+            job_service=JobService(
+                job_repository=JobRepository(db_session),
+                server_repository=ServerRepository(db_session),
+                ssh_adapter=group_adapter,
+            ),
+            execution_repository=IdentityExecutionRepository(db_session),
+        ).discover_groups([server.id])
+
+        assert [user.username for user in user_discovery.users] == ["deploy", "root"]
+        assert user_discovery.users[0].home_directory == "/home/deploy"
+        assert any(group.name == "docker" for group in group_discovery.groups)
+        docker = next(group for group in group_discovery.groups if group.name == "docker")
+        assert docker.members == ["deploy"]
+
+
+@pytest.mark.asyncio
+async def test_identity_can_inspect_user_groups(client) -> None:
+    session = next(iter(client.app.dependency_overrides.values()))
+    async for db_session in session():
+        server = await InventoryService(ServerRepository(db_session)).create_server(
+            ServerCreate(**server_payload(hostname="membership-identity-01", ip_address="10.4.0.13"))
+        )
+        adapter = FakeSshAdapter(stdout="cerberus docker www-data sudo\n")
+
+        membership = await IdentityReplicationService(
+            job_service=JobService(
+                job_repository=JobRepository(db_session),
+                server_repository=ServerRepository(db_session),
+                ssh_adapter=adapter,
+            ),
+            execution_repository=IdentityExecutionRepository(db_session),
+        ).discover_user_groups("cerberus", [server.id])
+
+        assert adapter.calls[0]["command"] == "id -nG cerberus"
+        assert membership.hosts[0].groups == ["cerberus", "docker", "sudo", "www-data"]
+
+
+@pytest.mark.asyncio
+async def test_identity_can_inspect_group_members_including_primary_group_users(client) -> None:
+    session = next(iter(client.app.dependency_overrides.values()))
+    async for db_session in session():
+        server = await InventoryService(ServerRepository(db_session)).create_server(
+            ServerCreate(**server_payload(hostname="group-membership-identity-01", ip_address="10.4.0.15"))
+        )
+        adapter = FakeSshAdapter(
+            stdout=(
+                "cerberus:x:1001:deploy\n"
+                "root:x:0:0:root:/root:/bin/bash\n"
+                "cerberus:x:1001:1001::/home/cerberus:/bin/bash\n"
+                "deploy:x:1002:1002::/home/deploy:/bin/bash\n"
+            )
+        )
+
+        membership = await IdentityReplicationService(
+            job_service=JobService(
+                job_repository=JobRepository(db_session),
+                server_repository=ServerRepository(db_session),
+                ssh_adapter=adapter,
+            ),
+            execution_repository=IdentityExecutionRepository(db_session),
+        ).discover_group_members("cerberus", [server.id])
+
+        assert adapter.calls[0]["command"] == "getent group cerberus; getent passwd"
+        assert membership.hosts[0].primary_members == ["cerberus"]
+        assert membership.hosts[0].supplementary_members == ["deploy"]
+        assert membership.hosts[0].members == ["cerberus", "deploy"]
+
+
+@pytest.mark.asyncio
+async def test_linux_group_update_can_rename_and_replicate(client) -> None:
+    session = next(iter(client.app.dependency_overrides.values()))
+    async for db_session in session():
+        server = await InventoryService(ServerRepository(db_session)).create_server(
+            ServerCreate(**server_payload(hostname="group-identity-01", ip_address="10.4.0.14"))
+        )
+        adapter = FakeSshAdapter()
+        service = LinuxGroupService(
+            repository=LinuxGroupRepository(db_session),
+            replication_service=IdentityReplicationService(
+                job_service=JobService(
+                    job_repository=JobRepository(db_session),
+                    server_repository=ServerRepository(db_session),
+                    ssh_adapter=adapter,
+                ),
+                execution_repository=IdentityExecutionRepository(db_session),
+            ),
+        )
+
+        created = await service.create_group(LinuxGroupCreate(name="deploy", target_server_ids=[]))
+        updated = await service.update_group(
+            created.item.id,
+            LinuxGroupUpdate(name="release", description="Release operators", target_server_ids=[server.id]),
+        )
+
+        assert updated.item.name == "release"
+        assert updated.replication.success_count == 1
+        assert "groupmod -n release deploy" in adapter.calls[0]["command"]

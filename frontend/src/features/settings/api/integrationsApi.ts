@@ -16,6 +16,10 @@ export async function updateIntegration(integrationId: string, payload: Partial<
   return response.data;
 }
 
+export async function deleteIntegration(integrationId: string): Promise<void> {
+  await apiClient.delete(`/integrations/${integrationId}`);
+}
+
 export async function testIntegration(integrationId: string): Promise<IntegrationTestResult> {
   const response = await apiClient.post<IntegrationTestResult>(`/integrations/${integrationId}/test`);
   return response.data;

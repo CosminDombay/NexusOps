@@ -46,11 +46,17 @@ Sprint 10 establishes the persistent orchestration foundation for NexusOps:
   - `POST /api/v1/automations/{id}/disable`
 - Added initial supported automation operations:
   - predefined action
+  - custom operational action
   - package execution
   - profile execution
+- Added custom operational action persistence and API support.
+- Added custom action create/update/delete UI on Jobs.
+- Added automation edit and delete controls.
 - Added APScheduler-backed startup/shutdown foundation.
+- Hardened scheduler startup against APScheduler versions where next-run metadata is unavailable before scheduler start.
 - Added in-process async task queue.
 - Added frontend Workflows page.
+- Added workflow target hostnames in workflow step/run views.
 - Added frontend Automations page.
 - Added Operations navigation links for Workflows and Automations.
 - Added host detail tab links for Automations and Workflows.
@@ -76,7 +82,7 @@ Automation trigger
 - No WebSockets.
 - No DAG/branching engine.
 - No nested workflows.
-- No arbitrary raw-command automations yet.
+- No arbitrary raw-command automations yet; operators can use custom operational actions as the reusable command/script wrapper.
 - No deployment automations yet.
 - Existing direct provisioning/profile/package/deployment endpoints still need deeper async workflow refactors.
 

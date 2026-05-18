@@ -55,6 +55,17 @@ async def update_integration(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
 
 
+@router.delete("/{integration_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_integration(
+    integration_id: UUID,
+    service: Annotated[IntegrationService, Depends(get_integration_service)],
+) -> None:
+    try:
+        await service.delete_integration(integration_id)
+    except IntegrationNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+
 @router.post("/{integration_id}/test", response_model=IntegrationTestRead)
 async def test_integration(
     integration_id: UUID,

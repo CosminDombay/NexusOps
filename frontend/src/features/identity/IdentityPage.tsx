@@ -1,19 +1,30 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
-import { Eye, KeyRound, Lock, Play, Search, Shield, Unlock, Users } from 'lucide-react';
+import { Eye, KeyRound, Lock, Play, Shield, Trash2, Unlock, Users } from 'lucide-react';
 
 import { PageHeader } from '../../components/layout/PageHeader';
 import { getApiErrorMessage } from '../../lib/api/client';
+import { listCredentials } from '../credentials/api/credentialsApi';
+import type { Credential } from '../credentials/types/credential';
 import { listServers } from '../inventory/api/serversApi';
+import { TargetSelector } from '../inventory/components/TargetSelector';
+import { useTargetSelection } from '../inventory/hooks/useTargetSelection';
 import type { Server } from '../inventory/types/server';
 import type { BulkExecutionResponse } from '../jobs/types/job';
 import {
   addGroupMembers,
+  adoptLinuxGroup,
+  adoptLinuxUser,
   applyPermission,
   createLinuxGroup,
   createLinuxUser,
   createSSHKey,
+  deleteLinuxGroup,
+  deleteLinuxUser,
   deploySSHKey,
+  discoverGroupMembers,
   discoverGroups,
+  discoverUserGroups,
+  discoverUsers,
   listAccessProfiles,
   listGroupPresets,
   listLinuxGroups,
@@ -26,16 +37,21 @@ import {
   replicateLinuxUser,
   revokeSSHKey,
   unlockLinuxUser,
+  updateLinuxGroup,
+  updateLinuxUser,
 } from './api/identityApi';
 import type {
   AccessProfile,
   DiscoveredGroup,
+  DiscoveredUser,
   GroupPreset,
+  GroupMembership,
   LinuxGroup,
   LinuxUser,
   PermissionPreset,
   PermissionTemplate,
   SSHKey,
+  UserGroupMembership,
 } from './types/identity';
 
 type Tab = 'access' | 'groups' | 'ssh' | 'permissions';
@@ -59,8 +75,8 @@ const sudoOptions = [
 export function IdentityPage() {
   const [tab, setTab] = useState<Tab>('access');
   const [servers, setServers] = useState<Server[]>([]);
-  const [selectedTargetIds, setSelectedTargetIds] = useState<string[]>([]);
-  const [targetSearch, setTargetSearch] = useState('');
+  const targetSelector = useTargetSelection('bulk');
+  const [credentials, setCredentials] = useState<Credential[]>([]);
   const [users, setUsers] = useState<LinuxUser[]>([]);
   const [groups, setGroups] = useState<LinuxGroup[]>([]);
   const [sshKeys, setSshKeys] = useState<SSHKey[]>([]);
@@ -69,19 +85,26 @@ export function IdentityPage() {
   const [groupPresets, setGroupPresets] = useState<GroupPreset[]>([]);
   const [permissionPresets, setPermissionPresets] = useState<PermissionPreset[]>([]);
   const [discoveredGroups, setDiscoveredGroups] = useState<DiscoveredGroup[]>([]);
+  const [discoveredUsers, setDiscoveredUsers] = useState<DiscoveredUser[]>([]);
+  const [userMembership, setUserMembership] = useState<UserGroupMembership | null>(null);
+  const [groupMembership, setGroupMembership] = useState<GroupMembership | null>(null);
   const [result, setResult] = useState<BulkExecutionResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isWorking, setIsWorking] = useState(false);
   const [advanced, setAdvanced] = useState(false);
+  const [selectedUserId, setSelectedUserId] = useState('');
+  const [selectedGroupId, setSelectedGroupId] = useState('');
 
   const [profileId, setProfileId] = useState('deployment-operator');
   const [username, setUsername] = useState('deploy');
+  const [passwordCredentialId, setPasswordCredentialId] = useState('');
   const [shellPreset, setShellPreset] = useState('standard');
   const [customShell, setCustomShell] = useState('/bin/bash');
   const [sudoMode, setSudoMode] = useState('password');
   const [selectedGroups, setSelectedGroups] = useState<string[]>(['docker', 'www-data']);
   const [groupName, setGroupName] = useState('deploy');
+  const [groupDescription, setGroupDescription] = useState('');
   const [memberNames, setMemberNames] = useState('deploy');
   const [keyName, setKeyName] = useState('deploy-key');
   const [publicKey, setPublicKey] = useState('');
@@ -99,15 +122,17 @@ export function IdentityPage() {
   });
 
   const selectedProfile = accessProfiles.find((profile) => profile.id === profileId);
-  const selectedUser = users[0] ?? null;
-  const selectedGroup = groups[0] ?? null;
+  const selectedUser = users.find((user) => user.id === selectedUserId) ?? users[0] ?? null;
+  const selectedGroup = groups.find((group) => group.id === selectedGroupId) ?? groups[0] ?? null;
   const selectedKey = sshKeys[0] ?? null;
-  const selectedTargets = servers.filter((server) => selectedTargetIds.includes(server.id));
-  const filteredServers = servers.filter((server) =>
-    `${server.hostname} ${server.ip_address} ${server.environment}`.toLowerCase().includes(targetSearch.toLowerCase()),
-  );
+  const selectedTargetIds = targetSelector.selection.mode === 'bulk'
+    ? targetSelector.selection.selectedIds
+    : targetSelector.selection.selectedId
+      ? [targetSelector.selection.selectedId]
+      : [];
   const shell = shellPreset === 'custom' ? customShell : shellOptions.find((option) => option.id === shellPreset)?.value ?? '/bin/bash';
   const sudo = sudoOptions.find((option) => option.id === sudoMode) ?? sudoOptions[0];
+  const passwordCredentials = credentials.filter((credential) => ['password', 'ssh_password'].includes(credential.credential_type));
 
   const commandPreview = useMemo(
     () => buildCommandPreview({
@@ -130,6 +155,7 @@ export function IdentityPage() {
     try {
       const [
         nextServers,
+        nextCredentials,
         nextUsers,
         nextGroups,
         nextKeys,
@@ -139,6 +165,7 @@ export function IdentityPage() {
         nextPermissionPresets,
       ] = await Promise.all([
         listServers(),
+        listCredentials(),
         listLinuxUsers(),
         listLinuxGroups(),
         listSSHKeys(),
@@ -148,6 +175,7 @@ export function IdentityPage() {
         listPermissionPresets(),
       ]);
       setServers(nextServers);
+      setCredentials(nextCredentials);
       setUsers(nextUsers);
       setGroups(nextGroups);
       setSshKeys(nextKeys);
@@ -155,6 +183,8 @@ export function IdentityPage() {
       setAccessProfiles(nextProfiles);
       setGroupPresets(nextGroupPresets);
       setPermissionPresets(nextPermissionPresets);
+      setSelectedUserId((current) => current || nextUsers[0]?.id || '');
+      setSelectedGroupId((current) => current || nextGroups[0]?.id || '');
     } catch (caughtError) {
       setError(getApiErrorMessage(caughtError));
     } finally {
@@ -227,6 +257,92 @@ export function IdentityPage() {
     }
   }
 
+  async function handleInspectGroupMembers() {
+    if (!groupName.trim()) {
+      setError('Select or enter a group before inspecting members.');
+      return;
+    }
+    if (!selectedTargetIds.length) {
+      setError('Select target hosts before inspecting group members.');
+      return;
+    }
+    setIsWorking(true);
+    setError(null);
+    try {
+      setGroupMembership(await discoverGroupMembers(groupName, selectedTargetIds));
+    } catch (caughtError) {
+      setError(getApiErrorMessage(caughtError));
+    } finally {
+      setIsWorking(false);
+    }
+  }
+
+  async function handleDiscoverUsers() {
+    if (!selectedTargetIds.length) {
+      setError('Select target hosts before discovering users.');
+      return;
+    }
+    setIsWorking(true);
+    setError(null);
+    try {
+      setDiscoveredUsers(await discoverUsers(selectedTargetIds));
+    } catch (caughtError) {
+      setError(getApiErrorMessage(caughtError));
+    } finally {
+      setIsWorking(false);
+    }
+  }
+
+  async function handleInspectUserGroups() {
+    if (!username.trim()) {
+      setError('Select or enter a username before inspecting groups.');
+      return;
+    }
+    if (!selectedTargetIds.length) {
+      setError('Select target hosts before inspecting user groups.');
+      return;
+    }
+    setIsWorking(true);
+    setError(null);
+    try {
+      setUserMembership(await discoverUserGroups(username, selectedTargetIds));
+    } catch (caughtError) {
+      setError(getApiErrorMessage(caughtError));
+    } finally {
+      setIsWorking(false);
+    }
+  }
+
+  function loadUser(user: LinuxUser) {
+    setSelectedUserId(user.id);
+    setUsername(user.username);
+    setShellPreset(shellOptions.find((option) => option.value === user.shell)?.id ?? 'custom');
+    setCustomShell(user.shell);
+    setSudoMode(user.sudo_enabled ? (user.sudo_nopasswd ? 'nopasswd' : 'password') : 'none');
+    setPasswordCredentialId('');
+    setUserMembership(null);
+  }
+
+  function loadDiscoveredUser(user: DiscoveredUser) {
+    setUsername(user.username);
+    setShellPreset(shellOptions.find((option) => option.value === user.shell)?.id ?? 'custom');
+    setCustomShell(user.shell ?? '/bin/bash');
+    setUserMembership(null);
+  }
+
+  function loadGroup(group: LinuxGroup) {
+    setSelectedGroupId(group.id);
+    setGroupName(group.name);
+    setGroupDescription(group.description ?? '');
+    setGroupMembership(null);
+  }
+
+  function loadDiscoveredGroup(group: DiscoveredGroup) {
+    setGroupName(group.name);
+    setMemberNames(group.members.join(','));
+    setGroupMembership(null);
+  }
+
   useEffect(() => {
     void refresh();
   }, []);
@@ -243,64 +359,19 @@ export function IdentityPage() {
       {error ? <div className="rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</div> : null}
       {isLoading ? <div className="rounded-md bg-zinc-100 px-3 py-2 text-sm text-zinc-600">Loading identity workspace...</div> : null}
 
-      <section className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm">
-        <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
-          <div>
-            <h3 className="text-base font-semibold text-zinc-950">Replication targets</h3>
-            <p className="mt-1 text-sm text-zinc-500">Select managed inventory hosts for identity propagation.</p>
-            <div className="mt-3 flex flex-wrap gap-2">
-              {selectedTargets.length ? (
-                selectedTargets.map((server) => (
-                  <span key={server.id} className="rounded-full bg-zinc-950 px-2.5 py-1 text-xs font-semibold text-white">
-                    {server.hostname}
-                  </span>
-                ))
-              ) : (
-                <span className="text-sm text-zinc-500">No targets selected</span>
-              )}
-            </div>
-          </div>
-          <div className="w-full xl:max-w-3xl">
-            <div className="flex gap-2">
-              <div className="relative flex-1">
-                <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-zinc-400" aria-hidden="true" />
-                <input
-                  className="h-10 w-full rounded-md border border-zinc-300 pl-9 pr-3 text-sm"
-                  placeholder="Search hosts"
-                  value={targetSearch}
-                  onChange={(event) => setTargetSearch(event.target.value)}
-                />
-              </div>
-              <button className="rounded-md border border-zinc-300 px-3 text-sm font-semibold" type="button" onClick={() => setSelectedTargetIds(filteredServers.map((server) => server.id))}>
-                Select all
-              </button>
-              <button className="rounded-md border border-zinc-300 px-3 text-sm font-semibold" type="button" onClick={() => setSelectedTargetIds([])}>
-                Clear
-              </button>
-            </div>
-            <div className="mt-3 grid max-h-52 gap-2 overflow-auto sm:grid-cols-2 xl:grid-cols-3">
-              {filteredServers.map((server) => (
-                <label key={server.id} className="flex min-h-12 items-center gap-2 rounded-md border border-zinc-200 px-3 py-2 text-sm">
-                  <input
-                    checked={selectedTargetIds.includes(server.id)}
-                    className="h-4 w-4 rounded border-zinc-300"
-                    type="checkbox"
-                    onChange={(event) =>
-                      setSelectedTargetIds((current) =>
-                        event.target.checked ? [...current, server.id] : current.filter((serverId) => serverId !== server.id),
-                      )
-                    }
-                  />
-                  <span className="min-w-0">
-                    <span className="block truncate font-medium text-zinc-950">{server.hostname}</span>
-                    <span className="block truncate font-mono text-xs text-zinc-500">{server.ip_address} | {server.environment}</span>
-                  </span>
-                </label>
-              ))}
-            </div>
-          </div>
-        </div>
-      </section>
+      <TargetSelector
+        servers={servers}
+        selection={targetSelector.selection}
+        filters={targetSelector.filters}
+        title="Replication targets"
+        description="Select managed inventory hosts for identity propagation."
+        onFiltersChange={targetSelector.setFilters}
+        onSelectionChange={(selection) => {
+          targetSelector.setMode(selection.mode);
+          targetSelector.setSelectedId(selection.selectedId);
+          targetSelector.setSelectedIds(selection.selectedIds);
+        }}
+      />
 
       <div className="flex flex-wrap gap-2">
         {[
@@ -311,7 +382,7 @@ export function IdentityPage() {
         ].map(([value, label]) => (
           <button
             key={value}
-            className={`rounded-md px-3 py-2 text-sm font-semibold ${tab === value ? 'bg-zinc-950 text-white' : 'border border-zinc-300 bg-white text-zinc-700'}`}
+            className={`rounded-md px-3 py-2 text-sm font-semibold transition ${tab === value ? 'bg-cyan-400 text-zinc-950' : 'border border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50'}`}
             type="button"
             onClick={() => setTab(value as Tab)}
           >
@@ -334,7 +405,27 @@ export function IdentityPage() {
                 <p className="mt-2 text-sm text-zinc-500">{selectedProfile?.description}</p>
               </label>
               <div className="grid gap-4 lg:grid-cols-3">
+                <label className="block lg:col-span-3">
+                  <span className="text-sm font-medium text-zinc-950">Existing managed user</span>
+                  <select className="mt-2 h-10 w-full rounded-md border border-zinc-300 px-3 text-sm" value={selectedUser?.id ?? ''} onChange={(event) => {
+                    const user = users.find((candidate) => candidate.id === event.target.value);
+                    if (user) loadUser(user);
+                  }}>
+                    <option value="">Select user</option>
+                    {users.map((user) => <option key={user.id} value={user.id}>{user.username}</option>)}
+                  </select>
+                </label>
                 <TextInput label="Username" value={username} onChange={setUsername} />
+                <label className="block">
+                  <span className="text-sm font-medium text-zinc-950">Password credential</span>
+                  <select className="mt-2 h-10 w-full rounded-md border border-zinc-300 px-3 text-sm" value={passwordCredentialId} onChange={(event) => setPasswordCredentialId(event.target.value)}>
+                    <option value="">Do not set password</option>
+                    {passwordCredentials.map((credential) => (
+                      <option key={credential.id} value={credential.id}>{credential.name}</option>
+                    ))}
+                  </select>
+                  <p className="mt-2 text-xs text-zinc-500">Optional; applies the Credential Manager secret with chpasswd during create or update.</p>
+                </label>
                 <label className="block">
                   <span className="text-sm font-medium text-zinc-950">Shell</span>
                   <select className="mt-2 h-10 w-full rounded-md border border-zinc-300 px-3 text-sm" value={shellPreset} onChange={(event) => setShellPreset(event.target.value)}>
@@ -373,6 +464,7 @@ export function IdentityPage() {
                       const response = await createLinuxUser({
                         username,
                         shell,
+                        password_credential_ref: passwordCredentialId || null,
                         sudo_enabled: sudo.sudo,
                         sudo_nopasswd: sudo.nopasswd,
                         locked: false,
@@ -384,14 +476,90 @@ export function IdentityPage() {
                     })
                   }
                 />
-                <Action disabled={!selectedUser || !targetsReady || isWorking} label="Replicate first user" onClick={() => void work(() => replicateLinuxUser(selectedUser!.id, selectedTargetIds))} />
+                <Action
+                  disabled={!selectedUser || !targetsReady || isWorking}
+                  label="Update selected user"
+                  onClick={() =>
+                    void work(async () => {
+                      const response = await updateLinuxUser(selectedUser!.id, {
+                        shell,
+                        home_directory: `/home/${username}`,
+                        password_credential_ref: passwordCredentialId || null,
+                        sudo_enabled: sudo.sudo,
+                        sudo_nopasswd: sudo.nopasswd,
+                        locked: selectedUser!.locked,
+                        managed: true,
+                        supplementary_groups: selectedGroups,
+                        target_server_ids: selectedTargetIds,
+                      });
+                      return response.replication;
+                    })
+                  }
+                />
+                <Action disabled={!selectedUser || !targetsReady || isWorking} label="Replicate selected user" onClick={() => void work(() => replicateLinuxUser(selectedUser!.id, selectedTargetIds))} />
                 <Action icon={Lock} disabled={!selectedUser || !targetsReady || isWorking} label="Lock" onClick={() => void work(() => lockLinuxUser(selectedUser!.id, selectedTargetIds))} />
                 <Action icon={Unlock} disabled={!selectedUser || !targetsReady || isWorking} label="Unlock" onClick={() => void work(() => unlockLinuxUser(selectedUser!.id, selectedTargetIds))} />
+                <Action icon={Eye} disabled={!targetsReady || isWorking} label="Discover users" onClick={() => void handleDiscoverUsers()} />
+                <Action icon={Eye} disabled={!targetsReady || isWorking || !username.trim()} label="Inspect user groups" onClick={() => void handleInspectUserGroups()} />
+                <Action
+                  icon={Trash2}
+                  disabled={!selectedUser || isWorking}
+                  label="Delete selected user"
+                  variant="danger"
+                  onClick={() => {
+                    if (!selectedUser || !window.confirm(`Delete managed user ${selectedUser.username}? Select targets first if you also want it removed from Linux hosts.`)) return;
+                    void work(async () => {
+                      await deleteLinuxUser(selectedUser.id, selectedTargetIds);
+                      setSelectedUserId('');
+                      return null;
+                    });
+                  }}
+                />
               </div>
             </div>
             <Preview commands={commandPreview.access} title="Generated access operations" />
           </div>
-          <IdentityList items={users.map((user) => `${user.username} | ${user.shell} | sudo ${user.sudo_enabled ? 'yes' : 'no'}`)} empty="No users yet." />
+          {userMembership ? (
+            <div className="mt-5 rounded-md border border-zinc-200 p-3">
+              <h4 className="text-sm font-semibold text-zinc-950">Live groups for {userMembership.username}</h4>
+              <div className="mt-3 grid gap-2 lg:grid-cols-2">
+                {userMembership.hosts.map((host) => (
+                  <div key={host.target_server_id} className="rounded-md bg-zinc-50 px-3 py-2 text-sm">
+                    <p className="font-semibold text-zinc-950">{host.target_hostname ?? host.target_server_id}</p>
+                    <p className="mt-1 text-zinc-600">{host.groups.length ? host.groups.join(', ') : host.error || 'No groups returned.'}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
+          <IdentityList
+            items={[
+              ...users.map((user) => `${user.username} | ${user.shell} | sudo ${user.sudo_enabled ? 'yes' : 'no'}`),
+              ...discoveredUsers.slice(0, 12).map((user) => `${user.username} discovered on ${user.hosts.length} host(s) | ${user.shell ?? 'unknown shell'}`),
+            ]}
+            empty="No users yet."
+            actions={discoveredUsers.slice(0, 8).map((user) => ({
+              label: `Use ${user.username}`,
+              onClick: () => loadDiscoveredUser(user),
+            })).concat(discoveredUsers.slice(0, 8).map((user) => ({
+              label: `Adopt ${user.username}`,
+              onClick: () => void work(async () => {
+                const response = await adoptLinuxUser({
+                  username: user.username,
+                  shell: user.shell ?? '/bin/bash',
+                  home_directory: user.home_directory,
+                  sudo_enabled: false,
+                  sudo_nopasswd: false,
+                  locked: false,
+                  managed: false,
+                  supplementary_groups: [],
+                  target_server_ids: [],
+                });
+                setSelectedUserId(response.item.id);
+                return null;
+              }),
+            })))}
+          />
         </Panel>
       ) : null}
 
@@ -422,19 +590,81 @@ export function IdentityPage() {
                 ))}
               </div>
               <div className="mt-4 grid gap-4 lg:grid-cols-2">
-                <TextInput label="Create group" value={groupName} onChange={setGroupName} />
+                <label className="block lg:col-span-2">
+                  <span className="text-sm font-medium text-zinc-950">Existing managed group</span>
+                  <select className="mt-2 h-10 w-full rounded-md border border-zinc-300 px-3 text-sm" value={selectedGroup?.id ?? ''} onChange={(event) => {
+                    const group = groups.find((candidate) => candidate.id === event.target.value);
+                    if (group) loadGroup(group);
+                  }}>
+                    <option value="">Select group</option>
+                    {groups.map((group) => <option key={group.id} value={group.id}>{group.name}</option>)}
+                  </select>
+                </label>
+                <TextInput label="Group name" value={groupName} onChange={setGroupName} />
+                <TextInput label="Description" value={groupDescription} onChange={setGroupDescription} />
                 <TextInput label="Members" value={memberNames} onChange={setMemberNames} />
               </div>
               <div className="mt-4 flex flex-wrap gap-2">
-                <Action disabled={!targetsReady || isWorking} label="Create and replicate group" onClick={() => void work(async () => (await createLinuxGroup({ name: groupName, managed: true, target_server_ids: selectedTargetIds })).replication)} />
-                <Action disabled={!selectedGroup || !targetsReady || isWorking} label="Replicate first group" onClick={() => void work(() => replicateLinuxGroup(selectedGroup!.id, selectedTargetIds))} />
+                <Action disabled={!targetsReady || isWorking} label="Create and replicate group" onClick={() => void work(async () => (await createLinuxGroup({ name: groupName, description: groupDescription || null, managed: true, target_server_ids: selectedTargetIds })).replication)} />
+                <Action disabled={!selectedGroup || isWorking} label="Update selected group" onClick={() => void work(async () => (await updateLinuxGroup(selectedGroup!.id, { name: groupName, description: groupDescription || null, managed: true, target_server_ids: selectedTargetIds })).replication)} />
+                <Action disabled={!selectedGroup || !targetsReady || isWorking} label="Replicate selected group" onClick={() => void work(() => replicateLinuxGroup(selectedGroup!.id, selectedTargetIds))} />
                 <Action disabled={!selectedGroup || !targetsReady || isWorking} label="Add members" onClick={() => void work(() => addGroupMembers(selectedGroup!.id, splitCsv(memberNames), selectedTargetIds))} />
                 <Action icon={Eye} disabled={!targetsReady || isWorking} label="Discover groups" onClick={() => void handleDiscoverGroups()} />
+                <Action icon={Eye} disabled={!targetsReady || isWorking || !groupName.trim()} label="Inspect members" onClick={() => void handleInspectGroupMembers()} />
+                <Action
+                  icon={Trash2}
+                  disabled={!selectedGroup || isWorking}
+                  label="Delete selected group"
+                  variant="danger"
+                  onClick={() => {
+                    if (!selectedGroup || !window.confirm(`Delete managed group ${selectedGroup.name}? Select targets first if you also want it removed from Linux hosts.`)) return;
+                    void work(async () => {
+                      await deleteLinuxGroup(selectedGroup.id, selectedTargetIds);
+                      setSelectedGroupId('');
+                      return null;
+                    });
+                  }}
+                />
               </div>
             </div>
             <Preview commands={commandPreview.groups} title="Group operation preview" />
           </div>
-          <IdentityList items={[...groups.map((group) => group.name), ...discoveredGroups.slice(0, 12).map((group) => `${group.name} discovered on ${group.hosts.length} host(s)`)]} empty="No groups yet." />
+          {groupMembership ? (
+            <div className="mt-5 rounded-md border border-zinc-200 p-3">
+              <h4 className="text-sm font-semibold text-zinc-950">Live members for {groupMembership.group}</h4>
+              <div className="mt-3 grid gap-2 lg:grid-cols-2">
+                {groupMembership.hosts.map((host) => (
+                  <div key={host.target_server_id} className="rounded-md bg-zinc-50 px-3 py-2 text-sm">
+                    <p className="font-semibold text-zinc-950">{host.target_hostname ?? host.target_server_id}</p>
+                    <p className="mt-1 text-zinc-700">{host.members.length ? host.members.join(', ') : host.error || 'No members returned.'}</p>
+                    {host.primary_members.length || host.supplementary_members.length ? (
+                      <p className="mt-1 text-xs text-zinc-500">
+                        Primary: {host.primary_members.join(', ') || 'none'} | Supplementary: {host.supplementary_members.join(', ') || 'none'}
+                      </p>
+                    ) : null}
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
+          <IdentityList
+            items={[
+              ...groups.map((group) => `${group.name}${group.description ? ` | ${group.description}` : ''}`),
+              ...discoveredGroups.slice(0, 12).map((group) => `${group.name} discovered on ${group.hosts.length} host(s)${group.members.length ? ` | members: ${group.members.join(', ')}` : ''}`),
+            ]}
+            empty="No groups yet."
+            actions={discoveredGroups.slice(0, 8).map((group) => ({
+              label: `Use ${group.name}`,
+              onClick: () => loadDiscoveredGroup(group),
+            })).concat(discoveredGroups.slice(0, 8).map((group) => ({
+              label: `Adopt ${group.name}`,
+              onClick: () => void work(async () => {
+                const response = await adoptLinuxGroup({ name: group.name, description: `Discovered on ${group.hosts.join(', ')}`, managed: false, target_server_ids: [] });
+                setSelectedGroupId(response.item.id);
+                return null;
+              }),
+            })))}
+          />
         </Panel>
       ) : null}
 
@@ -488,10 +718,12 @@ export function IdentityPage() {
                   <Toggle label="Recursive" checked={recursive} onChange={setRecursive} />
                 </div>
               ) : null}
-              <button className="text-sm font-semibold text-zinc-700 underline" type="button" onClick={() => setAdvanced((current) => !current)}>
-                {advanced ? 'Hide advanced permission options' : 'Show advanced permission options'}
-              </button>
-              <Action disabled={!targetsReady || isWorking} label="Apply permissions" onClick={() => void work(() => applyPermission({ path, owner, group: permissionGroup, mode, recursive, target_server_ids: selectedTargetIds }))} />
+              <div className="flex flex-wrap items-center gap-3">
+                <button className="text-sm font-semibold text-zinc-700 underline" type="button" onClick={() => setAdvanced((current) => !current)}>
+                  {advanced ? 'Hide advanced permission options' : 'Show advanced permission options'}
+                </button>
+                <Action disabled={!targetsReady || isWorking} label="Apply permissions" onClick={() => void work(() => applyPermission({ path, owner, group: permissionGroup, mode, recursive, target_server_ids: selectedTargetIds }))} />
+              </div>
             </div>
             <Preview commands={commandPreview.permissions} title="Permission command preview" />
           </div>
@@ -563,9 +795,24 @@ function PermissionMatrix({
   );
 }
 
-function Action({ icon: Icon = Play, label, disabled, onClick }: { icon?: typeof Play; label: string; disabled: boolean; onClick: () => void }) {
+function Action({
+  icon: Icon = Play,
+  label,
+  disabled,
+  onClick,
+  variant = 'primary',
+}: {
+  icon?: typeof Play;
+  label: string;
+  disabled: boolean;
+  onClick: () => void;
+  variant?: 'primary' | 'danger';
+}) {
+  const className = variant === 'danger'
+    ? 'inline-flex h-10 items-center gap-2 rounded-md border border-rose-300 px-3 text-sm font-semibold text-rose-700 transition hover:bg-rose-50 disabled:cursor-not-allowed disabled:border-slate-700 disabled:text-slate-400'
+    : 'inline-flex h-10 items-center gap-2 rounded-md bg-cyan-400 px-3 text-sm font-semibold text-zinc-950 transition hover:bg-cyan-300 disabled:cursor-not-allowed disabled:bg-slate-700 disabled:text-slate-400';
   return (
-    <button className="inline-flex h-10 items-center gap-2 rounded-md bg-zinc-950 px-3 text-sm font-semibold text-white disabled:bg-zinc-300" disabled={disabled} type="button" onClick={onClick}>
+    <button className={className} disabled={disabled} type="button" onClick={onClick}>
       <Icon className="h-4 w-4" aria-hidden="true" />
       {label}
     </button>
@@ -581,10 +828,21 @@ function Preview({ commands, title }: { commands: string[]; title: string }) {
   );
 }
 
-function IdentityList({ items, empty }: { items: string[]; empty: string }) {
+function IdentityList({ items, empty, actions = [] }: { items: string[]; empty: string; actions?: Array<{ label: string; onClick: () => void }> }) {
   return (
-    <div className="mt-5 divide-y divide-zinc-100 rounded-md border border-zinc-200">
-      {items.length ? items.map((item) => <p key={item} className="px-3 py-2 text-sm text-zinc-700">{item}</p>) : <p className="px-3 py-2 text-sm text-zinc-500">{empty}</p>}
+    <div className="mt-5 rounded-md border border-zinc-200">
+      <div className="divide-y divide-zinc-100">
+        {items.length ? items.map((item) => <p key={item} className="px-3 py-2 text-sm text-zinc-700">{item}</p>) : <p className="px-3 py-2 text-sm text-zinc-500">{empty}</p>}
+      </div>
+      {actions.length ? (
+        <div className="flex flex-wrap gap-2 border-t border-zinc-200 p-3">
+          {actions.map((action) => (
+            <button key={action.label} className="rounded-md border border-zinc-300 px-2 py-1 text-xs font-semibold text-zinc-700 hover:bg-zinc-50" type="button" onClick={action.onClick}>
+              {action.label}
+            </button>
+          ))}
+        </div>
+      ) : null}
     </div>
   );
 }

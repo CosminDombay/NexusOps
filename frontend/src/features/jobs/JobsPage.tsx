@@ -4,12 +4,32 @@ import { PageHeader } from '../../components/layout/PageHeader';
 import { getApiErrorMessage } from '../../lib/api/client';
 import { listServers } from '../inventory/api/serversApi';
 import type { Server } from '../inventory/types/server';
-import { executeJob, executeJobBulk, executeOperationalAction, listJobs, listOperationalActions } from './api/jobsApi';
+import {
+  createOperationalAction,
+  deleteOperationalAction,
+  executeJob,
+  executeJobBulk,
+  executeOperationalAction,
+  listJobs,
+  listOperationalActions,
+  updateOperationalAction,
+} from './api/jobsApi';
 import { JobResultViewer } from './components/JobResultViewer';
 import { JobsTable } from './components/JobsTable';
 import { OperationalActionsPanel } from './components/OperationalActionsPanel';
 import { RunCommandPanel } from './components/RunCommandPanel';
-import type { Job, OperationalAction } from './types/job';
+import type { CreateOperationalActionPayload, Job, OperationalAction } from './types/job';
+
+type ActionFormState = CreateOperationalActionPayload;
+
+const initialActionForm: ActionFormState = {
+  id: '',
+  name: '',
+  category: 'Custom',
+  description: '',
+  command: '',
+  destructive: false,
+};
 
 export function JobsPage() {
   const [servers, setServers] = useState<Server[]>([]);
@@ -28,6 +48,9 @@ export function JobsPage() {
   const [executeError, setExecuteError] = useState<string | null>(null);
   const [bulkResult, setBulkResult] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [actionForm, setActionForm] = useState<ActionFormState>(initialActionForm);
+  const [editingActionId, setEditingActionId] = useState<string | null>(null);
+  const [isSavingAction, setIsSavingAction] = useState(false);
 
   const selectedJob = useMemo(
     () => jobs.find((job) => job.id === selectedJobId) ?? jobs[0] ?? null,
@@ -122,6 +145,85 @@ export function JobsPage() {
     }
   }
 
+  function updateActionField<K extends keyof ActionFormState>(field: K, value: ActionFormState[K]) {
+    setActionForm((current) => ({ ...current, [field]: value }));
+    setActionError(null);
+  }
+
+  function startEditAction(action: OperationalAction) {
+    if (action.is_builtin) {
+      return;
+    }
+    setEditingActionId(action.id);
+    setActionForm({
+      id: action.id,
+      name: action.name,
+      category: action.category,
+      description: action.description,
+      command: action.command,
+      destructive: action.destructive,
+    });
+    setActionError(null);
+  }
+
+  function resetActionForm() {
+    setEditingActionId(null);
+    setActionForm(initialActionForm);
+  }
+
+  async function saveAction() {
+    if (!actionForm.id.trim() || !actionForm.name.trim() || !actionForm.command.trim()) {
+      setActionError('Action id, name, and command are required.');
+      return;
+    }
+    setIsSavingAction(true);
+    setActionError(null);
+    try {
+      if (editingActionId) {
+        const updated = await updateOperationalAction(editingActionId, {
+          name: actionForm.name,
+          category: actionForm.category,
+          description: actionForm.description,
+          command: actionForm.command,
+          destructive: actionForm.destructive,
+        });
+        setActions((current) => current.map((action) => (action.id === updated.id ? updated : action)));
+        setSelectedActionId(updated.id);
+      } else {
+        const created = await createOperationalAction(actionForm);
+        setActions((current) => [...current, created]);
+        setSelectedActionId(created.id);
+      }
+      resetActionForm();
+    } catch (error) {
+      setActionError(getApiErrorMessage(error));
+    } finally {
+      setIsSavingAction(false);
+    }
+  }
+
+  async function removeAction(action: OperationalAction) {
+    if (action.is_builtin) {
+      return;
+    }
+    const confirmed = window.confirm(`Delete custom action ${action.name}?`);
+    if (!confirmed) {
+      return;
+    }
+    setActionError(null);
+    try {
+      await deleteOperationalAction(action.id);
+      const nextActions = actions.filter((candidate) => candidate.id !== action.id);
+      setActions(nextActions);
+      setSelectedActionId((current) => (current === action.id ? nextActions[0]?.id ?? '' : current));
+      if (editingActionId === action.id) {
+        resetActionForm();
+      }
+    } catch (error) {
+      setActionError(getApiErrorMessage(error));
+    }
+  }
+
   useEffect(() => {
     void refresh();
   }, [refresh]);
@@ -141,8 +243,19 @@ export function JobsPage() {
         selectedServerId={selectedServerId}
         servers={servers}
         onExecute={handleExecuteAction}
+        onDeleteAction={removeAction}
+        onEditAction={startEditAction}
         onSelectedActionChange={setSelectedActionId}
         onSelectedServerChange={setSelectedServerId}
+      />
+
+      <CustomActionBuilder
+        editingActionId={editingActionId}
+        form={actionForm}
+        isSaving={isSavingAction}
+        onCancel={resetActionForm}
+        onFieldChange={updateActionField}
+        onSave={saveAction}
       />
 
       <RunCommandPanel
@@ -173,5 +286,79 @@ export function JobsPage() {
         <JobResultViewer job={selectedJob} />
       </div>
     </div>
+  );
+}
+
+function CustomActionBuilder({
+  editingActionId,
+  form,
+  isSaving,
+  onCancel,
+  onFieldChange,
+  onSave,
+}: {
+  editingActionId: string | null;
+  form: ActionFormState;
+  isSaving: boolean;
+  onCancel: () => void;
+  onFieldChange: <K extends keyof ActionFormState>(field: K, value: ActionFormState[K]) => void;
+  onSave: () => void;
+}) {
+  return (
+    <section className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h2 className="text-base font-semibold text-zinc-950">{editingActionId ? 'Edit custom action' : 'Create custom action'}</h2>
+          <p className="mt-1 text-sm text-zinc-500">Save reusable command sequences and scripts that execute through Jobs.</p>
+        </div>
+        {editingActionId ? (
+          <button className="rounded-md border border-zinc-300 px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50" type="button" onClick={onCancel}>
+            Cancel edit
+          </button>
+        ) : null}
+      </div>
+      <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <label className="block text-sm font-medium text-zinc-700">
+          ID
+          <input
+            className="mt-1 h-10 w-full rounded-md border border-zinc-300 px-3 font-mono text-sm disabled:bg-zinc-100"
+            disabled={Boolean(editingActionId)}
+            placeholder="enable-docker-user"
+            value={form.id}
+            onChange={(event) => onFieldChange('id', event.target.value)}
+          />
+        </label>
+        <label className="block text-sm font-medium text-zinc-700">
+          Name
+          <input className="mt-1 h-10 w-full rounded-md border border-zinc-300 px-3 text-sm" value={form.name} onChange={(event) => onFieldChange('name', event.target.value)} />
+        </label>
+        <label className="block text-sm font-medium text-zinc-700">
+          Category
+          <input className="mt-1 h-10 w-full rounded-md border border-zinc-300 px-3 text-sm" value={form.category} onChange={(event) => onFieldChange('category', event.target.value)} />
+        </label>
+        <label className="flex items-end gap-2 pb-2 text-sm font-medium text-zinc-700">
+          <input checked={form.destructive} type="checkbox" onChange={(event) => onFieldChange('destructive', event.target.checked)} />
+          Changes host
+        </label>
+        <label className="block text-sm font-medium text-zinc-700 md:col-span-2 xl:col-span-4">
+          Description
+          <input className="mt-1 h-10 w-full rounded-md border border-zinc-300 px-3 text-sm" value={form.description} onChange={(event) => onFieldChange('description', event.target.value)} />
+        </label>
+        <label className="block text-sm font-medium text-zinc-700 md:col-span-2 xl:col-span-4">
+          Command or script
+          <textarea
+            className="mt-1 min-h-36 w-full rounded-md border border-zinc-300 p-3 font-mono text-sm"
+            placeholder={'set -e\nsudo usermod -aG docker $USER\nid'}
+            value={form.command}
+            onChange={(event) => onFieldChange('command', event.target.value)}
+          />
+        </label>
+      </div>
+      <div className="mt-4 flex justify-end">
+        <button className="rounded-md bg-zinc-950 px-4 py-2 text-sm font-semibold text-white disabled:bg-zinc-300" disabled={isSaving} type="button" onClick={onSave}>
+          {isSaving ? 'Saving' : editingActionId ? 'Save action' : 'Create action'}
+        </button>
+      </div>
+    </section>
   );
 }

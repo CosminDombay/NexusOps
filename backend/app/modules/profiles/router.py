@@ -14,7 +14,7 @@ from backend.app.modules.deployments.repository import (
 )
 from backend.app.modules.deployments.service import DeploymentNotFoundError, DeploymentValidationError, DockerComposeDeploymentService
 from backend.app.modules.inventory.repository import ServerRepository
-from backend.app.modules.jobs.repository import JobRepository
+from backend.app.modules.jobs.repository import CustomOperationalActionRepository, JobRepository
 from backend.app.modules.jobs.service import JobService, JobTargetNotFoundError, JobTargetNotManagedError
 from backend.app.modules.packages.repository import PackageDefinitionRepository
 from backend.app.modules.profiles.repository import InfrastructureProfileRepository
@@ -49,6 +49,7 @@ async def get_profile_service(
         job_repository=JobRepository(session),
         server_repository=server_repository,
         ssh_adapter=ParamikoSshAdapter(),
+        action_repository=CustomOperationalActionRepository(session),
         credential_service=credential_service,
     )
     return ProfileService(

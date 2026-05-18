@@ -43,6 +43,10 @@ class ProvisioningRequestRepository(BaseRepository[ProvisioningRequest]):
         )
         return list(result.scalars().all())
 
+    async def delete(self, request: ProvisioningRequest) -> None:
+        await self.session.delete(request)
+        await self.session.flush()
+
 
 class ProvisioningBlueprintRepository(BaseRepository[ProvisioningBlueprint]):
     async def create(self, blueprint: ProvisioningBlueprint) -> ProvisioningBlueprint:

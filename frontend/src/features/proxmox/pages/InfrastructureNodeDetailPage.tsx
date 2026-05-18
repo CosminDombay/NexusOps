@@ -4,16 +4,22 @@ import { AlertCircle, Cpu, HardDrive, Power, RefreshCw, ServerIcon, Wrench } fro
 
 import { PageHeader } from '../../../components/layout/PageHeader';
 import { getApiErrorMessage } from '../../../lib/api/client';
-import { getProxmoxNodeDetail } from '../api/proxmoxApi';
-import type { ProxmoxNodeDetail } from '../types/proxmox';
+import { useAuth } from '../../auth/hooks/useAuth';
+import { getProxmoxNodeDetail, runVmAction } from '../api/proxmoxApi';
+import type { ProxmoxNodeDetail, ProxmoxVm, ProxmoxVmAction } from '../types/proxmox';
 import { formatBytes, formatPercent, formatUptime, titleCase } from '../utils/format';
 import { StatusBadge } from '../components/StatusBadge';
+import { VmActions } from '../components/VmTable';
 
 export function InfrastructureNodeDetailPage() {
   const { id } = useParams();
+  const { user } = useAuth();
   const [detail, setDetail] = useState<ProxmoxNodeDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [notification, setNotification] = useState<{ tone: 'success' | 'error'; message: string } | null>(null);
+  const [actionByVmId, setActionByVmId] = useState<Record<number, ProxmoxVmAction | undefined>>({});
   const [isLoading, setIsLoading] = useState(true);
+  const allowActions = user?.role === 'admin' || user?.role === 'operator';
 
   const refresh = useCallback(async () => {
     if (!id) {
@@ -33,6 +39,32 @@ export function InfrastructureNodeDetailPage() {
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  async function handleVmAction(vm: ProxmoxVm, action: ProxmoxVmAction) {
+    if (action !== 'start') {
+      const confirmed = window.confirm(`${titleCase(action)} VM ${vm.name} (${vm.vm_id}) on ${vm.node}?`);
+      if (!confirmed) {
+        return;
+      }
+    }
+
+    setActionByVmId((current) => ({ ...current, [vm.vm_id]: action }));
+    setNotification(null);
+    setError(null);
+    try {
+      const response = await runVmAction(vm.vm_id, action);
+      setNotification({ tone: 'success', message: response.message });
+      await refresh();
+    } catch (requestError) {
+      setNotification({ tone: 'error', message: getApiErrorMessage(requestError) });
+    } finally {
+      setActionByVmId((current) => {
+        const next = { ...current };
+        delete next[vm.vm_id];
+        return next;
+      });
+    }
+  }
 
   if (isLoading && !detail) {
     return <div className="h-80 animate-pulse rounded-lg bg-zinc-100" />;
@@ -61,6 +93,7 @@ export function InfrastructureNodeDetailPage() {
   return (
     <div className="space-y-6">
       <PageHeader title={node.name} description="Proxmox node resources, hosted guests, and planned safe management controls." />
+      {notification ? <Notification message={notification.message} tone={notification.tone} onDismiss={() => setNotification(null)} /> : null}
       <div className="flex items-center justify-between gap-3">
         <StatusBadge status={node.status} />
         <button className="inline-flex items-center gap-2 rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50" type="button" onClick={() => void refresh()}>
@@ -84,7 +117,7 @@ export function InfrastructureNodeDetailPage() {
         <div className="overflow-x-auto">
           <table className="min-w-full divide-y divide-zinc-200">
             <thead className="bg-zinc-50">
-              <tr>{['Name', 'VMID', 'Type', 'Status', 'IP', 'Inventory'].map((heading) => <th key={heading} className="px-5 py-3 text-left text-xs font-semibold uppercase text-zinc-500">{heading}</th>)}</tr>
+              <tr>{['Name', 'VMID', 'Type', 'Status', 'IP', 'Inventory', 'Actions'].map((heading) => <th key={heading} className="px-5 py-3 text-left text-xs font-semibold uppercase text-zinc-500">{heading}</th>)}</tr>
             </thead>
             <tbody className="divide-y divide-zinc-100">
               {vms.map((vm) => (
@@ -96,6 +129,16 @@ export function InfrastructureNodeDetailPage() {
                   <td className="px-5 py-4 font-mono text-sm text-zinc-700">{vm.ip_address ?? '-'}</td>
                   <td className="px-5 py-4 text-sm">
                     {vm.inventory_server_id ? <Link className="font-semibold text-zinc-800 hover:text-zinc-950" to={`/inventory/${vm.inventory_server_id}`}>{vm.inventory_hostname}</Link> : titleCase(vm.inventory_sync_status)}
+                  </td>
+                  <td className="px-5 py-4">
+                    <VmActions
+                      activeAction={actionByVmId[vm.vm_id]}
+                      allowActions={allowActions}
+                      allowImport={false}
+                      vm={vm}
+                      onAction={(targetVm, action) => void handleVmAction(targetVm, action)}
+                      onImport={() => undefined}
+                    />
                   </td>
                 </tr>
               ))}
@@ -115,6 +158,30 @@ export function InfrastructureNodeDetailPage() {
           ))}
         </div>
       </section>
+    </div>
+  );
+}
+
+function Notification({
+  message,
+  tone,
+  onDismiss,
+}: {
+  message: string;
+  tone: 'success' | 'error';
+  onDismiss: () => void;
+}) {
+  const className =
+    tone === 'success'
+      ? 'border-emerald-400/30 bg-emerald-950/40 text-emerald-100'
+      : 'border-rose-400/30 bg-rose-950/50 text-rose-100';
+
+  return (
+    <div className={`flex items-center justify-between gap-4 rounded-lg border px-4 py-3 ${className}`}>
+      <p className="text-sm font-medium">{message}</p>
+      <button className="text-sm font-semibold underline-offset-2 hover:underline" type="button" onClick={onDismiss}>
+        Dismiss
+      </button>
     </div>
   );
 }

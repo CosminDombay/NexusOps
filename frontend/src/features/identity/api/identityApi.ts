@@ -5,8 +5,10 @@ import type {
   ApplyPermissionPayload,
   CreateLinuxGroupPayload,
   CreateLinuxUserPayload,
+  DiscoveredUser,
   DiscoveredGroup,
   GroupPreset,
+  GroupMembership,
   CreateSSHKeyPayload,
   IdentityMutationResponse,
   LinuxGroup,
@@ -14,6 +16,9 @@ import type {
   PermissionTemplate,
   PermissionPreset,
   SSHKey,
+  UpdateLinuxUserPayload,
+  UpdateLinuxGroupPayload,
+  UserGroupMembership,
 } from '../types/identity';
 
 export async function listAccessProfiles(): Promise<AccessProfile[]> {
@@ -28,6 +33,30 @@ export async function listLinuxUsers(): Promise<LinuxUser[]> {
 
 export async function createLinuxUser(payload: CreateLinuxUserPayload): Promise<IdentityMutationResponse<LinuxUser>> {
   const response = await apiClient.post<IdentityMutationResponse<LinuxUser>>('/identity/users', payload);
+  return response.data;
+}
+
+export async function adoptLinuxUser(payload: CreateLinuxUserPayload): Promise<IdentityMutationResponse<LinuxUser>> {
+  const response = await apiClient.post<IdentityMutationResponse<LinuxUser>>('/identity/users/adopt', payload);
+  return response.data;
+}
+
+export async function updateLinuxUser(userId: string, payload: UpdateLinuxUserPayload): Promise<IdentityMutationResponse<LinuxUser>> {
+  const response = await apiClient.put<IdentityMutationResponse<LinuxUser>>(`/identity/users/${userId}`, payload);
+  return response.data;
+}
+
+export async function discoverUsers(targetServerIds: string[]): Promise<DiscoveredUser[]> {
+  const params = new URLSearchParams();
+  targetServerIds.forEach((serverId) => params.append('target_server_ids', serverId));
+  const response = await apiClient.get<{ users: DiscoveredUser[] }>(`/identity/users/discover?${params.toString()}`);
+  return response.data.users;
+}
+
+export async function discoverUserGroups(username: string, targetServerIds: string[]): Promise<UserGroupMembership> {
+  const params = new URLSearchParams();
+  targetServerIds.forEach((serverId) => params.append('target_server_ids', serverId));
+  const response = await apiClient.get<UserGroupMembership>(`/identity/users/${encodeURIComponent(username)}/groups?${params.toString()}`);
   return response.data;
 }
 
@@ -69,9 +98,37 @@ export async function discoverGroups(targetServerIds: string[]): Promise<Discove
   return response.data.groups;
 }
 
+export async function discoverGroupMembers(groupName: string, targetServerIds: string[]): Promise<GroupMembership> {
+  const params = new URLSearchParams();
+  targetServerIds.forEach((serverId) => params.append('target_server_ids', serverId));
+  const response = await apiClient.get<GroupMembership>(`/identity/groups/${encodeURIComponent(groupName)}/members/discover?${params.toString()}`);
+  return response.data;
+}
+
 export async function createLinuxGroup(payload: CreateLinuxGroupPayload): Promise<IdentityMutationResponse<LinuxGroup>> {
   const response = await apiClient.post<IdentityMutationResponse<LinuxGroup>>('/identity/groups', payload);
   return response.data;
+}
+
+export async function adoptLinuxGroup(payload: CreateLinuxGroupPayload): Promise<IdentityMutationResponse<LinuxGroup>> {
+  const response = await apiClient.post<IdentityMutationResponse<LinuxGroup>>('/identity/groups/adopt', payload);
+  return response.data;
+}
+
+export async function updateLinuxGroup(groupId: string, payload: UpdateLinuxGroupPayload): Promise<IdentityMutationResponse<LinuxGroup>> {
+  const response = await apiClient.put<IdentityMutationResponse<LinuxGroup>>(`/identity/groups/${groupId}`, payload);
+  return response.data;
+}
+
+export async function deleteLinuxGroup(groupId: string, targetServerIds: string[] = []): Promise<void> {
+  await apiClient.delete(`/identity/groups/${groupId}`, { data: targetServerIds });
+}
+
+export async function deleteLinuxUser(userId: string, targetServerIds: string[] = [], removeHome = false): Promise<void> {
+  await apiClient.delete(`/identity/users/${userId}`, {
+    params: { remove_home: removeHome },
+    data: targetServerIds,
+  });
 }
 
 export async function replicateLinuxGroup(groupId: string, targetServerIds: string[]): Promise<BulkExecutionResponse> {

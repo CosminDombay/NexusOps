@@ -19,6 +19,7 @@ from backend.app.modules.deployments.schemas import (
     DeploymentOperationRead,
     DeploymentRead,
     DeploymentStatusRead,
+    DeploymentUpdate,
 )
 from backend.app.modules.deployments.service import (
     DeploymentNotFoundError,
@@ -79,6 +80,23 @@ async def deploy(
     service: Annotated[DockerComposeDeploymentService, Depends(get_deployment_service)],
 ) -> DeploymentOperationRead:
     return await _run(lambda: service.deploy(deployment_id))
+
+
+@router.delete("/{deployment_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_deployment(
+    deployment_id: UUID,
+    service: Annotated[DockerComposeDeploymentService, Depends(get_deployment_service)],
+) -> None:
+    await _run(lambda: service.delete_deployment(deployment_id))
+
+
+@router.put("/{deployment_id}", response_model=DeploymentRead)
+async def update_deployment(
+    deployment_id: UUID,
+    payload: DeploymentUpdate,
+    service: Annotated[DockerComposeDeploymentService, Depends(get_deployment_service)],
+) -> DeploymentRead:
+    return await _run(lambda: service.update_deployment(deployment_id, payload))
 
 
 @router.post("/{deployment_id}/redeploy", response_model=DeploymentOperationRead)

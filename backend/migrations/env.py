@@ -20,7 +20,7 @@ from backend.app.modules.identity.models import (
     PermissionTemplate,
     SSHKey,
 )
-from backend.app.modules.jobs.models import Job
+from backend.app.modules.jobs.models import CustomOperationalAction, Job
 from backend.app.modules.monitoring.models import MetricSample
 from backend.app.modules.packages.models import PackageDefinitionRecord, PackageInstallation
 from backend.app.modules.profiles.models import InfrastructureProfileRecord, StandardizationProfile
@@ -45,6 +45,7 @@ _models = (
     DeploymentTarget,
     IdentityExecution,
     Integration,
+    CustomOperationalAction,
     Job,
     LinuxGroup,
     LinuxUser,

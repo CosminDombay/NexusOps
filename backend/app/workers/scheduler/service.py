@@ -1,3 +1,4 @@
+from datetime import UTC, datetime
 from uuid import UUID
 
 import structlog
@@ -56,7 +57,7 @@ class SchedulerService:
             max_instances=1,
         )
         job = self.scheduler.get_job(f"automation:{automation.id}")
-        automation.next_run_at = job.next_run_time if job else None
+        automation.next_run_at = self._job_next_run_time(job, trigger)
 
     async def dispatch_automation(self, automation_id: UUID) -> None:
         from backend.app.modules.automations.factory import build_automation_service
@@ -83,6 +84,15 @@ class SchedulerService:
                 day_of_week=day_of_week,
             )
         return None
+
+    @staticmethod
+    def _job_next_run_time(job, trigger):
+        if job is not None:
+            try:
+                return job.next_run_time
+            except AttributeError:
+                pass
+        return trigger.get_next_fire_time(None, datetime.now(UTC))
 
 
 scheduler_service = SchedulerService()

@@ -49,6 +49,50 @@ class OperationalActionRead(BaseModel):
     description: str
     command: str
     destructive: bool = False
+    is_builtin: bool = True
+
+
+class OperationalActionCreate(BaseModel):
+    id: str = Field(min_length=1, max_length=100)
+    name: str = Field(min_length=1, max_length=255)
+    category: str = Field(default="Custom", min_length=1, max_length=100)
+    description: str = Field(default="", max_length=2000)
+    command: str = Field(min_length=1, max_length=20000)
+    destructive: bool = False
+
+    @field_validator("id", "name", "category", "command")
+    @classmethod
+    def strip_action_strings(cls, value: str) -> str:
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("Value cannot be blank")
+        return stripped
+
+    @field_validator("description")
+    @classmethod
+    def strip_action_description(cls, value: str) -> str:
+        return value.strip()
+
+
+class OperationalActionUpdate(BaseModel):
+    name: str = Field(min_length=1, max_length=255)
+    category: str = Field(default="Custom", min_length=1, max_length=100)
+    description: str = Field(default="", max_length=2000)
+    command: str = Field(min_length=1, max_length=20000)
+    destructive: bool = False
+
+    @field_validator("name", "category", "command")
+    @classmethod
+    def strip_update_action_strings(cls, value: str) -> str:
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("Value cannot be blank")
+        return stripped
+
+    @field_validator("description")
+    @classmethod
+    def strip_update_action_description(cls, value: str) -> str:
+        return value.strip()
 
 
 class JobActionExecuteRequest(BaseModel):

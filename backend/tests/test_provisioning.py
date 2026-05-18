@@ -4,6 +4,14 @@ import pytest
 
 from backend.app.adapters.proxmox.base import ProxmoxAdapter
 from backend.app.adapters.ssh import SshAdapter, SshExecutionResult
+from backend.app.common.constants import (
+    InventoryLifecycleState,
+    InventorySyncStatus,
+    ServerEnvironment,
+    ServerSshAuthMethod,
+    ServerStatus,
+)
+from backend.app.modules.inventory.models import Server
 from backend.app.modules.inventory.repository import ServerRepository
 from backend.app.modules.jobs.repository import JobRepository
 from backend.app.modules.packages.repository import PackageDefinitionRepository
@@ -13,6 +21,7 @@ from backend.app.modules.provisioning.repository import (
     ProvisioningBatchRepository,
     ProvisioningRequestRepository,
 )
+from backend.app.modules.provisioning.models import ProvisioningRequest, ProvisioningStatus
 from backend.app.modules.provisioning.schemas import ProvisioningBatchCreate, ProvisioningBlueprintCreate, ProvisioningCreate
 from backend.app.modules.provisioning.service import ProvisioningService
 
@@ -227,3 +236,91 @@ async def test_provisioning_batch_creates_children_from_blueprint(client) -> Non
         assert batch.failed_count == 0
         assert [request.new_vm_id for request in batch.requests] == [200, 201]
         assert [request.static_ip_cidr for request in batch.requests] == ["10.3.0.60/24", "10.3.0.61/24"]
+
+
+@pytest.mark.asyncio
+async def test_delete_provisioning_request_removes_history_record(client) -> None:
+    session = next(iter(client.app.dependency_overrides.values()))
+    async for db_session in session():
+        request = ProvisioningRequest(
+            vm_name="failed-vm",
+            target_node="hellgate",
+            template_id=9000,
+            new_vm_id=188,
+            cpu_cores=2,
+            memory_mb=2048,
+            disk_gb=32,
+            additional_disks=[],
+            network_bridge="vmbr0",
+            environment="lab",
+            tags=["test"],
+            description=None,
+            start_on_boot=False,
+            cloud_init_username="ubuntu",
+            cloud_init_password=None,
+            ssh_public_key=None,
+            static_ip_cidr="10.3.0.88/24",
+            gateway="10.3.0.1",
+            dns_servers=["1.1.1.1"],
+            status=ProvisioningStatus.FAILED,
+            error_message="test failure",
+            proxmox_task_ids=[],
+            bootstrap_profile_ids=[],
+            bootstrap_package_ids=[],
+            bootstrap_job_ids=[],
+        )
+        db_session.add(request)
+        await db_session.commit()
+        await db_session.refresh(request)
+        request_id = request.id
+
+    response = client.delete(f"/api/v1/vms/{request_id}")
+
+    assert response.status_code == 204
+    assert client.get("/api/v1/vms").json() == []
+
+
+@pytest.mark.asyncio
+async def test_provisioning_restores_archived_inventory_record_for_reused_ip(client) -> None:
+    session = next(iter(client.app.dependency_overrides.values()))
+    proxmox = FakeProxmoxAdapter()
+    async for db_session in session():
+        archived = Server(
+            hostname="old-vm",
+            ip_address="10.3.0.50",
+            operating_system="old Linux",
+            vmid="99",
+            environment=ServerEnvironment.LAB,
+            tags=["old"],
+            ssh_port=22,
+            ssh_username="ubuntu",
+            ssh_auth_method=ServerSshAuthMethod.PASSWORD,
+            ssh_password="old",
+            status=ServerStatus.OFFLINE,
+            provider="proxmox",
+            external_id="99",
+            source="provisioned",
+            managed=False,
+            lifecycle_state=InventoryLifecycleState.ARCHIVED,
+            sync_status=InventorySyncStatus.ARCHIVED,
+            provider_node="hellgate",
+            provider_type="qemu",
+            provider_metadata={},
+        )
+        db_session.add(archived)
+        await db_session.commit()
+        await db_session.refresh(archived)
+        archived_id = archived.id
+
+        result = await service(db_session, proxmox).provision(
+            ProvisioningCreate(**payload(vm_name="new-vm", cloud_init_hostname="new-vm"))
+        )
+        restored = await ServerRepository(db_session).get_by_id(archived_id)
+
+        assert result.status == "completed"
+        assert str(result.server_id) == str(archived_id)
+        assert restored is not None
+        assert restored.hostname == "new-vm"
+        assert restored.ip_address == "10.3.0.50"
+        assert restored.lifecycle_state == InventoryLifecycleState.PROVISIONED
+        assert restored.managed is True

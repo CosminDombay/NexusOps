@@ -8,8 +8,8 @@ from backend.app.modules.inventory.repository import ServerRepository
 from backend.app.modules.inventory.service import InventoryService
 from backend.app.modules.inventory.schemas import ServerCreate
 from backend.app.modules.jobs.models import JobStatus
-from backend.app.modules.jobs.repository import JobRepository
-from backend.app.modules.jobs.schemas import JobActionExecuteRequest, JobExecuteRequest
+from backend.app.modules.jobs.repository import CustomOperationalActionRepository, JobRepository
+from backend.app.modules.jobs.schemas import JobActionExecuteRequest, JobExecuteRequest, OperationalActionCreate
 from backend.app.modules.jobs.service import (
     JobService,
     JobTargetNotFoundError,
@@ -230,6 +230,42 @@ async def test_job_service_executes_predefined_action_through_jobs(client) -> No
         assert job.command == "uptime"
         assert job.status == JobStatus.SUCCESS
         assert adapter.calls[0]["command"] == "uptime"
+
+
+@pytest.mark.asyncio
+async def test_job_service_creates_and_executes_custom_action(client) -> None:
+    session = next(iter(client.app.dependency_overrides.values()))
+    async for db_session in session():
+        server = await InventoryService(ServerRepository(db_session)).create_server(
+            ServerCreate(
+                **server_payload(hostname="custom-action-target-01", ip_address="10.1.0.14")
+            )
+        )
+        adapter = FakeSshAdapter()
+        service = JobService(
+            job_repository=JobRepository(db_session),
+            server_repository=ServerRepository(db_session),
+            ssh_adapter=adapter,
+            action_repository=CustomOperationalActionRepository(db_session),
+        )
+        action = await service.create_action(
+            OperationalActionCreate(
+                id="enable-docker-user",
+                name="Enable Docker User",
+                category="Docker",
+                description="Add the SSH user to the docker group.",
+                command="sudo usermod -aG docker $USER\nid",
+                destructive=True,
+            )
+        )
+
+        job = await service.execute_action(
+            JobActionExecuteRequest(target_server_id=server.id, action_id=action.id)
+        )
+
+        assert action.is_builtin is False
+        assert job.operation_type == "action:enable-docker-user"
+        assert adapter.calls[0]["command"] == "sudo usermod -aG docker $USER\nid"
 
 
 @pytest.mark.asyncio

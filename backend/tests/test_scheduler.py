@@ -34,3 +34,22 @@ def test_scheduler_builds_cron_trigger() -> None:
     trigger = SchedulerService._trigger_for(automation)
 
     assert trigger is not None
+
+
+def test_scheduler_registers_automation_before_start() -> None:
+    automation = Automation(
+        name="Docker check",
+        enabled=True,
+        schedule_type=AutomationScheduleType.INTERVAL,
+        interval_seconds=300,
+        target_mode=AutomationTargetMode.SINGLE_HOST,
+        target_server_ids=[],
+        operation_type=AutomationOperationType.ACTION,
+        reference_id="docker-status",
+    )
+    service = SchedulerService()
+
+    service.register_automation(automation)
+
+    assert automation.next_run_at is not None
+    service.scheduler.remove_all_jobs()

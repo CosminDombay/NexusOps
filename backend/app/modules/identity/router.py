@@ -6,6 +6,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.adapters.ssh import ParamikoSshAdapter
 from backend.app.db.session import get_db_session
+from backend.app.modules.credentials.repository import CredentialRepository
+from backend.app.modules.credentials.service import CredentialNotFoundError, CredentialService
 from backend.app.modules.identity.repository import (
     IdentityExecutionRepository,
     LinuxGroupRepository,
@@ -16,14 +18,17 @@ from backend.app.modules.identity.repository import (
 from backend.app.modules.identity.schemas import (
     AccessProfileRead,
     GroupDiscoveryRead,
+    GroupMembershipRead,
     GroupMembersRequest,
     GroupPresetRead,
     IdentityMutationRead,
     IdentityReplicationRead,
     LinuxGroupCreate,
     LinuxGroupRead,
+    LinuxGroupUpdate,
     LinuxUserCreate,
     LinuxUserRead,
+    LinuxUserUpdate,
     PermissionApplyRequest,
     PermissionPresetRead,
     PermissionReplicateRequest,
@@ -33,6 +38,8 @@ from backend.app.modules.identity.schemas import (
     SSHKeyCreate,
     SSHKeyDeployRequest,
     SSHKeyRead,
+    UserDiscoveryRead,
+    UserGroupMembershipRead,
 )
 from backend.app.modules.identity.service import (
     IdentityConflictError,
@@ -68,6 +75,7 @@ async def get_user_service(session: Annotated[AsyncSession, Depends(get_db_sessi
     return LinuxUserService(
         repository=LinuxUserRepository(session),
         replication_service=_replication_service(session),
+        credential_service=CredentialService(repository=CredentialRepository(session)),
     )
 
 
@@ -118,6 +126,58 @@ async def create_user(
     try:
         return await service.create_user(payload)
     except IdentityConflictError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    except CredentialNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except IdentityValidationError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+
+
+@router.get("/users/discover", response_model=UserDiscoveryRead)
+async def discover_users(
+    session: Annotated[AsyncSession, Depends(get_db_session)],
+    target_server_ids: Annotated[list[UUID], Query()],
+) -> UserDiscoveryRead:
+    if not target_server_ids:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Select at least one target")
+    return await _run_identity(lambda: _replication_service(session).discover_users(target_server_ids))
+
+
+@router.get("/users/{username}/groups", response_model=UserGroupMembershipRead)
+async def discover_user_groups(
+    username: str,
+    session: Annotated[AsyncSession, Depends(get_db_session)],
+    target_server_ids: Annotated[list[UUID], Query()],
+) -> UserGroupMembershipRead:
+    if not target_server_ids:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Select at least one target")
+    return await _run_identity(lambda: _replication_service(session).discover_user_groups(username, target_server_ids))
+
+
+@router.post("/users/adopt", response_model=IdentityMutationRead, status_code=status.HTTP_201_CREATED)
+async def adopt_user(
+    payload: LinuxUserCreate,
+    service: Annotated[LinuxUserService, Depends(get_user_service)],
+) -> IdentityMutationRead:
+    try:
+        return await service.adopt_user(payload)
+    except IdentityConflictError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+
+
+@router.put("/users/{user_id}", response_model=IdentityMutationRead)
+async def update_user(
+    user_id: UUID,
+    payload: LinuxUserUpdate,
+    service: Annotated[LinuxUserService, Depends(get_user_service)],
+) -> IdentityMutationRead:
+    try:
+        return await service.update_user(user_id, payload)
+    except IdentityNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except CredentialNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except IdentityValidationError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
 
 
@@ -183,6 +243,17 @@ async def discover_groups(
     return await _run_identity(lambda: _replication_service(session).discover_groups(target_server_ids))
 
 
+@router.get("/groups/{group_name}/members/discover", response_model=GroupMembershipRead)
+async def discover_group_members(
+    group_name: str,
+    session: Annotated[AsyncSession, Depends(get_db_session)],
+    target_server_ids: Annotated[list[UUID], Query()],
+) -> GroupMembershipRead:
+    if not target_server_ids:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Select at least one target")
+    return await _run_identity(lambda: _replication_service(session).discover_group_members(group_name, target_server_ids))
+
+
 @router.post("/groups", response_model=IdentityMutationRead, status_code=status.HTTP_201_CREATED)
 async def create_group(
     payload: LinuxGroupCreate,
@@ -190,6 +261,31 @@ async def create_group(
 ) -> IdentityMutationRead:
     try:
         return await service.create_group(payload)
+    except IdentityConflictError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+
+
+@router.post("/groups/adopt", response_model=IdentityMutationRead, status_code=status.HTTP_201_CREATED)
+async def adopt_group(
+    payload: LinuxGroupCreate,
+    service: Annotated[LinuxGroupService, Depends(get_group_service)],
+) -> IdentityMutationRead:
+    try:
+        return await service.adopt_group(payload)
+    except IdentityConflictError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+
+
+@router.put("/groups/{group_id}", response_model=IdentityMutationRead)
+async def update_group(
+    group_id: UUID,
+    payload: LinuxGroupUpdate,
+    service: Annotated[LinuxGroupService, Depends(get_group_service)],
+) -> IdentityMutationRead:
+    try:
+        return await service.update_group(group_id, payload)
+    except IdentityNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except IdentityConflictError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
 
@@ -298,6 +394,8 @@ async def _run_identity(operation):
     try:
         return await operation()
     except IdentityNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except CredentialNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except (IdentityValidationError, JobTargetNotManagedError) as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc

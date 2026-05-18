@@ -28,3 +28,6 @@ class AutomationRepository(BaseRepository[Automation]):
             select(Automation).where(Automation.enabled.is_(True)).order_by(Automation.name.asc())
         )
         return list(result.scalars().all())
+
+    async def delete(self, automation: Automation) -> None:
+        await self.session.delete(automation)

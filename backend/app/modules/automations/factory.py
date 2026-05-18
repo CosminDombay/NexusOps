@@ -8,7 +8,7 @@ from backend.app.modules.credentials.service import CredentialService
 from backend.app.modules.deployments.repository import DeploymentRepository, DeploymentRevisionRepository, DeploymentTargetRepository
 from backend.app.modules.deployments.service import DockerComposeDeploymentService
 from backend.app.modules.inventory.repository import ServerRepository
-from backend.app.modules.jobs.repository import JobRepository
+from backend.app.modules.jobs.repository import CustomOperationalActionRepository, JobRepository
 from backend.app.modules.jobs.service import JobService
 from backend.app.modules.packages.repository import PackageDefinitionRepository
 from backend.app.modules.packages.service import PackageAutomationService
@@ -25,11 +25,13 @@ def build_automation_service(session: AsyncSession) -> AutomationService:
         job_repository=JobRepository(session),
         server_repository=server_repository,
         ssh_adapter=ParamikoSshAdapter(),
+        action_repository=CustomOperationalActionRepository(session),
         credential_service=credential_service,
     )
     workflow_service = WorkflowService(
         workflow_repository=WorkflowRunRepository(session),
         step_repository=WorkflowStepRepository(session),
+        server_repository=server_repository,
     )
     package_repository = PackageDefinitionRepository(session)
     deployment_service = DockerComposeDeploymentService(

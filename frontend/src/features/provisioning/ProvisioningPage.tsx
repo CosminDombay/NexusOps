@@ -11,6 +11,7 @@ import {
   createProvisioningBatch,
   createProvisioningRequest,
   deleteProvisioningBlueprint,
+  deleteProvisioningRequest,
   listProxmoxStorage,
   listProxmoxTemplates,
   listProvisioningBatches,
@@ -116,7 +117,7 @@ export function ProvisioningPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState<string | null>(null);
+  const [notice, setNotice] = useState<{ tone: 'success' | 'danger' | 'warning'; message: string } | null>(null);
 
   const selectedTemplate = useMemo(
     () => templates.find((template) => String(template.template_id) === formState.template_id) ?? null,
@@ -179,13 +180,13 @@ export function ProvisioningPage() {
   function updateField(name: keyof FormState, value: FormState[keyof FormState]) {
     setFormState((current) => ({ ...current, [name]: value }));
     setError(null);
-    setSuccess(null);
+    setNotice(null);
   }
 
   function updateBatchField(name: keyof BatchFormState, value: string) {
     setBatchFormState((current) => ({ ...current, [name]: value }));
     setError(null);
-    setSuccess(null);
+    setNotice(null);
   }
 
   function updateAdditionalDisk(
@@ -199,7 +200,7 @@ export function ProvisioningPage() {
       ),
     }));
     setError(null);
-    setSuccess(null);
+    setNotice(null);
   }
 
   function applyBlueprint(blueprint: ProvisioningBlueprint) {
@@ -245,7 +246,7 @@ export function ProvisioningPage() {
       description: current.description || blueprint.description || '',
     }));
     setError(null);
-    setSuccess(`Loaded blueprint ${blueprint.name}.`);
+    setNotice({ tone: 'success', message: `Loaded blueprint ${blueprint.name}.` });
   }
 
   async function handleSaveBlueprint() {
@@ -256,12 +257,12 @@ export function ProvisioningPage() {
     }
     setIsSubmitting(true);
     setError(null);
-    setSuccess(null);
+    setNotice(null);
     try {
       const created = await createProvisioningBlueprint(payload);
       setBlueprints((current) => [...current, created].sort((left, right) => left.name.localeCompare(right.name)));
       setSelectedBlueprintId(created.id);
-      setSuccess(`Saved blueprint ${created.name}.`);
+      setNotice({ tone: 'success', message: `Saved blueprint ${created.name}.` });
     } catch (caughtError) {
       setError(getApiErrorMessage(caughtError));
     } finally {
@@ -278,14 +279,14 @@ export function ProvisioningPage() {
     }
     setIsSubmitting(true);
     setError(null);
-    setSuccess(null);
+    setNotice(null);
     try {
       const updated = await updateProvisioningBlueprint(blueprint.id, payload);
       setBlueprints((current) =>
         current.map((item) => (item.id === updated.id ? updated : item)).sort((left, right) => left.name.localeCompare(right.name)),
       );
       setBlueprintName(updated.name);
-      setSuccess(`Updated blueprint ${updated.name}.`);
+      setNotice({ tone: 'success', message: `Updated blueprint ${updated.name}.` });
     } catch (caughtError) {
       setError(getApiErrorMessage(caughtError));
     } finally {
@@ -309,13 +310,13 @@ export function ProvisioningPage() {
     }
     setIsSubmitting(true);
     setError(null);
-    setSuccess(null);
+    setNotice(null);
     try {
       const created = await createProvisioningBlueprint(payload);
       setBlueprints((current) => [...current, created].sort((left, right) => left.name.localeCompare(right.name)));
       setSelectedBlueprintId(created.id);
       setBlueprintName(created.name);
-      setSuccess(`Cloned blueprint ${created.name}.`);
+      setNotice({ tone: 'success', message: `Cloned blueprint ${created.name}.` });
     } catch (caughtError) {
       setError(getApiErrorMessage(caughtError));
     } finally {
@@ -334,12 +335,12 @@ export function ProvisioningPage() {
     }
     setIsSubmitting(true);
     setError(null);
-    setSuccess(null);
+    setNotice(null);
     try {
       await deleteProvisioningBlueprint(blueprint.id);
       setBlueprints((current) => current.filter((item) => item.id !== blueprint.id));
       setSelectedBlueprintId('');
-      setSuccess(`Deleted blueprint ${blueprint.name}.`);
+      setNotice({ tone: 'success', message: `Deleted blueprint ${blueprint.name}.` });
     } catch (caughtError) {
       setError(getApiErrorMessage(caughtError));
     } finally {
@@ -361,11 +362,14 @@ export function ProvisioningPage() {
 
     setIsSubmitting(true);
     setError(null);
-    setSuccess(null);
+    setNotice(null);
     try {
       const created = await createProvisioningRequest(payload);
       setRequests((current) => [created, ...current]);
-      setSuccess(`Provisioning finished with status ${created.status}.`);
+      setNotice({
+        tone: created.status === 'completed' ? 'success' : 'danger',
+        message: `Provisioning finished with status ${created.status}.`,
+      });
     } catch (caughtError) {
       setError(getApiErrorMessage(caughtError));
     } finally {
@@ -387,16 +391,35 @@ export function ProvisioningPage() {
 
     setIsSubmitting(true);
     setError(null);
-    setSuccess(null);
+    setNotice(null);
     try {
       const created = await createProvisioningBatch(payload);
       setBatches((current) => [created, ...current]);
       setRequests((current) => [...created.requests, ...current]);
-      setSuccess(`Batch finished with status ${created.status}: ${created.completed_count}/${created.count} completed.`);
+      setNotice({
+        tone: created.status === 'completed' ? 'success' : created.status === 'partial_failed' ? 'warning' : 'danger',
+        message: `Batch finished with status ${created.status}: ${created.completed_count}/${created.count} completed.`,
+      });
     } catch (caughtError) {
       setError(getApiErrorMessage(caughtError));
     } finally {
       setIsSubmitting(false);
+    }
+  }
+
+  async function handleDeleteRequest(request: ProvisioningRequest) {
+    const confirmed = window.confirm(`Delete provisioning history for ${request.vm_name}? This only removes the NexusOps request record; it does not delete the VM or inventory host.`);
+    if (!confirmed) {
+      return;
+    }
+    setError(null);
+    setNotice(null);
+    try {
+      await deleteProvisioningRequest(request.id);
+      setRequests((current) => current.filter((item) => item.id !== request.id));
+      setNotice({ tone: 'success', message: `Deleted provisioning history for ${request.vm_name}.` });
+    } catch (caughtError) {
+      setError(getApiErrorMessage(caughtError));
     }
   }
 
@@ -408,7 +431,7 @@ export function ProvisioningPage() {
       />
 
       {error ? <p className="rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">{error}</p> : null}
-      {success ? <p className="rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-700">{success}</p> : null}
+      {notice ? <Notice tone={notice.tone} message={notice.message} /> : null}
 
       <section className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-end">
@@ -700,7 +723,7 @@ export function ProvisioningPage() {
       </section>
 
       <ProvisioningBatchHistory batches={batches} />
-      <ProvisioningHistory requests={requests} />
+      <ProvisioningHistory requests={requests} onDelete={handleDeleteRequest} />
     </div>
   );
 }
@@ -809,7 +832,23 @@ function WizardSteps({ steps, currentIndex }: { steps: string[]; currentIndex: n
   );
 }
 
-function ProvisioningHistory({ requests }: { requests: ProvisioningRequest[] }) {
+function Notice({ tone, message }: { tone: 'success' | 'danger' | 'warning'; message: string }) {
+  const className =
+    tone === 'success'
+      ? 'border-emerald-400/30 bg-emerald-950/40 text-emerald-100'
+      : tone === 'warning'
+        ? 'border-amber-400/30 bg-amber-950/40 text-amber-100'
+        : 'border-rose-400/30 bg-rose-950/50 text-rose-100';
+  return <p className={`rounded-lg border p-4 text-sm ${className}`}>{message}</p>;
+}
+
+function ProvisioningHistory({
+  requests,
+  onDelete,
+}: {
+  requests: ProvisioningRequest[];
+  onDelete: (request: ProvisioningRequest) => void;
+}) {
   return (
     <section className="rounded-lg border border-zinc-200 bg-white shadow-sm">
       <div className="border-b border-zinc-200 px-5 py-4">
@@ -826,9 +865,16 @@ function ProvisioningHistory({ requests }: { requests: ProvisioningRequest[] }) 
                   VMID {request.new_vm_id} on {request.target_node} - {request.static_ip_cidr}
                 </p>
               </div>
-              <span className="inline-flex w-fit rounded-full bg-zinc-100 px-2.5 py-1 text-xs font-medium text-zinc-700 ring-1 ring-zinc-200">
-                {request.status}
-              </span>
+              <div className="flex flex-wrap items-center gap-2">
+                <StatusPill status={request.status} />
+                <button
+                  className="rounded-md border border-rose-400/50 px-2.5 py-1 text-xs font-semibold text-rose-200 transition hover:bg-rose-950/40"
+                  type="button"
+                  onClick={() => onDelete(request)}
+                >
+                  Delete
+                </button>
+              </div>
             </div>
             {request.error_message ? <p className="mt-3 text-sm text-rose-700">{request.error_message}</p> : null}
             <p className="mt-3 text-xs text-zinc-500">
@@ -840,6 +886,22 @@ function ProvisioningHistory({ requests }: { requests: ProvisioningRequest[] }) 
         {requests.length === 0 ? <p className="text-sm text-zinc-500">No provisioning requests yet.</p> : null}
       </div>
     </section>
+  );
+}
+
+function StatusPill({ status }: { status: ProvisioningRequest['status'] | ProvisioningBatch['status'] }) {
+  const className =
+    status === 'completed'
+      ? 'bg-emerald-400/10 text-emerald-200 ring-emerald-400/40'
+      : status === 'failed'
+        ? 'bg-rose-400/10 text-rose-200 ring-rose-400/50'
+        : status === 'partial_failed'
+          ? 'bg-amber-400/10 text-amber-200 ring-amber-400/50'
+          : 'bg-sky-400/10 text-sky-200 ring-sky-400/40';
+  return (
+    <span className={`inline-flex w-fit rounded-full px-2.5 py-1 text-xs font-medium ring-1 ${className}`}>
+      {status}
+    </span>
   );
 }
 
@@ -860,9 +922,7 @@ function ProvisioningBatchHistory({ batches }: { batches: ProvisioningBatch[] })
                   {batch.count} VMs from VMID {batch.starting_vm_id}, starting at {batch.starting_ip_cidr}
                 </p>
               </div>
-              <span className="inline-flex w-fit rounded-full bg-zinc-100 px-2.5 py-1 text-xs font-medium text-zinc-700 ring-1 ring-zinc-200">
-                {batch.status}
-              </span>
+              <StatusPill status={batch.status} />
             </div>
             <div className="mt-4 grid gap-3 md:grid-cols-3">
               <MetricCard label="Completed" value={`${batch.completed_count}`} />
