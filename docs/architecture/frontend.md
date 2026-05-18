@@ -21,6 +21,10 @@ The frontend currently implements:
 - host detail and Proxmox node detail pages
 - integrations settings page
 - deployment and monitoring foundation pages
+- shared target selection across orchestration pages
+- admin Users & RBAC page
+- unified Host Tools workspace with files/editor and persistent terminal
+- route-level lazy loading/code splitting
 
 ## Application Shell
 
@@ -38,7 +42,7 @@ Current main routes:
 
 - `/` inventory
 - `/inventory/:id` host detail
-- `/infrastructure` Proxmox visibility, lifecycle controls, and inventory synchronization
+- `/infrastructure` Proxmox visibility, import, and inventory synchronization
 - `/infrastructure/credentials` credential manager
 - `/infrastructure/nodes/:id` Proxmox node detail
 - `/jobs` SSH-backed operations and job history
@@ -49,6 +53,7 @@ Current main routes:
 - `/deployments` Docker Compose deployment workflows
 - `/monitoring` Prometheus/Grafana monitoring foundations
 - `/settings/integrations` integration records and connection tests
+- `/settings/users` admin-only user and RBAC lifecycle management
 
 ## Feature-Based Structure
 
@@ -163,7 +168,7 @@ Jobs frontend components:
 
 The Jobs UI includes:
 
-- target inventory host selector
+- shared target inventory host selector with single/bulk modes and filters
 - predefined operational action selector grouped by category
 - destructive action confirmation
 - raw command execution form
@@ -205,7 +210,7 @@ PackagesPage
   -> FastAPI /api/v1/packages
 ```
 
-The Packages UI displays reusable package definitions with install, uninstall, validation, variable, tag, category, and supported OS metadata. It supports adding custom package definitions, editing built-in working copies, cloning templates, restoring modified built-ins to defaults, deleting custom definitions, selecting target hosts, bulk execution, and running packages through Jobs.
+The Packages UI displays reusable package definitions with install, uninstall, validation, variable, tag, category, and supported OS metadata. It supports adding custom package definitions, editing built-in working copies, cloning templates, restoring modified built-ins to defaults, deleting custom definitions, shared single/bulk target selection, bulk execution, and running packages through Jobs.
 
 Package variable definitions are edited through a visual editor instead of raw JSON. Before execution, a modal displays the execution preview, normal runtime inputs, and credential dropdowns for sensitive variables. Sensitive values are sent as `credential_refs`, not plaintext.
 
@@ -228,7 +233,7 @@ The Profiles UI includes:
 - move up/down and drag-and-drop step ordering preview
 - visual variable definition editor
 - execution modal with runtime inputs and credential dropdowns for sensitive variables
-- target inventory host selector
+- shared target inventory host selector
 - apply profile action
 - generated job sequence visibility
 
@@ -266,12 +271,15 @@ The Integrations UI includes:
 
 - configured integration cards
 - enabled/disabled badges
-- raw config preview for local MVP use
-- create integration form
-- Proxmox, Prometheus, and Grafana presets
+- structured create integration form
+- Proxmox, Prometheus, Grafana, and Tailscale placeholder presets
+- auth mode selection for URL-only, username/password, token, and username/token modes
+- credential references for secrets
+- SSL verification and timeout controls
+- advanced JSON override for local MVP escape hatches
 - connection test action
 
-Integration configs are currently local MVP metadata and should not be treated as production-grade secret storage.
+Integration configs are generated into the existing JSON payload for DB compatibility. Secrets should use credential references and should not be placed in config JSON.
 
 ## Provisioning Frontend Flow
 
@@ -304,7 +312,9 @@ DeploymentsPage
   -> FastAPI /api/v1/deployments
 ```
 
-The Deployments UI includes Docker Compose content, non-secret env content, credential-backed env variable mappings, target host selection, deployment operation buttons, deployment state/history rows, and log loading. Credential-backed env mappings send only credential IDs to the backend; secret values are resolved server-side.
+The Deployments UI includes Docker Compose content, non-secret env content, credential-backed env variable mappings, shared target selection, deployment operation buttons, deployment state badges, deployment state/history rows, empty/loading states, and log loading. Credential-backed env mappings send only credential IDs to the backend; secret values are resolved server-side.
+
+Deployments now pass both `target_server_id` and optional `target_server_ids` in the request shape. The current backend still executes the first target only; the request shape is prepared for future distributed orchestration queueing.
 
 ## Monitoring Frontend Flow
 
@@ -342,6 +352,7 @@ Shared UI components now include:
 
 - `ExecutionVariablesModal` for package/profile execution inputs and credential selection
 - `VariableDefinitionEditor` for visual variable definition editing
+- `TargetSelector` for searchable, filterable single/bulk inventory target selection
 
 ## Tooling
 

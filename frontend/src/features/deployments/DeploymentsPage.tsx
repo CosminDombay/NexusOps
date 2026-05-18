@@ -5,7 +5,10 @@ import { KeyRound, Play, Plus, RefreshCw, Square, Terminal, Trash2 } from 'lucid
 import { PageHeader } from '../../components/layout/PageHeader';
 import { getApiErrorMessage } from '../../lib/api/client';
 import { listServers } from '../inventory/api/serversApi';
+import { TargetSelector } from '../inventory/components/TargetSelector';
+import { useTargetSelection } from '../inventory/hooks/useTargetSelection';
 import type { Server } from '../inventory/types/server';
+import { selectedTargetIds } from '../inventory/types/targetSelection';
 import { listCredentials } from '../credentials/api/credentialsApi';
 import type { Credential } from '../credentials/types/credential';
 import { createDeployment, getDeploymentLogs, listDeployments, runDeploymentOperation } from './api/deploymentsApi';
@@ -25,6 +28,7 @@ export function DeploymentsPage() {
   const [selectedDeploymentId, setSelectedDeploymentId] = useState('');
   const [name, setName] = useState('nginx-demo');
   const [targetServerId, setTargetServerId] = useState('');
+  const targetSelector = useTargetSelection('single');
   const [composeContent, setComposeContent] = useState(defaultCompose);
   const [envContent, setEnvContent] = useState('');
   const [credentialRefs, setCredentialRefs] = useState<Array<{ key: string; credentialId: string }>>([]);
@@ -51,7 +55,11 @@ export function DeploymentsPage() {
   }
 
   async function handleCreate() {
-    if (!name.trim() || !targetServerId || !composeContent.trim()) {
+    const targets = selectedTargetIds({
+      ...targetSelector.selection,
+      selectedId: targetSelector.selection.selectedId || targetServerId,
+    });
+    if (!name.trim() || targets.length === 0 || !composeContent.trim()) {
       return;
     }
     setIsWorking(true);
@@ -59,7 +67,8 @@ export function DeploymentsPage() {
     try {
       const deployment = await createDeployment({
         name,
-        target_server_id: targetServerId,
+        target_server_id: targets[0],
+        target_server_ids: targets,
         compose_content: composeContent,
         env_content: envContent || null,
         credential_refs: Object.fromEntries(
@@ -128,15 +137,22 @@ export function DeploymentsPage() {
           <span className="text-sm font-medium text-zinc-950">Deployment name</span>
           <input className="mt-2 h-10 w-full rounded-md border border-zinc-300 px-3 text-sm" value={name} onChange={(event) => setName(event.target.value)} />
         </label>
-        <label className="block">
-          <span className="text-sm font-medium text-zinc-950">Target host</span>
-          <select className="mt-2 h-10 w-full rounded-md border border-zinc-300 px-3 text-sm" value={targetServerId} onChange={(event) => setTargetServerId(event.target.value)}>
-            <option value="">Select host</option>
-            {servers.map((server) => (
-              <option key={server.id} value={server.id}>{server.hostname}</option>
-            ))}
-          </select>
-        </label>
+        <div className="lg:col-span-2">
+          <TargetSelector
+            servers={servers}
+            selection={targetSelector.selection}
+            filters={targetSelector.filters}
+            title="Deployment targets"
+            description="Create a compose deployment for one host now, or pass bulk targets for future distributed execution."
+            onFiltersChange={targetSelector.setFilters}
+            onSelectionChange={(selection) => {
+              targetSelector.setMode(selection.mode);
+              targetSelector.setSelectedId(selection.selectedId);
+              targetSelector.setSelectedIds(selection.selectedIds);
+              setTargetServerId(selection.selectedId);
+            }}
+          />
+        </div>
         <label className="block lg:col-span-2">
           <span className="text-sm font-medium text-zinc-950">Compose YAML</span>
           <textarea className="mt-2 min-h-56 w-full rounded-md border border-zinc-300 p-3 font-mono text-sm" value={composeContent} onChange={(event) => setComposeContent(event.target.value)} />
@@ -208,7 +224,7 @@ export function DeploymentsPage() {
             <select className="mt-2 h-10 w-full rounded-md border border-zinc-300 px-3 text-sm" value={selectedDeploymentId} onChange={(event) => setSelectedDeploymentId(event.target.value)}>
               <option value="">Select deployment</option>
               {deployments.map((deployment) => (
-                <option key={deployment.id} value={deployment.id}>{deployment.name} ({deployment.status})</option>
+                <option key={deployment.id} value={deployment.id}>{deployment.name} ({deploymentStatusLabel(deployment.status)})</option>
               ))}
             </select>
           </label>
@@ -234,7 +250,7 @@ export function DeploymentsPage() {
                       </Link>
                     ) : 'No target'}
                   </td>
-                  <td className="py-3 text-zinc-600">{deployment.status}</td>
+                  <td className="py-3 text-zinc-600"><DeploymentStatusBadge status={deployment.status} /></td>
                   <td className="py-3 text-zinc-600">
                     {Object.keys(deployment.credential_refs ?? {}).length ? (
                       <span className="inline-flex items-center gap-1 rounded-full bg-zinc-100 px-2 py-1 text-xs font-semibold text-zinc-700">
@@ -252,9 +268,32 @@ export function DeploymentsPage() {
 
       <section className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm">
         <h3 className="text-base font-semibold text-zinc-950">Logs</h3>
-        <pre className="mt-3 max-h-96 overflow-auto rounded-md bg-zinc-950 p-4 text-xs text-zinc-50">{logs || 'No logs loaded.'}</pre>
+        <pre className="mt-3 max-h-96 overflow-auto rounded-md border border-zinc-800 bg-zinc-950 p-4 text-xs leading-5 text-zinc-100 shadow-inner">{logs || 'No logs loaded.'}</pre>
       </section>
     </div>
+  );
+}
+
+function deploymentStatusLabel(status: Deployment['status']): string {
+  if (status === 'draft') return 'created';
+  if (status === 'running') return 'deployed';
+  return status;
+}
+
+function DeploymentStatusBadge({ status }: { status: Deployment['status'] }) {
+  const label = deploymentStatusLabel(status);
+  const className =
+    label === 'deployed'
+      ? 'bg-emerald-50 text-emerald-700 ring-emerald-200'
+      : label === 'failed'
+        ? 'bg-rose-50 text-rose-700 ring-rose-200'
+        : label === 'stopped'
+          ? 'bg-amber-50 text-amber-700 ring-amber-200'
+          : 'bg-sky-50 text-sky-700 ring-sky-200';
+  return (
+    <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ring-1 ring-inset ${className}`}>
+      {label}
+    </span>
   );
 }
 

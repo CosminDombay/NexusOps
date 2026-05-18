@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { Activity, Box, ExternalLink, HardDrive, RefreshCw, ServerIcon, ShieldCheck } from 'lucide-react';
+import { Activity, Box, ExternalLink, HardDrive, RefreshCw, ServerIcon, ShieldCheck, TerminalSquare } from 'lucide-react';
 
 import { PageHeader } from '../../../components/layout/PageHeader';
 import { getApiErrorMessage } from '../../../lib/api/client';
@@ -36,6 +36,8 @@ type LoadState = {
   sshKeys: SSHKey[];
 };
 
+type HostTab = 'overview' | 'metrics' | 'terminal' | 'files' | 'deployments' | 'jobs' | 'workflows' | 'packages' | 'profiles' | 'identity';
+
 const initialState: LoadState = {
   server: null,
   system: null,
@@ -55,6 +57,7 @@ export function HostDetailPage() {
   const [state, setState] = useState<LoadState>(initialState);
   const [errors, setErrors] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState<HostTab>('overview');
 
   const refresh = useCallback(async () => {
     if (!id) {
@@ -143,36 +146,38 @@ export function HostDetailPage() {
           <RefreshCw className="h-4 w-4" aria-hidden="true" />
           Refresh
         </button>
+        <Link
+          className="inline-flex items-center gap-2 rounded-md bg-zinc-900 px-3 py-2 text-sm font-semibold text-white hover:bg-zinc-800"
+          to={`/inventory/${server.id}/tools`}
+        >
+          <TerminalSquare className="h-4 w-4" aria-hidden="true" />
+          Host Tools
+        </Link>
       </div>
 
       {errors.length ? <ErrorPanel title="Some live checks failed" errors={errors} onRetry={refresh} compact /> : null}
 
       <nav className="flex gap-2 overflow-x-auto rounded-lg border border-zinc-200 bg-white p-2 shadow-sm">
-        {['Overview', 'Jobs', 'Deployments', 'Monitoring', 'Identity', 'Automations', 'Workflows', 'Logs'].map((tab) => (
-          <Link
-            key={tab}
-            className="whitespace-nowrap rounded-md px-3 py-2 text-sm font-semibold text-zinc-600 hover:bg-zinc-100 hover:text-zinc-950"
-            to={
-              tab === 'Jobs'
-                ? '/jobs'
-                : tab === 'Deployments'
-                  ? '/deployments'
-                  : tab === 'Monitoring'
-                    ? '/monitoring'
-                    : tab === 'Identity'
-                      ? '/identity'
-                      : tab === 'Automations'
-                        ? '/automations'
-                        : tab === 'Workflows'
-                          ? '/workflows'
-                          : '#'
-            }
+        {hostTabs.map((tab) => (
+          <button
+            key={tab.id}
+            className={`whitespace-nowrap rounded-md px-3 py-2 text-sm font-semibold ${
+              activeTab === tab.id ? 'bg-zinc-950 text-white' : 'text-zinc-600 hover:bg-zinc-100 hover:text-zinc-950'
+            }`}
+            type="button"
+            onClick={() => setActiveTab(tab.id)}
           >
-            {tab}
-          </Link>
+            {tab.label}
+          </button>
         ))}
       </nav>
 
+      {activeTab !== 'overview' ? (
+        <HostTabPanel tab={activeTab} server={server} state={state} />
+      ) : null}
+
+      {activeTab === 'overview' ? (
+        <>
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <MetricCard icon={ServerIcon} label="LAN IP" value={state.network?.lan_ip ?? server.ip_address} />
         <MetricCard icon={Activity} label="Uptime" value={formatDuration(state.system?.uptime_seconds ?? state.metrics?.uptime_seconds)} />
@@ -304,6 +309,7 @@ export function HostDetailPage() {
 
           <Panel title="Quick Actions">
             <LinkList items={[
+              { label: 'Open host tools', to: `/inventory/${server.id}/tools` },
               { label: 'Run command', to: '/jobs' },
               { label: 'Apply profile', to: '/profiles' },
               { label: 'Deploy compose app', to: '/deployments' },
@@ -319,7 +325,85 @@ export function HostDetailPage() {
           </Panel>
         </aside>
       </section>
+        </>
+      ) : null}
     </div>
+  );
+}
+
+const hostTabs: Array<{ id: HostTab; label: string }> = [
+  { id: 'overview', label: 'Overview' },
+  { id: 'metrics', label: 'Metrics' },
+  { id: 'terminal', label: 'Terminal' },
+  { id: 'files', label: 'Files' },
+  { id: 'deployments', label: 'Deployments' },
+  { id: 'jobs', label: 'Jobs' },
+  { id: 'workflows', label: 'Workflows' },
+  { id: 'packages', label: 'Packages' },
+  { id: 'profiles', label: 'Profiles' },
+  { id: 'identity', label: 'Identity' },
+];
+
+function HostTabPanel({ tab, server, state }: { tab: HostTab; server: Server; state: LoadState }) {
+  if (tab === 'terminal' || tab === 'files') {
+    return (
+      <Panel title={tab === 'terminal' ? 'Terminal' : 'Files'}>
+        <Link className="inline-flex rounded-md bg-zinc-900 px-3 py-2 text-sm font-semibold text-white" to={`/inventory/${server.id}/tools`}>
+          Open unified host tools
+        </Link>
+      </Panel>
+    );
+  }
+
+  if (tab === 'deployments') {
+    return (
+      <Panel title="Host deployments">
+        <LinkList items={[
+          ...state.deployments.map((deployment) => ({ label: `${deployment.name} - ${deployment.status}`, to: '/deployments' })),
+          { label: 'Create deployment for this host', to: '/deployments' },
+        ]} />
+      </Panel>
+    );
+  }
+
+  if (tab === 'jobs') {
+    return (
+      <Panel title="Recent jobs">
+        <LinkList items={[
+          ...state.jobs.map((job) => ({ label: `${job.operation_type} - ${job.status}`, to: '/jobs' })),
+          { label: 'Run command for this host', to: '/jobs' },
+        ]} />
+      </Panel>
+    );
+  }
+
+  if (tab === 'metrics') {
+    return (
+      <Panel title="Metrics">
+        <div className="grid gap-3 md:grid-cols-3">
+          <Info label="Uptime" value={formatDuration(state.metrics?.uptime_seconds)} />
+          <Info label="CPU" value={formatPercent(state.metrics?.cpu_usage_percent)} />
+          <Info label="Memory" value={formatPercent(state.metrics?.memory_usage_percent)} />
+        </div>
+      </Panel>
+    );
+  }
+
+  if (tab === 'overview') {
+    return null;
+  }
+
+  const links: Record<'workflows' | 'packages' | 'profiles' | 'identity', Array<{ label: string; to: string }>> = {
+    workflows: [{ label: 'Open workflows for host context', to: '/workflows' }],
+    packages: [{ label: 'Run package against this host', to: '/packages' }],
+    profiles: [{ label: 'Apply profile to this host', to: '/profiles' }],
+    identity: [{ label: `${state.users.length} users / ${state.groups.length} groups`, to: '/identity' }],
+  };
+
+  return (
+    <Panel title={hostTabs.find((item) => item.id === tab)?.label ?? 'Host operations'}>
+      <LinkList items={links[tab]} />
+    </Panel>
   );
 }
 

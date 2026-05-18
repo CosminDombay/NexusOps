@@ -59,7 +59,10 @@ class DockerComposeDeploymentService:
         return [await self._to_read(deployment) for deployment in deployments]
 
     async def create_deployment(self, payload: DeploymentCreate) -> DeploymentRead:
-        server = await self._managed_server(payload.target_server_id)
+        target_ids = payload.target_server_ids or ([payload.target_server_id] if payload.target_server_id else [])
+        if not target_ids:
+            raise DeploymentValidationError("Select at least one deployment target")
+        server = await self._managed_server(target_ids[0])
         deployment = await self.repository.create(
             Deployment(
                 name=payload.name,
@@ -205,6 +208,7 @@ class DockerComposeDeploymentService:
             credential_refs=deployment.credential_refs,
             status=deployment.status,
             target_server_id=target.server_id if target else None,
+            target_server_ids=[target.server_id] if target else [],
             target_hostname=server.hostname if server else None,
             remote_path=target.remote_path if target else None,
             created_at=deployment.created_at,

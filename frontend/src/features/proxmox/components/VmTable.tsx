@@ -8,11 +8,12 @@ type VmTableProps = {
   vms: ProxmoxVm[];
   actionByVmId: Record<number, ProxmoxVmAction | undefined>;
   allowActions: boolean;
+  allowImport?: boolean;
   onAction: (vm: ProxmoxVm, action: ProxmoxVmAction) => void;
   onImport: (vm: ProxmoxVm) => void;
 };
 
-export function VmTable({ vms, actionByVmId, allowActions, onAction, onImport }: VmTableProps) {
+export function VmTable({ vms, actionByVmId, allowActions, allowImport = allowActions, onAction, onImport }: VmTableProps) {
   return (
     <section className="rounded-lg border border-zinc-200 bg-white shadow-sm">
       <div className="border-b border-zinc-200 px-5 py-4">
@@ -63,6 +64,7 @@ export function VmTable({ vms, actionByVmId, allowActions, onAction, onImport }:
                     activeAction={actionByVmId[vm.vm_id]}
                     vm={vm}
                     allowActions={allowActions}
+                    allowImport={allowImport}
                     onAction={onAction}
                     onImport={onImport}
                   />
@@ -102,6 +104,7 @@ export function VmTable({ vms, actionByVmId, allowActions, onAction, onImport }:
                 activeAction={actionByVmId[vm.vm_id]}
                 vm={vm}
                 allowActions={allowActions}
+                allowImport={allowImport}
                 onAction={onAction}
                 onImport={onImport}
               />
@@ -117,12 +120,14 @@ function VmActions({
   vm,
   activeAction,
   allowActions,
+  allowImport,
   onAction,
   onImport,
 }: {
   vm: ProxmoxVm;
   activeAction: ProxmoxVmAction | undefined;
   allowActions: boolean;
+  allowImport: boolean;
   onAction: (vm: ProxmoxVm, action: ProxmoxVmAction) => void;
   onImport: (vm: ProxmoxVm) => void;
 }) {
@@ -131,7 +136,20 @@ function VmActions({
   const canImport = vm.inventory_sync_status === 'unmanaged' || vm.inventory_sync_status === 'archived';
 
   if (!allowActions) {
-    return <span className="text-xs font-medium text-zinc-500">Read only</span>;
+    return (
+      <div className="flex flex-wrap gap-2">
+        <span className="text-xs font-medium text-zinc-500">Lifecycle actions live in Inventory</span>
+        <button
+          className="inline-flex items-center gap-1.5 rounded-md border border-emerald-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-emerald-700 transition hover:bg-emerald-50 disabled:cursor-not-allowed disabled:border-zinc-300 disabled:bg-zinc-100 disabled:text-zinc-400"
+          disabled={!allowImport || !canImport}
+          type="button"
+          onClick={() => onImport(vm)}
+        >
+          <Download className="h-3.5 w-3.5" aria-hidden="true" />
+          {vm.inventory_sync_status === 'archived' ? 'Re-import' : 'Import'}
+        </button>
+      </div>
+    );
   }
 
   return (

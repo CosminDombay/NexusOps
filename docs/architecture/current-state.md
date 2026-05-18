@@ -2,7 +2,7 @@
 
 ## Implementation Status
 
-NexusOps is currently a modular monolith with a FastAPI backend, a React/Vite frontend, PostgreSQL persistence, local platform authentication, JWT sessions, RBAC foundations, and a CMDB-style server inventory. The platform also includes Proxmox infrastructure visibility, controlled VM lifecycle actions, Proxmox template provisioning, NexusOps provisioning blueprints, Proxmox-to-inventory synchronization, SSH-backed job execution, persistent workflow runs, scheduled automations, reusable operational actions, package definitions, infrastructure profiles, editable built-in operational templates, integration records, a credential manager, variable-manager foundations, Docker Compose deployments, monitoring foundations, Linux identity orchestration, and credential-backed variable-driven execution.
+NexusOps is currently a modular monolith with a FastAPI backend, a React/Vite frontend, PostgreSQL persistence, local platform authentication, JWT sessions, RBAC foundations, and a CMDB-style server inventory. The platform also includes Proxmox infrastructure visibility, controlled VM lifecycle actions, Proxmox template provisioning, NexusOps provisioning blueprints, Proxmox-to-inventory synchronization, SSH-backed job execution, browser-based remote shell/file access for inventory-managed hosts, persistent workflow runs, scheduled automations, reusable operational actions, package definitions, infrastructure profiles, editable built-in operational templates, integration records, a credential manager, variable-manager foundations, Docker Compose deployments, monitoring foundations, Linux identity orchestration, and credential-backed variable-driven execution.
 
 The implemented system is focused on foundations, visibility, narrowly scoped VM lifecycle control, template provisioning, inventory synchronization, reusable automation templates, local platform login, role-based access boundaries, and the first orchestration layer. It does not yet perform VM deletion, full secrets vaulting, Terraform execution, Ansible execution, SSO/federated identity, MFA, or workflow chaining.
 
@@ -18,6 +18,7 @@ The implemented system is focused on foundations, visibility, narrowly scoped VM
   - `/api/v1/auth/me` current-user lookup
   - environment-based initial admin bootstrap
   - reusable RBAC dependencies for admin, operator, and viewer access
+  - admin-only user administration APIs for listing, creating, role editing, deactivation, and password reset
 - Frontend authentication:
   - login page
   - session restore
@@ -25,6 +26,7 @@ The implemented system is focused on foundations, visibility, narrowly scoped VM
   - protected route guards
   - role-aware sidebar navigation
   - 401 redirect and 403 access-denied handling
+  - admin Users & RBAC page
 - Server inventory CRUD:
   - list servers
   - get server
@@ -35,7 +37,7 @@ The implemented system is focused on foundations, visibility, narrowly scoped VM
   - filter/search server inventory
 - Inventory CMDB metadata:
   - managed/unmanaged state
-  - lifecycle state: discovered, managed, provisioned, unmanaged, archived
+  - lifecycle state: discovered, managed, provisioned, unmanaged, deleting, deleted, failed, archived
   - synchronization state: unknown, synced, unmanaged, orphaned, mismatch, archived
   - provider linkage through provider, external ID/VMID, node, type, source, and last-seen metadata
 - PostgreSQL-backed persistence through async SQLAlchemy.
@@ -56,6 +58,11 @@ The implemented system is focused on foundations, visibility, narrowly scoped VM
   - persisted variable records with key, value, category, description, secret flag, and optional credential reference
   - secret variables must use credential references instead of plaintext values
 - Shared Axios API client using `VITE_API_BASE_URL`.
+- Shared TargetSelector frontend component for orchestration target selection:
+  - single-host and bulk-host modes
+  - searchable host list
+  - environment, provider, and managed/unmanaged filters
+  - consistent target cards showing hostname, IP, environment, provider, managed state, and lifecycle state
 - Proxmox integration:
   - node discovery
   - VM/container discovery
@@ -87,8 +94,17 @@ The implemented system is focused on foundations, visibility, narrowly scoped VM
   - persist redacted command, status, stdout, stderr, exit code, and timestamps
   - support key-based, password-based, shared-credential, and explicit credential-ref execution
   - expose reusable operational actions backed by the jobs pipeline
-  - frontend Jobs page with action runner, raw command runner, history, and tabbed stdout/stderr/command/metadata result viewer
+  - frontend Jobs page with shared target selection, action runner, raw command runner, history, and tabbed stdout/stderr/command/metadata result viewer
   - bulk command execution foundation for sequential multi-host fanout
+- Remote access:
+  - `/api/v1/remote-access` module for Inventory-bounded shell and file access
+  - WebSocket shell sessions through backend Paramiko channels
+  - SFTP directory listing and file reading
+  - hash-checked file writes with stale-write rejection
+  - operator write allowlist for `/opt`, `/srv`, `/var/www`, and `/home`
+  - admin/operator remote-access authorization and viewer denial
+  - lightweight structured audit hooks without command transcript or file-content logging
+  - Host Tools frontend page with a unified files/editor workspace above a persistent terminal panel
 - Workflow engine foundation:
   - persisted workflow runs
   - persisted workflow steps
@@ -118,7 +134,7 @@ The implemented system is focused on foundations, visibility, narrowly scoped VM
   - Fail2Ban
   - UFW
   - custom create/update/delete support
-  - direct package execution through Jobs
+  - direct package execution through Jobs with shared single/bulk target selection
   - editable built-in working copies that preserve recoverable system defaults
   - clone workflow for deriving user-managed templates from built-ins or custom records
   - restore-default workflow for built-in package overrides
@@ -132,7 +148,7 @@ The implemented system is focused on foundations, visibility, narrowly scoped VM
   - Docker Host
   - Monitoring Node
   - Development VM
-  - sequential execution through Jobs
+  - sequential execution through Jobs with shared single/bulk target selection
   - custom create/update/delete support
   - editable built-in working copies that preserve recoverable system defaults
   - clone workflow for deriving user-managed profiles from built-ins or custom records
@@ -146,7 +162,9 @@ The implemented system is focused on foundations, visibility, narrowly scoped VM
   - persisted integration records for infrastructure providers, monitoring, networking, and database integrations
   - credential reference fields for API tokens and bearer-style auth secrets
   - connection test support for Proxmox, Prometheus, and Grafana
-  - Settings page for integration visibility and basic create/toggle/test workflows
+  - structured settings forms for Proxmox, Prometheus, Grafana, and Tailscale placeholder configuration
+  - normal UX hides secrets and generates config JSON server-compatible payloads
+  - optional advanced JSON overlay for extra configuration
 - ESLint 9 flat configuration, TypeScript build, TailwindCSS, and Prettier configuration.
 - Docker Compose deployments:
   - deployment definitions with compose/env storage
@@ -154,6 +172,7 @@ The implemented system is focused on foundations, visibility, narrowly scoped VM
   - redacted deployment command history when secrets are injected into `.env`
   - deployment target and revision persistence
   - deploy/redeploy/restart/stop/status/log operations through Jobs
+  - shared target selector and request-shape support for future bulk deployment fanout while preserving current single-target execution
 - Monitoring foundation:
   - Prometheus HTTP API health check
   - basic per-server CPU, memory, disk, and uptime query support
@@ -168,6 +187,12 @@ The implemented system is focused on foundations, visibility, narrowly scoped VM
   - distro-aware administrator group resolution
   - operational group presets and group discovery
   - permission presets, rwx matrix UI, and generated command previews
+- Host detail operational hub:
+  - tabbed host context for Overview, Metrics, Terminal, Files, Deployments, Jobs, Workflows, Packages, Profiles, and Identity
+  - terminal/files tab entries route into the unified Host Tools workspace
+- Frontend performance:
+  - route-level lazy loading and code splitting
+  - xterm/remote tools isolated from the initial app chunk
 
 ## Completed Phases
 
@@ -231,9 +256,9 @@ Reset-to-default behavior applies only to built-in templates. It discards the pe
 
 ### Integrations and Settings
 
-Integration records provide a persisted configuration surface for provider and monitoring systems. They currently support basic creation, enable/disable toggling, and connection tests for Proxmox, Prometheus, and Grafana.
+Integration records provide a persisted configuration surface for provider and monitoring systems. The normal frontend path is now schema-driven instead of raw JSON editing. Operators select Proxmox, Prometheus, Grafana, or the Tailscale placeholder, then configure URL, auth mode, credential references, SSL verification, and timeout fields.
 
-Runtime Proxmox, Prometheus, and Grafana services still primarily read local environment configuration. Integration records are the foundation for later runtime adapter selection and secret management, not a production-grade vault.
+The backend still stores a JSON `config` payload for compatibility, but validates known integration shapes and expects secrets to flow through credential references. Advanced JSON remains available only as an override surface.
 
 ### Proxmox Template Provisioning and Blueprints
 
@@ -265,6 +290,20 @@ Proxmox discovery -> synchronization status -> optional import -> Inventory auth
 
 Discovered VMs are shown as unmanaged until an operator imports them. Import creates an Inventory record with Proxmox provider linkage, SSH metadata, lifecycle state, source metadata, and synchronization status. Reconciliation updates linked inventory records as synced, mismatched, orphaned, or archived without destroying provider-side infrastructure.
 
+Inventory deletion now performs reference cleanup before removing the active server record. It clears provisioning request links, virtual machine links, workflow target links, and deployment target rows where applicable. If historical constraints prevent a hard delete, NexusOps archives the inventory record instead of destroying history.
+
+### UX Consistency and Operational Workspace
+
+Orchestration pages now share a common target-selection pattern:
+
+```text
+TargetSelector -> selected inventory host(s) -> module-specific request -> existing service pipeline
+```
+
+Packages, Profiles, Automations, Jobs, and Deployments use the shared selector for consistent search, filtering, single-target selection, and bulk-target intent. Deployments accept bulk target IDs in the request shape but still execute the current single-target Docker Compose service path until distributed orchestration queueing is implemented.
+
+Remote Access now presents files and the file editor above a persistent terminal console. The backend shell, SFTP, RBAC, credential resolution, and audit boundaries remain unchanged.
+
 ## Architecture Status
 
 - Backend remains organized as a modular monolith.
@@ -281,6 +320,9 @@ Discovered VMs are shown as unmanaged until an operator imports them. Import cre
 - Provisioning blueprints persist reusable provisioning defaults while keeping Proxmox VM templates as the provider-side base image.
 - Batch provisioning creates a parent batch record and normal child provisioning requests. Each generated VM still goes through the existing Proxmox clone, cloud-init, SSH readiness, Inventory registration, and optional bootstrap flow.
 - Docker Compose deployments reuse Jobs for deploy/redeploy/restart/stop/status/logs and resolve credential-backed env values server-side.
+- Remote Access reuses Inventory as the target boundary and Credential Manager resolution for SSH material; it does not accept arbitrary host targets or expose credentials to the frontend.
+- RBAC user management is implemented under the auth module and remains admin-only through backend route dependencies.
+- Inventory deletion cleanup is owned by `InventoryService`; it clears active references without hard-deleting historical job logs.
 - Adapter packages are canonicalized under `backend/app/adapters/`.
 - SSH has a concrete Paramiko adapter for key/password command execution.
 - Frontend is feature-based under `frontend/src/features/`.
@@ -289,10 +331,10 @@ Discovered VMs are shown as unmanaged until an operator imports them. Import cre
 ## Current Technical Debt
 
 - Execution module is still a placeholder.
-- Authentication and authorization foundations are implemented for local users. Google SSO, OIDC, LDAP, SAML, MFA, API keys, and fine-grained permissions are not implemented.
+- Authentication, authorization, and admin user lifecycle are implemented for local users. Google SSO, OIDC, LDAP, SAML, MFA, API keys, and fine-grained permissions are not implemented.
 - Workflow chaining is still implicit. Provisioning can bootstrap profiles/packages, but deployment-as-a-profile-step is not fully executed yet.
 - Legacy inline SSH passwords/private key paths still exist for backward compatibility and local MVP use; shared Credential Manager records are the preferred path for reusable secrets.
-- Integration configs are not a secrets vault yet; runtime provider adapters still primarily read local environment configuration.
+- Integration configs are structured and credential-reference aware, but they are not a secrets vault yet.
 - No frontend test framework is configured yet.
 - No CI pipeline is defined in the repo.
 - Inventory tests use SQLite fixtures; PostgreSQL migration behavior is validated manually, not in automated CI.
@@ -308,9 +350,9 @@ Discovered VMs are shown as unmanaged until an operator imports them. Import cre
 - Docker deployment steps are visible in profile editing but do not yet execute as concrete deployment operations inside `ProfileService`.
 - No centralized domain identity provider. Identity is Linux orchestration only; LDAP, Kerberos, FreeIPA, Active Directory, SSSD, PAM rewriting, and login federation are intentionally out of scope.
 - Existing `docs/architecture.md` is older and less precise than the newer files in `docs/architecture/`.
-- Runtime adapters do not yet load active integration records as their source of truth.
-- Runtime adapter selection from persisted integration records is not implemented yet.
+- Runtime adapter support from persisted integration records is partial; Proxmox can resolve active integration records, while other adapters still need deeper runtime integration.
+- Remote shell WebSocket authentication uses the current JWT as a query parameter for MVP browser compatibility; a short-lived scoped remote-access token is still planned.
 
 ## Current Safety Boundary
 
-The platform can authenticate local NexusOps users, enforce coarse RBAC boundaries, mutate NexusOps-owned inventory data, import and reconcile discovered Proxmox VMs into Inventory, request controlled Proxmox VM lifecycle actions, provision VMs from Proxmox templates, edit reusable automation templates, execute commands/actions/packages/profiles against inventory-managed Linux hosts over SSH, resolve encrypted runtime secrets server-side, deploy Docker Compose projects, query Prometheus metrics, and replicate Linux identity state. Inventory deletion and archival are CMDB operations only; they do not destroy Proxmox VMs. Template reset restores NexusOps defaults only; it does not alter historical Jobs. The platform does not expose VM deletion, ISO installation, Kubernetes, Terraform execution, SSO/federated login, or arbitrary provider-side infrastructure mutation.
+The platform can authenticate local NexusOps users, enforce coarse RBAC boundaries, mutate NexusOps-owned inventory data, import and reconcile discovered Proxmox VMs into Inventory, request controlled Proxmox VM lifecycle actions, provision VMs from Proxmox templates, edit reusable automation templates, execute commands/actions/packages/profiles against inventory-managed Linux hosts over SSH, provide backend-mediated shell/file access to inventory-managed Linux hosts, resolve encrypted runtime secrets server-side, deploy Docker Compose projects, query Prometheus metrics, and replicate Linux identity state. Inventory deletion and archival are CMDB operations only; they do not destroy Proxmox VMs. Template reset restores NexusOps defaults only; it does not alter historical Jobs. The platform does not expose VM deletion, ISO installation, Kubernetes, Terraform execution, SSO/federated login, arbitrary SSH targets, raw Proxmox consoles, Docker/container shells, or arbitrary provider-side infrastructure mutation.

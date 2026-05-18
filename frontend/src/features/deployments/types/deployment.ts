@@ -1,6 +1,6 @@
 import type { Job } from '../../jobs/types/job';
 
-export type DeploymentStatus = 'draft' | 'deploying' | 'running' | 'stopped' | 'failed';
+export type DeploymentStatus = 'draft' | 'deploying' | 'running' | 'stopped' | 'failed' | 'created' | 'deployed';
 
 export type Deployment = {
   id: string;
@@ -11,6 +11,7 @@ export type Deployment = {
   credential_refs: Record<string, string>;
   status: DeploymentStatus;
   target_server_id: string | null;
+  target_server_ids?: string[];
   target_hostname: string | null;
   remote_path: string | null;
   created_at: string;
@@ -21,6 +22,7 @@ export type CreateDeploymentPayload = {
   name: string;
   description?: string | null;
   target_server_id: string;
+  target_server_ids?: string[];
   compose_content: string;
   env_content?: string | null;
   credential_refs?: Record<string, string>;

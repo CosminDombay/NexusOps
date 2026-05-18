@@ -48,3 +48,42 @@ class AccessTokenResponse(BaseModel):
     access_token: str
     refresh_token: str
     token_type: str = "bearer"
+
+
+class UserCreate(BaseModel):
+    email: str = Field(min_length=3, max_length=255)
+    username: str = Field(min_length=1, max_length=100)
+    password: str = Field(min_length=8, max_length=255)
+    role: UserRole = UserRole.VIEWER
+    is_active: bool = True
+    is_superuser: bool = False
+
+    @field_validator("email", "username")
+    @classmethod
+    def normalize_identity(cls, value: str) -> str:
+        stripped = value.strip().lower()
+        if not stripped:
+            raise ValueError("Value cannot be blank")
+        return stripped
+
+
+class UserUpdate(BaseModel):
+    email: str | None = Field(default=None, min_length=3, max_length=255)
+    username: str | None = Field(default=None, min_length=1, max_length=100)
+    role: UserRole | None = None
+    is_active: bool | None = None
+    is_superuser: bool | None = None
+
+    @field_validator("email", "username")
+    @classmethod
+    def normalize_optional_identity(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        stripped = value.strip().lower()
+        if not stripped:
+            raise ValueError("Value cannot be blank")
+        return stripped
+
+
+class UserPasswordReset(BaseModel):
+    password: str = Field(min_length=8, max_length=255)

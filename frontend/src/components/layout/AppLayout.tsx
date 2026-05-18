@@ -32,6 +32,7 @@ const navGroups = [
       { to: '/identity', label: 'Identity', minimumRole: 'admin' },
       { to: '/monitoring', label: 'Monitoring', minimumRole: 'viewer' },
       { to: '/settings/integrations', label: 'Integrations', minimumRole: 'admin' },
+      { to: '/settings/users', label: 'Users & RBAC', minimumRole: 'admin' },
     ],
   },
 ] satisfies Array<{
@@ -93,8 +94,8 @@ export function AppLayout() {
           ))}
         </nav>
       </aside>
-      <main className="min-h-screen bg-zinc-100 p-4 sm:p-6 lg:ml-64 lg:p-8">
-        <header className="mb-6 flex items-center justify-end gap-3 border-b border-zinc-300 pb-4">
+      <main className="min-h-screen bg-slate-950 p-4 text-slate-100 sm:p-6 lg:ml-64 lg:p-8">
+        <header className="mb-6 flex items-center justify-end gap-3 border-b border-slate-700/70 pb-4">
           <div className="text-right">
             <p className="text-sm font-semibold text-zinc-900">{user?.username}</p>
             <p className="text-xs uppercase tracking-normal text-zinc-500">{user?.role}</p>

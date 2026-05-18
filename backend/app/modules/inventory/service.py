@@ -4,13 +4,17 @@ from uuid import UUID
 
 import structlog
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy import delete, update
 
+from backend.app.modules.deployments.models import DeploymentTarget
 from backend.app.modules.inventory.models import (
     InventoryLifecycleState,
     InventorySyncStatus,
     Server,
     ServerEnvironment,
 )
+from backend.app.modules.provisioning.models import ProvisioningRequest, VirtualMachine
+from backend.app.modules.workflows.models import WorkflowRun
 from backend.app.modules.inventory.repository import ServerRepository
 from backend.app.modules.inventory.schemas import ProxmoxInventoryImport, ServerCreate, ServerUpdate
 from backend.app.modules.proxmox.schemas import ProxmoxVmRead
@@ -215,6 +219,9 @@ class InventoryService:
             raise ServerNotFoundError("Server not found")
 
         try:
+            server.lifecycle_state = InventoryLifecycleState.DELETING
+            await self.repository.session.flush()
+            await self._cleanup_server_references(server_id)
             await self.repository.delete(server)
             await self.repository.session.commit()
             logger.info("server_deleted", server_id=str(server_id), hostname=server.hostname)
@@ -230,6 +237,24 @@ class InventoryService:
                 hostname=server.hostname,
                 reason="referenced_by_history",
             )
+
+    async def _cleanup_server_references(self, server_id: UUID) -> None:
+        await self.repository.session.execute(
+            update(ProvisioningRequest)
+            .where(ProvisioningRequest.server_id == server_id)
+            .values(server_id=None)
+        )
+        await self.repository.session.execute(
+            update(VirtualMachine)
+            .where(VirtualMachine.server_id == server_id)
+            .values(server_id=None)
+        )
+        await self.repository.session.execute(
+            update(WorkflowRun)
+            .where(WorkflowRun.target_server_id == server_id)
+            .values(target_server_id=None)
+        )
+        await self.repository.session.execute(delete(DeploymentTarget).where(DeploymentTarget.server_id == server_id))
 
     async def _archive_existing_server(self, server: Server) -> None:
         server.managed = False

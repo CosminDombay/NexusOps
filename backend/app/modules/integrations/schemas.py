@@ -22,6 +22,11 @@ class IntegrationBase(BaseModel):
             raise ValueError("Value cannot be blank")
         return stripped
 
+    @model_validator(mode="after")
+    def validate_known_config(self) -> Self:
+        validate_integration_config(self.name, self.config)
+        return self
+
 
 class IntegrationCreate(IntegrationBase):
     pass
@@ -48,6 +53,8 @@ class IntegrationUpdate(BaseModel):
     def require_at_least_one_field(self) -> Self:
         if not self.model_dump(exclude_unset=True):
             raise ValueError("At least one field must be provided")
+        if self.config is not None:
+            validate_integration_config(self.name or "", self.config)
         return self
 
 
@@ -63,3 +70,20 @@ class IntegrationTestRead(BaseModel):
     integration_id: UUID
     status: str
     message: str
+
+
+def validate_integration_config(name: str, config: dict[str, object]) -> None:
+    normalized = name.lower()
+    url_keys = ("api_url", "url", "base_url")
+    if any(label in normalized for label in ("proxmox", "prometheus", "grafana", "tailscale")):
+        if not any(isinstance(config.get(key), str) and str(config.get(key)).strip() for key in url_keys):
+            raise ValueError("Integration URL is required")
+
+    timeout = config.get("timeout_seconds")
+    if timeout is not None:
+        if not isinstance(timeout, int) or timeout < 1 or timeout > 120:
+            raise ValueError("timeout_seconds must be between 1 and 120")
+
+    verify_ssl = config.get("verify_ssl")
+    if verify_ssl is not None and not isinstance(verify_ssl, bool):
+        raise ValueError("verify_ssl must be a boolean")

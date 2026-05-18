@@ -30,7 +30,7 @@ Current routing pattern:
 
 Current implemented domain routes include:
 
-- `/api/v1/auth` for local login, JWT refresh, logout hooks, and current-user lookup
+- `/api/v1/auth` for local login, JWT refresh, logout hooks, current-user lookup, and admin-only user management
 - `/api/v1/servers` for CMDB inventory, lifecycle operations, Proxmox import, and reconciliation
 - `/api/v1/proxmox` for Proxmox visibility and controlled lifecycle actions
 - `/api/v1/vms` for template-based Proxmox provisioning
@@ -44,6 +44,7 @@ Current implemented domain routes include:
 - `/api/v1/workflows` for persistent workflow runs, steps, logs, and execution timelines
 - `/api/v1/automations` for scheduled action/package/profile automations
 - `/api/v1/identity` for Linux user, group, SSH key, sudo, permission, and replication workflows
+- `/api/v1/remote-access` for role-aware browser shell and SFTP file access to Inventory-managed hosts
 
 Placeholder or foundation modules still exist for future expansion, but deployments, monitoring, integrations, and execution now have varying levels of implemented API surface.
 
@@ -72,6 +73,8 @@ Authentication and authorization are separate internally:
 
 Access tokens are short lived, refresh tokens are longer lived, and both include `sub`, `username`, `role`, and `exp` claims. Startup can bootstrap a local admin from `NEXUSOPS_ADMIN_USER`, `NEXUSOPS_ADMIN_EMAIL`, and `NEXUSOPS_ADMIN_PASSWORD`; admin users are not hardcoded in migrations.
 
+Admin-only user lifecycle endpoints live under `/api/v1/auth/users`. They support listing users, creating users, editing role/status/superuser flags, and resetting passwords. Backend route dependencies enforce admin access regardless of frontend visibility.
+
 Platform identity remains distinct from Linux infrastructure identity. The auth module controls who can log into NexusOps. The Identity module continues to orchestrate Linux users, groups, SSH keys, sudo snippets, and filesystem permissions on managed hosts.
 
 ## Repository-Service Pattern
@@ -90,7 +93,7 @@ Inventory records carry provider linkage and CMDB state:
 - `source`, `managed`, and `lifecycle_state`
 - `sync_status`, `provider_node`, `provider_type`, provider metadata, and `last_seen_at`
 
-Deleting or archiving an inventory record never destroys the provider VM.
+Deleting or archiving an inventory record never destroys the provider VM. Delete operations now run reference cleanup in `InventoryService` before removing active inventory records: provisioning request links, virtual machine links, workflow target links, and deployment target rows are cleared where applicable. If historical constraints prevent hard deletion, the record is archived.
 
 This keeps HTTP logic, business logic, and database access separate.
 
@@ -135,9 +138,21 @@ Credential Manager is implemented as a separate module:
 
 Credential records are encrypted using `NEXUSOPS_MASTER_KEY`. API responses expose `masked_secret` only. Decrypted values are used only inside backend runtime execution paths.
 
+Remote Access is implemented under `backend/app/modules/remote_access/` as a backend-mediated SSH/SFTP module. It accepts only Inventory `server_id` targets, rejects unmanaged or archived records, resolves SSH metadata and Credential Manager records server-side, and never returns SSH passwords or private key material to the frontend. Its WebSocket shell uses Paramiko interactive channels. Its file endpoints use SFTP listing, reading, hash-checked writing, and temporary-file rename where practical.
+
+Remote access RBAC is intentionally coarse for this sprint:
+
+- admins can use shell, browse/read files, and edit files anywhere the SSH account allows
+- operators can use shell and browse/read files, but can edit only under `/opt`, `/srv`, `/var/www`, and `/home`
+- viewers have no remote-access capability by default
+
+Shell transcripts and file contents are not persisted. Structured audit hooks record shell session open/close/failure and file list/read/write outcomes without logging command input or file content. The shell WebSocket currently accepts the JWT access token as a query parameter for MVP browser compatibility; this should later become a short-lived remote-access session token scoped to host and operation.
+
 Variable Manager foundations are implemented under `backend/app/modules/variables/`. Secret variables must reference credentials instead of storing plaintext values.
 
 Integrations are persisted separately from runtime adapter configuration. Proxmox runtime adapters now resolve from enabled persisted Proxmox integrations first and fall back to local environment settings when no enabled integration exists.
+
+Integration schemas validate known structured config fields such as URL, SSL verification, and timeout while preserving the existing JSON `config` storage model. Secrets should be referenced through Credential Manager IDs in `credential_refs`.
 
 Workflow runs are the persistent orchestration timeline foundation:
 
@@ -276,6 +291,22 @@ Frontend Jobs page
 
 Operational actions are intentionally lightweight. They are predefined action definitions that map to shell commands/scripts and then reuse the Jobs pipeline.
 
+## Remote Access Backend Flow
+
+```text
+Frontend Host Tools page
+  -> /api/v1/remote-access/hosts/{server_id}/shell or /files
+  -> RemoteAccessService
+  -> ServerRepository resolves Inventory target
+  -> reject unmanaged/archived targets
+  -> enforce admin/operator/viewer remote-access rules
+  -> CredentialService resolves SSH credentials server-side
+  -> Paramiko shell channel or SFTP operation
+  -> structured audit hook
+```
+
+Remote Access is for interactive operations and controlled file browsing/editing. It does not replace Jobs for persisted command execution, package/profile automation, identity replication, deployments, or scheduled workflows.
+
 ## Profiles Backend Flow
 
 ```text
@@ -363,6 +394,8 @@ Frontend Deployments page
 Docker Compose deployments persist compose content, optional plaintext env content for non-secret values, credential-backed env references for secrets, deployment target metadata, and deployment revisions. Deploy/redeploy/restart/stop/status/logs reuse Jobs and never create a parallel remote-execution path.
 
 Deployment command history is redacted when credential-backed env values are injected.
+
+Deployment create requests accept both the existing `target_server_id` and a `target_server_ids` list. The service currently validates the list and uses the first target for the existing single-target execution path; distributed deployment fanout is intentionally deferred.
 
 ## Current Backend Boundaries
 

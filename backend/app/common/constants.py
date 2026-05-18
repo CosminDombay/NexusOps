@@ -41,6 +41,9 @@ class InventoryLifecycleState(StrEnum):
     - UNMANAGED: In inventory but not actively managed
     - MANAGED: In inventory and actively managed
     - PROVISIONED: Created by NexusOps provisioning
+    - DELETING: Deletion cleanup is in progress
+    - DELETED: Removed from active inventory
+    - FAILED: Lifecycle operation failed
     - ARCHIVED: Marked for historical retention, not active
     """
 
@@ -48,6 +51,9 @@ class InventoryLifecycleState(StrEnum):
     UNMANAGED = "unmanaged"
     MANAGED = "managed"
     PROVISIONED = "provisioned"
+    DELETING = "deleting"
+    DELETED = "deleted"
+    FAILED = "failed"
     ARCHIVED = "archived"
 
 
@@ -104,6 +110,9 @@ STATE_LABELS = {
     InventoryLifecycleState.UNMANAGED: "Unmanaged",
     InventoryLifecycleState.MANAGED: "Managed",
     InventoryLifecycleState.PROVISIONED: "Provisioned",
+    InventoryLifecycleState.DELETING: "Deleting",
+    InventoryLifecycleState.DELETED: "Deleted",
+    InventoryLifecycleState.FAILED: "Failed",
     InventoryLifecycleState.ARCHIVED: "Archived",
     InventorySyncStatus.UNKNOWN: "Unknown",
     InventorySyncStatus.SYNCED: "Synced",

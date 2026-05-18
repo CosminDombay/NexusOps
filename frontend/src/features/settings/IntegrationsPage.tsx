@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { CheckCircle2, Plug, RefreshCw, TestTube2, XCircle } from 'lucide-react';
 
 import { PageHeader } from '../../components/layout/PageHeader';
@@ -8,21 +8,85 @@ import type { Credential } from '../credentials/types/credential';
 import { createIntegration, listIntegrations, testIntegration, updateIntegration } from './api/integrationsApi';
 import type { Integration, IntegrationPayload, IntegrationTestResult, IntegrationType } from './types/integration';
 
-const defaults: IntegrationPayload[] = [
-  { name: 'Proxmox', type: 'infrastructure_provider', enabled: true, config: { api_url: '', token_id: '', verify_ssl: true, timeout_seconds: 15 }, credential_refs: {} },
-  { name: 'Prometheus', type: 'monitoring', enabled: true, config: { url: '' }, credential_refs: {} },
-  { name: 'Grafana', type: 'monitoring', enabled: true, config: { base_url: '' }, credential_refs: {} },
-];
+type AuthMode = 'url_only' | 'username_password' | 'token' | 'username_token';
+type IntegrationKind = 'proxmox' | 'prometheus' | 'grafana' | 'tailscale';
+
+type FormState = {
+  kind: IntegrationKind;
+  name: string;
+  type: IntegrationType;
+  enabled: boolean;
+  url: string;
+  username: string;
+  tokenId: string;
+  authMode: AuthMode;
+  verifySsl: boolean;
+  timeoutSeconds: string;
+  credentialRefs: Record<string, string>;
+  advancedOpen: boolean;
+  advancedJson: string;
+};
+
+const presets: Record<IntegrationKind, Omit<FormState, 'credentialRefs' | 'advancedOpen' | 'advancedJson'>> = {
+  proxmox: {
+    kind: 'proxmox',
+    name: 'Proxmox',
+    type: 'infrastructure_provider',
+    enabled: true,
+    url: '',
+    username: '',
+    tokenId: '',
+    authMode: 'username_token',
+    verifySsl: false,
+    timeoutSeconds: '15',
+  },
+  prometheus: {
+    kind: 'prometheus',
+    name: 'Prometheus',
+    type: 'monitoring',
+    enabled: true,
+    url: '',
+    username: '',
+    tokenId: '',
+    authMode: 'url_only',
+    verifySsl: true,
+    timeoutSeconds: '10',
+  },
+  grafana: {
+    kind: 'grafana',
+    name: 'Grafana',
+    type: 'monitoring',
+    enabled: true,
+    url: '',
+    username: '',
+    tokenId: '',
+    authMode: 'token',
+    verifySsl: true,
+    timeoutSeconds: '10',
+  },
+  tailscale: {
+    kind: 'tailscale',
+    name: 'Tailscale',
+    type: 'networking',
+    enabled: true,
+    url: 'https://api.tailscale.com',
+    username: '',
+    tokenId: '',
+    authMode: 'token',
+    verifySsl: true,
+    timeoutSeconds: '10',
+  },
+};
 
 export function IntegrationsPage() {
   const [integrations, setIntegrations] = useState<Integration[]>([]);
   const [credentials, setCredentials] = useState<Credential[]>([]);
-  const [form, setForm] = useState<IntegrationPayload>(defaults[0]);
-  const [configText, setConfigText] = useState(JSON.stringify(defaults[0].config, null, 2));
-  const [credentialRefs, setCredentialRefs] = useState<Record<string, string>>({});
+  const [form, setForm] = useState<FormState>(() => formFromPreset('proxmox'));
   const [tests, setTests] = useState<Record<string, IntegrationTestResult>>({});
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+
+  const configPreview = useMemo(() => buildConfig(form), [form]);
 
   const refresh = useCallback(async () => {
     setIsLoading(true);
@@ -45,14 +109,18 @@ export function IntegrationsPage() {
   async function submit() {
     setError(null);
     try {
-      const created = await createIntegration({
-        ...form,
-        config: JSON.parse(configText) as Record<string, unknown>,
-        credential_refs: Object.fromEntries(Object.entries(credentialRefs).filter(([, value]) => value)),
-      });
-      setIntegrations((current) => [...current, created]);
+      const advancedConfig = form.advancedOpen ? JSON.parse(form.advancedJson || '{}') : {};
+      const payload: IntegrationPayload = {
+        name: form.name,
+        type: form.type,
+        enabled: form.enabled,
+        config: { ...configPreview, ...advancedConfig },
+        credential_refs: Object.fromEntries(Object.entries(form.credentialRefs).filter(([, value]) => value)),
+      };
+      const created = await createIntegration(payload);
+      setIntegrations((current) => [created, ...current]);
     } catch (requestError) {
-      setError(requestError instanceof SyntaxError ? 'Config must be valid JSON.' : getApiErrorMessage(requestError));
+      setError(requestError instanceof SyntaxError ? 'Advanced configuration must be valid JSON.' : getApiErrorMessage(requestError));
     }
   }
 
@@ -74,9 +142,13 @@ export function IntegrationsPage() {
     }
   }
 
+  function choosePreset(kind: IntegrationKind) {
+    setForm(formFromPreset(kind));
+  }
+
   return (
     <div className="space-y-6">
-      <PageHeader title="Integrations" description="Central configuration for infrastructure providers, monitoring, networking, and database integrations." />
+      <PageHeader title="Integrations" description="Structured provider, monitoring, and networking configuration with credential-backed secrets." />
 
       {error ? <p className="rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</p> : null}
 
@@ -106,20 +178,15 @@ export function IntegrationsPage() {
                   </div>
                   <Status enabled={integration.enabled} />
                 </div>
-                <pre className="mt-4 max-h-28 overflow-auto rounded-md bg-zinc-950 p-3 text-xs text-zinc-50">{JSON.stringify(integration.config, null, 2)}</pre>
+                <dl className="mt-4 space-y-2 text-sm">
+                  <Info label="URL" value={String(integration.config.api_url ?? integration.config.url ?? integration.config.base_url ?? 'Not configured')} />
+                  <Info label="SSL" value={integration.config.verify_ssl === false ? 'Verification disabled' : 'Verification enabled'} />
+                  <Info label="Timeout" value={`${String(integration.config.timeout_seconds ?? 'default')}s`} />
+                </dl>
                 {Object.keys(integration.credential_refs ?? {}).length ? (
                   <div className="mt-3 flex flex-wrap gap-2">
                     {Object.keys(integration.credential_refs).map((key) => (
                       <span key={key} className="rounded bg-zinc-100 px-2 py-1 font-mono text-xs text-zinc-700">{key}: ********</span>
-                    ))}
-                  </div>
-                ) : null}
-                {runtimeConsumers(integration).length ? (
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    {runtimeConsumers(integration).map((consumer) => (
-                      <span key={consumer} className="rounded-full bg-sky-50 px-2.5 py-1 text-xs font-semibold text-sky-700 ring-1 ring-sky-200">
-                        Used by {consumer}
-                      </span>
                     ))}
                   </div>
                 ) : null}
@@ -139,68 +206,128 @@ export function IntegrationsPage() {
                 </div>
               </article>
             ))}
+            {integrations.length === 0 ? <p className="p-5 text-sm text-zinc-500">No integrations configured yet.</p> : null}
           </div>
         ) : null}
       </section>
 
       <section className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm">
-        <h3 className="text-base font-semibold text-zinc-950">Add Integration</h3>
-        <div className="mt-4 grid gap-4 lg:grid-cols-[1fr_220px_160px]">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h3 className="text-base font-semibold text-zinc-950">Add Integration</h3>
+            <p className="mt-1 text-sm text-zinc-500">Secrets stay in credential references; plain config stores URLs, SSL, and timeout behavior.</p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {(Object.keys(presets) as IntegrationKind[]).map((kind) => (
+              <button key={kind} className="rounded-md border border-zinc-300 px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50" type="button" onClick={() => choosePreset(kind)}>
+                {presets[kind].name}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="mt-5 grid gap-4 lg:grid-cols-3">
+          <TextInput label="Name" value={form.name} onChange={(name) => setForm({ ...form, name })} />
           <label className="text-sm font-medium text-zinc-700">
-            Name
-            <input className="mt-1 w-full rounded-md border border-zinc-300 px-3 py-2" value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} />
-          </label>
-          <label className="text-sm font-medium text-zinc-700">
-            Type
-            <select className="mt-1 w-full rounded-md border border-zinc-300 px-3 py-2" value={form.type} onChange={(event) => setForm({ ...form, type: event.target.value as IntegrationType })}>
-              <option value="infrastructure_provider">Infrastructure Provider</option>
-              <option value="monitoring">Monitoring</option>
-              <option value="networking">Networking</option>
-              <option value="database">Database</option>
+            Auth mode
+            <select className="mt-1 h-10 w-full rounded-md border border-zinc-300 px-3 text-sm" value={form.authMode} onChange={(event) => setForm({ ...form, authMode: event.target.value as AuthMode })}>
+              <option value="url_only">URL only</option>
+              <option value="username_password">URL + username/password</option>
+              <option value="token">URL + token</option>
+              <option value="username_token">URL + username + token</option>
             </select>
           </label>
           <label className="flex items-center gap-2 pt-6 text-sm font-medium text-zinc-700">
             <input checked={form.enabled} type="checkbox" onChange={(event) => setForm({ ...form, enabled: event.target.checked })} />
             Enabled
           </label>
+          <TextInput label="URL" value={form.url} onChange={(url) => setForm({ ...form, url })} />
+          {form.authMode === 'username_password' || form.authMode === 'username_token' ? (
+            <TextInput label="Username / token ID" value={form.username || form.tokenId} onChange={(value) => setForm({ ...form, username: value, tokenId: value })} />
+          ) : null}
+          <CredentialSelect
+            credentials={credentials}
+            label={secretLabel(form.authMode)}
+            value={form.credentialRefs[secretKey(form)] ?? ''}
+            onChange={(value) => setForm({ ...form, credentialRefs: { ...form.credentialRefs, [secretKey(form)]: value } })}
+          />
+          <label className="flex items-center gap-2 text-sm font-medium text-zinc-700">
+            <input checked={form.verifySsl} type="checkbox" onChange={(event) => setForm({ ...form, verifySsl: event.target.checked })} />
+            Verify SSL
+          </label>
+          <TextInput label="Timeout seconds" value={form.timeoutSeconds} onChange={(timeoutSeconds) => setForm({ ...form, timeoutSeconds })} />
         </div>
-        <label className="mt-4 block text-sm font-medium text-zinc-700">
-          Config JSON
-          <textarea className="mt-1 min-h-36 w-full rounded-md border border-zinc-300 px-3 py-2 font-mono text-sm" value={configText} onChange={(event) => setConfigText(event.target.value)} />
-        </label>
-        <div className="mt-4 grid gap-3 lg:grid-cols-3">
-          {credentialKeysFor(form.name).map((key) => (
-            <label key={key} className="text-sm font-medium text-zinc-700">
-              {credentialLabelFor(key)}
-              <select
-                className="mt-1 w-full rounded-md border border-zinc-300 px-3 py-2"
-                value={credentialRefs[key] ?? ''}
-                onChange={(event) => setCredentialRefs((current) => ({ ...current, [key]: event.target.value }))}
-              >
-                <option value="">None</option>
-                {credentials.map((credential) => (
-                  <option key={credential.id} value={credential.id}>{credential.name}</option>
-                ))}
-              </select>
-            </label>
-          ))}
-        </div>
-        <div className="mt-4 flex flex-wrap gap-2">
-          {defaults.map((preset) => (
-            <button key={preset.name} className="rounded-md border border-zinc-300 px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50" type="button" onClick={() => {
-              setForm(preset);
-              setConfigText(JSON.stringify(preset.config, null, 2));
-              setCredentialRefs(preset.credential_refs ?? {});
-            }}>
-              {preset.name}
-            </button>
-          ))}
-          <button className="rounded-md bg-zinc-900 px-3 py-2 text-sm font-semibold text-white hover:bg-zinc-800" type="button" onClick={() => void submit()}>
+
+        <details className="mt-4 rounded-md border border-zinc-200 p-3" open={form.advancedOpen} onToggle={(event) => setForm({ ...form, advancedOpen: event.currentTarget.open })}>
+          <summary className="cursor-pointer text-sm font-semibold text-zinc-700">Advanced Configuration</summary>
+          <div className="mt-3 grid gap-3 lg:grid-cols-2">
+            <pre className="overflow-auto rounded-md bg-zinc-950 p-3 text-xs text-zinc-50">{JSON.stringify(configPreview, null, 2)}</pre>
+            <textarea className="min-h-40 rounded-md border border-zinc-300 p-3 font-mono text-xs" value={form.advancedJson} onChange={(event) => setForm({ ...form, advancedJson: event.target.value })} />
+          </div>
+        </details>
+
+        <div className="mt-4 flex justify-end">
+          <button className="rounded-md bg-zinc-900 px-4 py-2 text-sm font-semibold text-white hover:bg-zinc-800" type="button" onClick={() => void submit()}>
             Add Integration
           </button>
         </div>
       </section>
     </div>
+  );
+}
+
+function formFromPreset(kind: IntegrationKind): FormState {
+  return { ...presets[kind], credentialRefs: {}, advancedOpen: false, advancedJson: '{}' };
+}
+
+function buildConfig(form: FormState): Record<string, unknown> {
+  const timeout = Number(form.timeoutSeconds);
+  const base = {
+    verify_ssl: form.verifySsl,
+    timeout_seconds: Number.isFinite(timeout) ? timeout : 10,
+  };
+  if (form.kind === 'proxmox') {
+    return { ...base, api_url: form.url, token_id: form.tokenId || form.username };
+  }
+  if (form.kind === 'grafana') {
+    return { ...base, base_url: form.url };
+  }
+  return { ...base, url: form.url };
+}
+
+function secretKey(form: FormState): string {
+  if (form.kind === 'proxmox') return 'token_secret';
+  if (form.authMode === 'username_password') return 'password';
+  if (form.kind === 'prometheus') return 'bearer_token';
+  return 'api_token';
+}
+
+function secretLabel(mode: AuthMode): string {
+  if (mode === 'url_only') return 'Credential reference (optional)';
+  if (mode === 'username_password') return 'Password credential';
+  return 'Token credential';
+}
+
+function TextInput({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
+  return (
+    <label className="text-sm font-medium text-zinc-700">
+      {label}
+      <input className="mt-1 h-10 w-full rounded-md border border-zinc-300 px-3 text-sm" value={value} onChange={(event) => onChange(event.target.value)} />
+    </label>
+  );
+}
+
+function CredentialSelect({ credentials, label, value, onChange }: { credentials: Credential[]; label: string; value: string; onChange: (value: string) => void }) {
+  return (
+    <label className="text-sm font-medium text-zinc-700">
+      {label}
+      <select className="mt-1 h-10 w-full rounded-md border border-zinc-300 px-3 text-sm" value={value} onChange={(event) => onChange(event.target.value)}>
+        <option value="">None</option>
+        {credentials.map((credential) => (
+          <option key={credential.id} value={credential.id}>{credential.name}</option>
+        ))}
+      </select>
+    </label>
   );
 }
 
@@ -215,41 +342,15 @@ function Status({ enabled }: { enabled: boolean }) {
   );
 }
 
+function Info({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex justify-between gap-3">
+      <dt className="text-zinc-500">{label}</dt>
+      <dd className="break-all text-right font-medium text-zinc-800">{value}</dd>
+    </div>
+  );
+}
+
 function formatType(value: string): string {
   return value.replace(/_/g, ' ').replace(/\b\w/g, (letter: string) => letter.toUpperCase());
-}
-
-function credentialKeysFor(name: string): string[] {
-  const normalized = name.toLowerCase();
-  if (normalized.includes('proxmox')) {
-    return ['token_secret'];
-  }
-  if (normalized.includes('grafana')) {
-    return ['api_token'];
-  }
-  if (normalized.includes('prometheus')) {
-    return ['bearer_token'];
-  }
-  return ['api_token'];
-}
-
-function credentialLabelFor(key: string): string {
-  if (key === 'token_secret') {
-    return 'Token Secret (credential username can supply token ID)';
-  }
-  return formatType(key);
-}
-
-function runtimeConsumers(integration: Integration): string[] {
-  const normalized = integration.name.toLowerCase();
-  if (integration.enabled && integration.type === 'infrastructure_provider' && normalized.includes('proxmox')) {
-    return ['Infrastructure', 'Provisioning', 'VM lifecycle'];
-  }
-  if (integration.enabled && normalized.includes('prometheus')) {
-    return ['Monitoring'];
-  }
-  if (integration.enabled && normalized.includes('grafana')) {
-    return ['Dashboards'];
-  }
-  return [];
 }

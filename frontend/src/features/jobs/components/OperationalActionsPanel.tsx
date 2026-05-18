@@ -1,5 +1,7 @@
 import { Play } from 'lucide-react';
 
+import { TargetSelector } from '../../inventory/components/TargetSelector';
+import { useTargetSelection } from '../../inventory/hooks/useTargetSelection';
 import type { Server } from '../../inventory/types/server';
 import type { OperationalAction } from '../types/job';
 
@@ -26,6 +28,7 @@ export function OperationalActionsPanel({
   onSelectedActionChange,
   onSelectedServerChange,
 }: OperationalActionsPanelProps) {
+  const targetSelector = useTargetSelection('single');
   const selectedAction = actions.find((action) => action.id === selectedActionId) ?? null;
   const groupedActions = groupActions(actions);
   const canExecute = Boolean(selectedActionId && selectedServerId) && !isExecuting;
@@ -34,21 +37,18 @@ export function OperationalActionsPanel({
     <section className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm">
       <div className="flex flex-col gap-4 xl:flex-row xl:items-end">
         <div className="grid flex-1 gap-4 md:grid-cols-2">
-          <label className="block">
-            <span className="text-sm font-medium text-zinc-950">Target host</span>
-            <select
-              className="mt-2 h-10 w-full rounded-md border border-zinc-300 bg-white px-3 text-sm text-zinc-950 shadow-sm outline-none transition focus:border-zinc-950 focus:ring-2 focus:ring-zinc-950/10"
-              value={selectedServerId}
-              onChange={(event) => onSelectedServerChange(event.target.value)}
-            >
-              <option value="">Select inventory host</option>
-              {servers.map((server) => (
-                <option key={server.id} value={server.id}>
-                  {server.hostname} ({server.ip_address})
-                </option>
-              ))}
-            </select>
-          </label>
+          <div className="md:col-span-2">
+            <TargetSelector
+              allowBulk={false}
+              servers={servers}
+              selection={{ mode: 'single', selectedId: selectedServerId, selectedIds: [] }}
+              filters={targetSelector.filters}
+              title="Action target"
+              description="Operational actions run against one inventory-managed host."
+              onFiltersChange={targetSelector.setFilters}
+              onSelectionChange={(nextSelection) => onSelectedServerChange(nextSelection.selectedId)}
+            />
+          </div>
 
           <label className="block">
             <span className="text-sm font-medium text-zinc-950">Operational action</span>

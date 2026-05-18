@@ -7,6 +7,8 @@ import { getApiErrorMessage } from '../../lib/api/client';
 import { listCredentials } from '../credentials/api/credentialsApi';
 import type { Credential } from '../credentials/types/credential';
 import { listServers } from '../inventory/api/serversApi';
+import { TargetSelector } from '../inventory/components/TargetSelector';
+import { useTargetSelection } from '../inventory/hooks/useTargetSelection';
 import type { Server } from '../inventory/types/server';
 import {
   createPackageDefinition,
@@ -56,6 +58,7 @@ export function PackagesPage() {
   const [pendingPackage, setPendingPackage] = useState<PackageDefinition | null>(null);
   const [bulkResult, setBulkResult] = useState<BulkExecutionResponse | null>(null);
   const [editingPackageId, setEditingPackageId] = useState<string | null>(null);
+  const targetSelector = useTargetSelection('single');
 
   useEffect(() => {
     async function loadPackages() {
@@ -249,45 +252,19 @@ export function PackagesPage() {
         description="Reusable package standards that profiles can compose into orchestration workflows."
       />
 
-      <section className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm">
-        <div className="grid gap-4 lg:grid-cols-2">
-          <label className="block">
-            <span className="text-sm font-medium text-zinc-950">Single target</span>
-            <select
-              className="mt-2 h-10 w-full rounded-md border border-zinc-300 bg-white px-3 text-sm text-zinc-950 shadow-sm outline-none transition focus:border-zinc-950 focus:ring-2 focus:ring-zinc-950/10"
-              value={selectedServerId}
-              onChange={(event) => setSelectedServerId(event.target.value)}
-            >
-              <option value="">Select inventory host</option>
-              {servers.map((server) => (
-                <option key={server.id} value={server.id}>
-                  {server.hostname} ({server.ip_address})
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="block">
-            <span className="text-sm font-medium text-zinc-950">Bulk targets</span>
-            <select
-              className="mt-2 min-h-28 w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-950 shadow-sm outline-none transition focus:border-zinc-950 focus:ring-2 focus:ring-zinc-950/10"
-              multiple
-              value={selectedServerIds}
-              onChange={(event) =>
-                setSelectedServerIds(Array.from(event.target.selectedOptions, (option) => option.value))
-              }
-            >
-              {servers.map((server) => (
-                <option key={server.id} value={server.id}>
-                  {server.hostname} ({server.ip_address})
-                </option>
-              ))}
-            </select>
-            <p className="mt-2 text-xs text-zinc-500">
-              Bulk selection takes precedence over the single target.
-            </p>
-          </label>
-        </div>
-      </section>
+      <TargetSelector
+        servers={servers}
+        selection={{ mode: targetSelector.selection.mode, selectedId: selectedServerId, selectedIds: selectedServerIds }}
+        filters={targetSelector.filters}
+        title="Package targets"
+        description="Install package definitions against one host or a filtered bulk selection."
+        onFiltersChange={targetSelector.setFilters}
+        onSelectionChange={(selection) => {
+          targetSelector.setMode(selection.mode);
+          setSelectedServerId(selection.selectedId);
+          setSelectedServerIds(selection.selectedIds);
+        }}
+      />
 
       <PackageBuilder
         formState={formState}

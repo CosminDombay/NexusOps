@@ -4,6 +4,8 @@ import { Play } from 'lucide-react';
 import { PageHeader } from '../../../components/layout/PageHeader';
 import { getApiErrorMessage } from '../../../lib/api/client';
 import { listServers } from '../../inventory/api/serversApi';
+import { TargetSelector } from '../../inventory/components/TargetSelector';
+import { useTargetSelection } from '../../inventory/hooks/useTargetSelection';
 import type { Server } from '../../inventory/types/server';
 import { listOperationalActions } from '../../jobs/api/jobsApi';
 import type { OperationalAction } from '../../jobs/types/job';
@@ -45,6 +47,7 @@ export function AutomationsPage() {
   const [success, setSuccess] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isWorking, setIsWorking] = useState(false);
+  const targetSelector = useTargetSelection('bulk');
 
   const operationOptions = useMemo(() => {
     if (form.operation_type === 'profile') return profiles.map((profile) => ({ value: profile.id, label: profile.name }));
@@ -174,17 +177,25 @@ export function AutomationsPage() {
               {operationOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
             </select>
           </label>
-          <label className="text-sm font-medium text-zinc-700">
-            Targets
-            <select
-              multiple
-              className="mt-1 min-h-24 w-full rounded-md border border-zinc-300 px-3 py-2 text-sm"
-              value={form.target_server_ids}
-              onChange={(event) => setForm({ ...form, target_server_ids: Array.from(event.target.selectedOptions).map((option) => option.value) })}
-            >
-              {servers.map((server) => <option key={server.id} value={server.id}>{server.hostname} ({server.ip_address})</option>)}
-            </select>
-          </label>
+          <div className="lg:col-span-3">
+            <TargetSelector
+              servers={servers}
+              selection={{ ...targetSelector.selection, selectedIds: form.target_server_ids }}
+              filters={targetSelector.filters}
+              title="Automation targets"
+              description="Schedule actions, packages, or profiles against consistent inventory host selections."
+              onFiltersChange={targetSelector.setFilters}
+              onSelectionChange={(selection) => {
+                targetSelector.setMode(selection.mode);
+                targetSelector.setSelectedId(selection.selectedId);
+                targetSelector.setSelectedIds(selection.selectedIds);
+                setForm({
+                  ...form,
+                  target_server_ids: selection.mode === 'bulk' ? selection.selectedIds : selection.selectedId ? [selection.selectedId] : [],
+                });
+              }}
+            />
+          </div>
         </div>
         <div className="mt-4 flex justify-end">
           <button className="rounded-md bg-zinc-950 px-4 py-2 text-sm font-semibold text-white disabled:bg-zinc-300" disabled={isWorking} type="button" onClick={() => void handleCreate()}>

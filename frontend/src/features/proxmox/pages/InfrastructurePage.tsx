@@ -100,7 +100,8 @@ export function InfrastructurePage() {
           <NodeCards nodes={dashboard.nodes} />
           <VmTable
             actionByVmId={actionByVmId}
-            allowActions={allowActions}
+            allowActions={false}
+            allowImport={Boolean(allowActions)}
             vms={dashboard.vms}
             onAction={handleVmAction}
             onImport={handleImportVm}

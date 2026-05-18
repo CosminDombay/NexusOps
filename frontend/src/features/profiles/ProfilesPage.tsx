@@ -11,6 +11,8 @@ import type { Credential } from '../credentials/types/credential';
 import { listDeployments } from '../deployments/api/deploymentsApi';
 import type { Deployment } from '../deployments/types/deployment';
 import { listServers } from '../inventory/api/serversApi';
+import { TargetSelector } from '../inventory/components/TargetSelector';
+import { useTargetSelection } from '../inventory/hooks/useTargetSelection';
 import type { Server } from '../inventory/types/server';
 import { listOperationalActions } from '../jobs/api/jobsApi';
 import { JobStatusBadge } from '../jobs/components/JobStatusBadge';
@@ -65,6 +67,7 @@ export function ProfilesPage() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [editingProfileId, setEditingProfileId] = useState<string | null>(null);
+  const targetSelector = useTargetSelection('single');
 
   const selectedProfile = useMemo(
     () => profiles.find((profile) => profile.id === selectedProfileId) ?? profiles[0] ?? null,
@@ -300,22 +303,6 @@ export function ProfilesPage() {
                 </select>
               </label>
 
-              <label className="block">
-                <span className="text-sm font-medium text-zinc-950">Single target</span>
-                <select
-                  className="mt-2 h-10 w-full rounded-md border border-zinc-300 bg-white px-3 text-sm text-zinc-950 shadow-sm outline-none transition focus:border-zinc-950 focus:ring-2 focus:ring-zinc-950/10"
-                  value={selectedServerId}
-                  onChange={(event) => setSelectedServerId(event.target.value)}
-                >
-                  <option value="">Select inventory host</option>
-                  {servers.map((server) => (
-                    <option key={server.id} value={server.id}>
-                      {server.hostname} ({server.ip_address})
-                    </option>
-                  ))}
-                </select>
-              </label>
-
               <button
                 className="inline-flex h-10 items-center justify-center rounded-md bg-zinc-950 px-4 text-sm font-semibold text-white transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:bg-zinc-300"
                 disabled={!selectedProfile || (!selectedServerId && selectedServerIds.length === 0) || isApplying}
@@ -327,44 +314,19 @@ export function ProfilesPage() {
             </div>
 
             <div className="mt-4">
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <h3 className="text-sm font-semibold text-zinc-950">Bulk targets</h3>
-                  <p className="mt-1 text-xs text-zinc-500">Selected hosts override the single target.</p>
-                </div>
-                <button
-                  className="rounded-md border border-zinc-300 px-2.5 py-1.5 text-xs font-semibold text-zinc-700 transition hover:bg-zinc-50"
-                  type="button"
-                  onClick={() => setSelectedServerIds([])}
-                >
-                  Clear
-                </button>
-              </div>
-              <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
-                {servers.map((server) => (
-                  <label
-                    key={server.id}
-                    className="flex min-h-11 items-center gap-2 rounded-md border border-zinc-200 px-3 py-2 text-sm text-zinc-700"
-                  >
-                    <input
-                      checked={selectedServerIds.includes(server.id)}
-                      className="h-4 w-4 rounded border-zinc-300 text-zinc-950 focus:ring-zinc-950"
-                      type="checkbox"
-                      onChange={(event) =>
-                        setSelectedServerIds((current) =>
-                          event.target.checked
-                            ? [...current, server.id]
-                            : current.filter((serverId) => serverId !== server.id),
-                        )
-                      }
-                    />
-                    <span className="min-w-0">
-                      <span className="block truncate font-medium text-zinc-950">{server.hostname}</span>
-                      <span className="block truncate font-mono text-xs text-zinc-500">{server.ip_address}</span>
-                    </span>
-                  </label>
-                ))}
-              </div>
+              <TargetSelector
+                servers={servers}
+                selection={{ mode: targetSelector.selection.mode, selectedId: selectedServerId, selectedIds: selectedServerIds }}
+                filters={targetSelector.filters}
+                title="Profile targets"
+                description="Apply this profile to one host or a filtered group of inventory hosts."
+                onFiltersChange={targetSelector.setFilters}
+                onSelectionChange={(selection) => {
+                  targetSelector.setMode(selection.mode);
+                  setSelectedServerId(selection.selectedId);
+                  setSelectedServerIds(selection.selectedIds);
+                }}
+              />
             </div>
           </section>
 

@@ -10,7 +10,8 @@ from backend.app.modules.jobs.schemas import JobRead
 class DeploymentCreate(BaseModel):
     name: str = Field(min_length=1, max_length=255)
     description: str | None = Field(default=None, max_length=2000)
-    target_server_id: UUID
+    target_server_id: UUID | None = None
+    target_server_ids: list[UUID] = Field(default_factory=list)
     compose_content: str = Field(min_length=1, max_length=20000)
     env_content: str | None = Field(default=None, max_length=20000)
     credential_refs: dict[str, str] = Field(default_factory=dict)
@@ -24,6 +25,11 @@ class DeploymentCreate(BaseModel):
             raise ValueError("Value cannot be blank")
         return stripped
 
+    @field_validator("target_server_ids")
+    @classmethod
+    def dedupe_target_server_ids(cls, value: list[UUID]) -> list[UUID]:
+        return list(dict.fromkeys(value))
+
 
 class DeploymentRead(BaseModel):
     id: UUID
@@ -34,6 +40,7 @@ class DeploymentRead(BaseModel):
     credential_refs: dict[str, str] = Field(default_factory=dict)
     status: DeploymentStatus
     target_server_id: UUID | None = None
+    target_server_ids: list[UUID] = Field(default_factory=list)
     target_hostname: str | None = None
     remote_path: str | None = None
     created_at: datetime

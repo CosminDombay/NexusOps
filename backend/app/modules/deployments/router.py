@@ -65,6 +65,8 @@ async def create_deployment(
 ) -> DeploymentRead:
     try:
         return await service.create_deployment(payload)
+    except DeploymentValidationError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     except JobTargetNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except JobTargetNotManagedError as exc:
