@@ -8,6 +8,7 @@ This backlog captures near-term product and engineering improvements from the Ma
 
 - Rework navigation groups so Inventory, Infrastructure, Provisioning, and Credentials sit under a clearer Core area. Operations should contain Jobs, Packages, Profiles, Deployments, Identity, and Monitoring.
 - Turn provisioning into a guided workflow: blueprint selection, identity/network fields, cloud-init credentials, bootstrap selection, review, then execution.
+- Move the single VM `Provision VM` wizard into the contextual workspace pattern. Blueprint selection/history should remain visible, while the run wizard opens from a primary action or dedicated wizard workspace.
 - Add a provisioning review screen that shows VM name, VMID, template, node, IP/CIDR, disks, bootstrap profiles/packages, and destructive or long-running effects before submission.
 - Replace raw JSON/text-heavy controls where possible with structured editors. Integrations, deployment env mappings, and blueprint disks should all prefer guided controls.
 - Add first-class logs views:
@@ -26,6 +27,7 @@ This backlog captures near-term product and engineering improvements from the Ma
 - Add blueprint clone/update flows. Current UI can save/delete but does not provide a polished edit/update path.
 - Add deployment-as-profile-step execution so profiles can truly orchestrate VM setup plus app deployment.
 - Add clearer success summaries after provisioning: Inventory link, bootstrap job links, Proxmox task IDs, and next recommended actions.
+- Add explicit active-source status to Monitoring and Integrations, showing whether a record is config-only, actively consumed by a module, or falling back to environment settings.
 - Add host detail tabs for Jobs, Deployments, Identity, Monitoring, Provider Metadata, and Logs so operators can inspect one server from one place.
 - Add a compact "operations queue" or "recent activity" panel on the dashboard.
 
@@ -50,6 +52,8 @@ This backlog captures near-term product and engineering improvements from the Ma
 - Implement deployment profile steps in `ProfileService` instead of treating deployment as a placeholder step kind.
 - Add audit persistence for infrastructure actions, provisioning tasks, deployment operations, identity replication, and destructive operations.
 - Make persisted integration records the runtime source of truth for Proxmox, Prometheus, Grafana, and future providers. Environment variables should remain local bootstrap defaults.
+- Wire Monitoring to enabled persisted Prometheus/Grafana/Loki integration records. Keep environment variables as fallback only.
+- Add provisioning blueprint or provisioning batch as a Workflow/Automation operation with minimal runtime inputs.
 - Add authentication, authorization, and RBAC before broadening destructive infrastructure capabilities.
 
 ### Reliability and Safety
@@ -59,6 +63,7 @@ This backlog captures near-term product and engineering improvements from the Ma
 - Poll Proxmox lifecycle tasks to completion for start/stop/reboot/shutdown, not only provisioning tasks.
 - Store Proxmox task logs/status snapshots for later debugging.
 - Add rollback/cleanup strategy for provisioning failures after clone but before inventory registration.
+- Add explicit CT/LXC provisioning and management support instead of relying on the QEMU VM provisioning path.
 - Add cancellation support for queued/running Jobs and long-running provisioning workflows where technically possible.
 - Add optimistic locking or version fields for editable definitions and blueprints to avoid accidental overwrite.
 - Add structured error types for provider failures so the frontend can show actionable messages instead of generic API errors.

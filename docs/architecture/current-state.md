@@ -174,6 +174,8 @@ The implemented system is focused on foundations, visibility, narrowly scoped VM
   - normal UX hides secrets and generates config JSON server-compatible payloads
   - optional advanced JSON overlay for extra configuration
   - contextual add/edit drawer for integration configuration
+  - Proxmox runtime can resolve an enabled persisted Proxmox integration record
+  - Prometheus/Grafana/Loki monitoring runtime still uses environment-backed settings and does not yet consume persisted integration records as source-of-truth
 - ESLint 9 flat configuration, TypeScript build, TailwindCSS, and Prettier configuration.
 - Docker Compose deployments:
   - deployment definitions with compose/env storage
@@ -193,6 +195,7 @@ The implemented system is focused on foundations, visibility, narrowly scoped VM
   - basic per-server CPU, memory, disk, and uptime query support
   - Grafana deep-link generation when configured
   - Prometheus, Grafana, and Loki quick links for hybrid monitoring workflows
+  - monitoring summary is currently integration-adjacent, not a complete observability control plane
 - Linux identity orchestration:
   - reusable Linux user and group records
   - SSH public key records
@@ -283,6 +286,8 @@ Integration records provide a persisted configuration surface for provider and m
 
 The backend still stores a JSON `config` payload for compatibility, but validates known integration shapes and expects secrets to flow through credential references. Advanced JSON remains available only as an override surface.
 
+Runtime consumption of persisted integrations is uneven. Proxmox adapters can resolve an enabled persisted Proxmox integration and fall back to environment variables. Monitoring still reads Prometheus, Grafana, and Loki URLs from environment-backed settings, so adding Prometheus/Grafana/Loki records in the Integrations UI does not yet activate Monitoring.
+
 ### Proxmox Template Provisioning and Blueprints
 
 Provisioning uses only Proxmox VM templates and cloud-init customization:
@@ -302,6 +307,8 @@ NexusOps provisioning blueprints are UI/API-side presets for repeatable VM creat
 - bootstrap profile and package selections
 
 Blueprints intentionally do not lock per-machine identity values such as VM name, VMID, cloud-init hostname, or static IP/CIDR. Operators select a blueprint, fill in the unique host identity/network fields, then provisioning registers Inventory before running bootstrap profiles/packages through Jobs.
+
+Provisioning is currently QEMU VM-focused. Proxmox discovery and lifecycle views can represent guest type, including LXC, but the provisioning clone/configure path uses QEMU endpoints and cloud-init VM configuration. CT/LXC provisioning, CT shell, and CT lifecycle workflows still need explicit implementation.
 
 ### Inventory Synchronization and CMDB Lifecycle
 
@@ -360,6 +367,17 @@ The next refinement pass standardized create/edit workflows around contextual dr
 - Scheduled automations show target hostnames.
 - Deployment create/edit positioning is centered and responsive.
 
+### Review Findings on 2026-05-19
+
+The latest review confirmed several important boundaries:
+
+- Integration records for Prometheus/Grafana/Loki can be created and tested, but Monitoring does not yet consume them at runtime.
+- Monitoring remains a quick summary and external-link surface rather than a complete observability workspace.
+- The single VM provisioning wizard still dominates the Provisioning page and should be moved into the contextual workspace pattern.
+- Provisioning blueprints should become workflow/automation operations rather than Profile steps, because profiles execute against already-existing Inventory targets.
+- Automations currently execute actions, packages, and profiles only; provisioning and deployment automation are not wired yet.
+- CT/LXC support is partial: discovery/lifecycle visibility exists, but QEMU VM provisioning remains the implemented path.
+
 ## Architecture Status
 
 - Backend remains organized as a modular monolith.
@@ -410,6 +428,10 @@ The next refinement pass standardized create/edit workflows around contextual dr
 - Identity discovery reads live Linux state through Jobs and does not yet persist per-host user/group membership snapshots as first-class inventory records.
 - Existing `docs/architecture.md` is older and less precise than the newer files in `docs/architecture/`.
 - Runtime adapter support from persisted integration records is partial; Proxmox can resolve active integration records, while other adapters still need deeper runtime integration.
+- Monitoring does not yet consume persisted Prometheus/Grafana/Loki integration records; it still uses environment-backed settings for health, metrics, and generated links.
+- Provisioning still presents the single VM wizard as a large page section; it needs the same contextual workflow treatment as batch provisioning and blueprint actions.
+- Provisioning blueprints are not yet first-class Workflow/Automation operations.
+- CT/LXC provisioning and CT/LXC execution-target management are not implemented end-to-end.
 - Remote shell WebSocket authentication uses the current JWT as a query parameter for MVP browser compatibility; a short-lived scoped remote-access token is still planned.
 - Refresh tokens are revoked through token-version changes, but refresh-token rotation/reuse detection is not implemented yet.
 

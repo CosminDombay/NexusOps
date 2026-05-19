@@ -378,6 +378,8 @@ MonitoringPage
 
 The Monitoring UI follows the hybrid monitoring model. NexusOps shows quick operational status cards, per-host metrics, and service state summaries, while advanced dashboards and log exploration stay in the external observability stack.
 
+Important current limitation: Monitoring reads Prometheus, Grafana, and Loki locations from environment-backed settings. Persisted Prometheus/Grafana/Loki integration records can be created and tested in Integrations, but they are not yet used by Monitoring as runtime source-of-truth.
+
 The page exposes:
 
 - Prometheus API health
