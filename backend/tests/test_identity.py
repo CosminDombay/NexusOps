@@ -1,12 +1,14 @@
 from typing import Any
 
 import pytest
+from pydantic import ValidationError
 
 from backend.app.adapters.ssh import SshAdapter, SshExecutionResult
 from backend.app.modules.credentials.schemas import ResolvedCredential
+from backend.app.modules.identity.models import LinuxUser
 from backend.app.modules.identity.repository import IdentityExecutionRepository, LinuxGroupRepository, LinuxUserRepository
 from backend.app.modules.identity.schemas import LinuxGroupCreate, LinuxGroupUpdate, LinuxUserCreate, ReplicationRequest
-from backend.app.modules.identity.service import IdentityReplicationService, LinuxGroupService, LinuxUserService
+from backend.app.modules.identity.service import IdentityReplicationService, IdentityValidationError, LinuxGroupService, LinuxUserService
 from backend.app.modules.inventory.repository import ServerRepository
 from backend.app.modules.inventory.schemas import ServerCreate
 from backend.app.modules.inventory.service import InventoryService
@@ -176,11 +178,63 @@ async def test_identity_discovery_parses_existing_users_and_groups(client) -> No
             execution_repository=IdentityExecutionRepository(db_session),
         ).discover_groups([server.id])
 
-        assert [user.username for user in user_discovery.users] == ["deploy", "root"]
+        assert [user.username for user in user_discovery.users] == ["deploy"]
         assert user_discovery.users[0].home_directory == "/home/deploy"
         assert any(group.name == "docker" for group in group_discovery.groups)
         docker = next(group for group in group_discovery.groups if group.name == "docker")
         assert docker.members == ["deploy"]
+
+
+def test_identity_rejects_root_as_managed_user() -> None:
+    with pytest.raises(ValidationError):
+        LinuxUserCreate(username="root")
+
+
+@pytest.mark.asyncio
+async def test_identity_rejects_root_group_inspection(client) -> None:
+    session = next(iter(client.app.dependency_overrides.values()))
+    async for db_session in session():
+        server = await InventoryService(ServerRepository(db_session)).create_server(
+            ServerCreate(**server_payload(hostname="root-inspect-identity-01", ip_address="10.4.0.16"))
+        )
+        service = IdentityReplicationService(
+            job_service=JobService(
+                job_repository=JobRepository(db_session),
+                server_repository=ServerRepository(db_session),
+                ssh_adapter=FakeSshAdapter(),
+            ),
+            execution_repository=IdentityExecutionRepository(db_session),
+        )
+
+        with pytest.raises(IdentityValidationError):
+            await service.discover_user_groups("root", [server.id])
+
+
+@pytest.mark.asyncio
+async def test_identity_rejects_remote_operations_for_existing_root_record(client) -> None:
+    session = next(iter(client.app.dependency_overrides.values()))
+    async for db_session in session():
+        server = await InventoryService(ServerRepository(db_session)).create_server(
+            ServerCreate(**server_payload(hostname="root-action-identity-01", ip_address="10.4.0.17"))
+        )
+        root_user = await LinuxUserRepository(db_session).create(
+            LinuxUser(username="root", shell="/bin/bash", home_directory="/root")
+        )
+        await db_session.commit()
+        service = LinuxUserService(
+            repository=LinuxUserRepository(db_session),
+            replication_service=IdentityReplicationService(
+                job_service=JobService(
+                    job_repository=JobRepository(db_session),
+                    server_repository=ServerRepository(db_session),
+                    ssh_adapter=FakeSshAdapter(),
+                ),
+                execution_repository=IdentityExecutionRepository(db_session),
+            ),
+        )
+
+        with pytest.raises(IdentityValidationError):
+            await service.replicate_user(root_user.id, ReplicationRequest(target_server_ids=[server.id]))
 
 
 @pytest.mark.asyncio

@@ -188,10 +188,7 @@ async def delete_user(
     target_server_ids: Annotated[list[UUID] | None, Body()] = None,
     remove_home: Annotated[bool, Query()] = False,
 ) -> None:
-    try:
-        await service.delete_user(user_id, target_server_ids, remove_home=remove_home)
-    except IdentityNotFoundError as exc:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    await _run_identity(lambda: service.delete_user(user_id, target_server_ids, remove_home=remove_home))
 
 
 @router.post("/users/{user_id}/lock", response_model=IdentityReplicationRead)
@@ -210,6 +207,24 @@ async def unlock_user(
     service: Annotated[LinuxUserService, Depends(get_user_service)],
 ) -> IdentityReplicationRead:
     return await _run_identity(lambda: service.unlock_user(user_id, payload))
+
+
+@router.post("/users/{user_id}/expire-password", response_model=IdentityReplicationRead)
+async def expire_user_password(
+    user_id: UUID,
+    payload: ReplicationRequest,
+    service: Annotated[LinuxUserService, Depends(get_user_service)],
+) -> IdentityReplicationRead:
+    return await _run_identity(lambda: service.expire_password(user_id, payload))
+
+
+@router.post("/users/{user_id}/disable-shell", response_model=IdentityReplicationRead)
+async def disable_user_shell(
+    user_id: UUID,
+    payload: ReplicationRequest,
+    service: Annotated[LinuxUserService, Depends(get_user_service)],
+) -> IdentityReplicationRead:
+    return await _run_identity(lambda: service.disable_shell(user_id, payload))
 
 
 @router.post("/users/{user_id}/replicate", response_model=IdentityReplicationRead)
@@ -309,6 +324,15 @@ async def add_group_members(
     service: Annotated[LinuxGroupService, Depends(get_group_service)],
 ) -> IdentityReplicationRead:
     return await _run_identity(lambda: service.add_members(group_id, payload))
+
+
+@router.delete("/groups/{group_id}/members", response_model=IdentityReplicationRead)
+async def remove_group_members(
+    group_id: UUID,
+    payload: GroupMembersRequest,
+    service: Annotated[LinuxGroupService, Depends(get_group_service)],
+) -> IdentityReplicationRead:
+    return await _run_identity(lambda: service.remove_members(group_id, payload))
 
 
 @router.post("/groups/{group_id}/replicate", response_model=IdentityReplicationRead)

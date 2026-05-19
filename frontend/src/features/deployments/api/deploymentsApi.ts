@@ -1,5 +1,5 @@
 import { apiClient } from '../../../lib/api/client';
-import type { CreateDeploymentPayload, Deployment, DeploymentLogs, DeploymentOperation, UpdateDeploymentPayload } from '../types/deployment';
+import type { CreateDeploymentPayload, Deployment, DeploymentLogs, DeploymentOperation, DeploymentStatusResult, UpdateDeploymentPayload } from '../types/deployment';
 
 export async function listDeployments(): Promise<Deployment[]> {
   const response = await apiClient.get<Deployment[]>('/deployments');
@@ -30,5 +30,10 @@ export async function runDeploymentOperation(
 
 export async function getDeploymentLogs(deploymentId: string): Promise<DeploymentLogs> {
   const response = await apiClient.get<DeploymentLogs>(`/deployments/${deploymentId}/logs`);
+  return response.data;
+}
+
+export async function getDeploymentStatus(deploymentId: string): Promise<DeploymentStatusResult> {
+  const response = await apiClient.get<DeploymentStatusResult>(`/deployments/${deploymentId}/status`);
   return response.data;
 }

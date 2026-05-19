@@ -46,6 +46,12 @@ async def get_current_user(
             detail="User is inactive or no longer exists",
             headers={"WWW-Authenticate": "Bearer"},
         )
+    if int(payload["ver"]) != user.token_version:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token has been revoked",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
     return user
 
 

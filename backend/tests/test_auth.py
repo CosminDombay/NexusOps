@@ -61,3 +61,53 @@ def test_refresh_token_flow(auth_client) -> None:
     assert response.status_code == 200
     assert response.json()["access_token"]
     assert response.json()["user"]["role"] == "viewer"
+
+
+def test_logout_revokes_existing_refresh_token(auth_client) -> None:
+    login_response = auth_client.post(
+        "/api/v1/auth/login",
+        json={"username_or_email": "viewer", "password": "Password123!"},
+    )
+    payload = login_response.json()
+
+    logout_response = auth_client.post(
+        "/api/v1/auth/logout",
+        headers={"Authorization": f"Bearer {payload['access_token']}"},
+    )
+    refresh_response = auth_client.post(
+        "/api/v1/auth/refresh",
+        json={"refresh_token": payload["refresh_token"]},
+    )
+
+    assert logout_response.status_code == 204
+    assert refresh_response.status_code == 401
+
+
+def test_password_reset_revokes_existing_access_token(auth_client) -> None:
+    login_response = auth_client.post(
+        "/api/v1/auth/login",
+        json={"username_or_email": "viewer", "password": "Password123!"},
+    )
+    viewer_payload = login_response.json()
+
+    admin_login = auth_client.post(
+        "/api/v1/auth/login",
+        json={"username_or_email": "admin", "password": "Password123!"},
+    )
+    users_response = auth_client.get(
+        "/api/v1/auth/users",
+        headers={"Authorization": f"Bearer {admin_login.json()['access_token']}"},
+    )
+    viewer = next(user for user in users_response.json() if user["username"] == "viewer")
+    reset_response = auth_client.post(
+        f"/api/v1/auth/users/{viewer['id']}/reset-password",
+        headers={"Authorization": f"Bearer {admin_login.json()['access_token']}"},
+        json={"password": "NewPassword123!"},
+    )
+    me_response = auth_client.get(
+        "/api/v1/auth/me",
+        headers={"Authorization": f"Bearer {viewer_payload['access_token']}"},
+    )
+
+    assert reset_response.status_code == 200
+    assert me_response.status_code == 401

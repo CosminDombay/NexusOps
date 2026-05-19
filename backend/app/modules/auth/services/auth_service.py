@@ -60,6 +60,10 @@ class AuthService:
             raise InactiveUserError("User account is inactive")
         return self._token_pair(user)
 
+    async def revoke_user_tokens(self, user: User) -> None:
+        user.token_version += 1
+        await self.repository.session.commit()
+
     async def create_admin_if_missing(self, *, username: str, email: str, password: str) -> User | None:
         normalized_username = username.strip().lower()
         normalized_email = email.strip().lower()
@@ -113,6 +117,8 @@ class AuthService:
             raise UserManagementError("Email already exists")
         for key, value in update_data.items():
             setattr(user, key, value)
+        if {"role", "is_active", "is_superuser"} & set(update_data):
+            user.token_version += 1
         await self.repository.session.commit()
         await self.repository.session.refresh(user)
         logger.info("auth.user_updated", user_id=str(user.id), fields=list(update_data.keys()))
@@ -123,6 +129,7 @@ class AuthService:
         if user is None:
             raise UserNotFoundError("User not found")
         user.password_hash = hash_password(payload.password)
+        user.token_version += 1
         await self.repository.session.commit()
         await self.repository.session.refresh(user)
         logger.info("auth.user_password_reset", user_id=str(user.id))

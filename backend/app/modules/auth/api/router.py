@@ -56,6 +56,8 @@ async def refresh(
     user = await UserRepository(session).get_by_id(UUID(str(token_payload["sub"])))
     if user is None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User no longer exists")
+    if int(token_payload["ver"]) != user.token_version:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token has been revoked")
 
     try:
         return await service.refresh(user)
@@ -64,7 +66,11 @@ async def refresh(
 
 
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
-async def logout(current_user: Annotated[User, Depends(get_current_user)]) -> None:
+async def logout(
+    current_user: Annotated[User, Depends(get_current_user)],
+    service: Annotated[AuthService, Depends(get_auth_service)],
+) -> None:
+    await service.revoke_user_tokens(current_user)
     logger.info("auth.logout", user_id=str(current_user.id), username=current_user.username)
 
 

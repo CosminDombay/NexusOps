@@ -81,6 +81,20 @@ export async function unlockLinuxUser(userId: string, targetServerIds: string[])
   return response.data;
 }
 
+export async function expireLinuxUserPassword(userId: string, targetServerIds: string[]): Promise<BulkExecutionResponse> {
+  const response = await apiClient.post<BulkExecutionResponse>(`/identity/users/${userId}/expire-password`, {
+    target_server_ids: targetServerIds,
+  });
+  return response.data;
+}
+
+export async function disableLinuxUserShell(userId: string, targetServerIds: string[]): Promise<BulkExecutionResponse> {
+  const response = await apiClient.post<BulkExecutionResponse>(`/identity/users/${userId}/disable-shell`, {
+    target_server_ids: targetServerIds,
+  });
+  return response.data;
+}
+
 export async function listLinuxGroups(): Promise<LinuxGroup[]> {
   const response = await apiClient.get<LinuxGroup[]>('/identity/groups');
   return response.data;
@@ -146,6 +160,20 @@ export async function addGroupMembers(
   const response = await apiClient.post<BulkExecutionResponse>(`/identity/groups/${groupId}/members`, {
     usernames,
     target_server_ids: targetServerIds,
+  });
+  return response.data;
+}
+
+export async function removeGroupMembers(
+  groupId: string,
+  usernames: string[],
+  targetServerIds: string[],
+): Promise<BulkExecutionResponse> {
+  const response = await apiClient.delete<BulkExecutionResponse>(`/identity/groups/${groupId}/members`, {
+    data: {
+      usernames,
+      target_server_ids: targetServerIds,
+    },
   });
   return response.data;
 }

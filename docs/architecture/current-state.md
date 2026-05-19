@@ -15,13 +15,14 @@ The implemented system is focused on foundations, visibility, narrowly scoped VM
   - username/email and password login
   - bcrypt password hashing
   - JWT access and refresh tokens
+  - token-version based revocation for logout, password reset, and role/security changes
   - `/api/v1/auth/me` current-user lookup
   - environment-based initial admin bootstrap
   - reusable RBAC dependencies for admin, operator, and viewer access
   - admin-only user administration APIs for listing, creating, role editing, deactivation, and password reset
 - Frontend authentication:
   - login page
-  - session restore
+  - session restore from session-scoped browser storage
   - logout
   - protected route guards
   - role-aware sidebar navigation
@@ -178,11 +179,15 @@ The implemented system is focused on foundations, visibility, narrowly scoped VM
   - deployment target and revision persistence
   - deploy/redeploy/restart/stop/status/log operations through Jobs
   - deployment edit and delete API/UI
+  - operational deployment cards with runtime status, target host, ports, compose source, uptime, health state, and synchronization state
+  - create/edit deployment drawer so forms appear only when requested
+  - inspect and log panels for operational feedback
   - shared target selector and request-shape support for future bulk deployment fanout while preserving current single-target execution
 - Monitoring foundation:
   - Prometheus HTTP API health check
   - basic per-server CPU, memory, disk, and uptime query support
   - Grafana deep-link generation when configured
+  - Prometheus, Grafana, and Loki quick links for hybrid monitoring workflows
 - Linux identity orchestration:
   - reusable Linux user and group records
   - SSH public key records
@@ -198,6 +203,8 @@ The implemented system is focused on foundations, visibility, narrowly scoped VM
   - distro-aware administrator group resolution
   - operational group presets and group discovery
   - permission presets, rwx matrix UI, and generated command previews
+  - protected `root` account exclusion from discovery, creation/adoption, direct inspection, and remote lifecycle operations
+  - password expiration and login-shell disable actions for account lifecycle workflows
 - Host detail operational hub:
   - tabbed host context for Overview, Metrics, Terminal, Files, Deployments, Jobs, Workflows, Packages, Profiles, and Identity
   - terminal/files tab entries route into the unified Host Tools workspace
@@ -315,6 +322,18 @@ Packages, Profiles, Automations, Jobs, and Deployments use the shared selector f
 
 Remote Access now presents files and the file editor above a persistent terminal console. The backend shell, SFTP, RBAC, credential resolution, and audit boundaries remain unchanged.
 
+### Final Refinement Slice
+
+The first final-refinement slice tightened operational UX and session safety without changing the modular monolith architecture:
+
+- Docker deployments now present a card-based operational dashboard modeled after service/stack views.
+- Deployment create/edit forms are drawer-based instead of permanently visible.
+- Deployment reads include lightweight derived metadata for ports, health, uptime, compose source, and sync state.
+- Monitoring exposes external Prometheus, Grafana, and Loki links while keeping NexusOps focused on quick operational summaries.
+- Local auth tokens now carry a per-user token version, allowing logout, password reset, and security-sensitive user changes to revoke older tokens.
+- Frontend auth persistence now uses `sessionStorage` and clears older `localStorage` tokens.
+- Linux `root` is treated as a protected account for identity orchestration.
+
 ## Architecture Status
 
 - Backend remains organized as a modular monolith.
@@ -331,6 +350,7 @@ Remote Access now presents files and the file editor above a persistent terminal
 - Provisioning blueprints persist reusable provisioning defaults while keeping Proxmox VM templates as the provider-side base image.
 - Batch provisioning creates a parent batch record and normal child provisioning requests. Each generated VM still goes through the existing Proxmox clone, cloud-init, SSH readiness, Inventory registration, and optional bootstrap flow.
 - Docker Compose deployments reuse Jobs for deploy/redeploy/restart/stop/status/logs and resolve credential-backed env values server-side.
+- Deployment API reads include derived operational metadata, but execution still flows through the existing Jobs pipeline.
 - Remote Access reuses Inventory as the target boundary and Credential Manager resolution for SSH material; it does not accept arbitrary host targets or expose credentials to the frontend.
 - RBAC user management is implemented under the auth module and remains admin-only through backend route dependencies.
 - Inventory deletion cleanup is owned by `InventoryService`; it clears active references without hard-deleting historical job logs.
@@ -358,13 +378,14 @@ Remote Access now presents files and the file editor above a persistent terminal
 - Provisioning still needs the deeper background refactor so each clone/config/bootstrap phase is driven fully by WorkflowRun steps.
 - Provisioning blueprints do not yet discover valid Proxmox storage targets per node; extra disks currently rely on operator-entered storage names.
 - Deployment logs are pulled on demand from Docker Compose and are not yet indexed as first-class log records.
-- Docker deployment steps are visible in profile editing but do not yet execute as concrete deployment operations inside `ProfileService`.
+- Docker deployment steps can execute through `ProfileService`, but richer blueprint-style deployment composition still needs refinement.
 - No centralized domain identity provider. Identity is Linux orchestration only; LDAP, Kerberos, FreeIPA, Active Directory, SSSD, PAM rewriting, and login federation are intentionally out of scope.
 - Identity discovery reads live Linux state through Jobs and does not yet persist per-host user/group membership snapshots as first-class inventory records.
 - Existing `docs/architecture.md` is older and less precise than the newer files in `docs/architecture/`.
 - Runtime adapter support from persisted integration records is partial; Proxmox can resolve active integration records, while other adapters still need deeper runtime integration.
 - Remote shell WebSocket authentication uses the current JWT as a query parameter for MVP browser compatibility; a short-lived scoped remote-access token is still planned.
+- Refresh tokens are revoked through token-version changes, but refresh-token rotation/reuse detection is not implemented yet.
 
 ## Current Safety Boundary
 
-The platform can authenticate local NexusOps users, enforce coarse RBAC boundaries, mutate NexusOps-owned inventory data, import and reconcile discovered Proxmox VMs into Inventory, request controlled Proxmox VM lifecycle actions, provision VMs from Proxmox templates, edit reusable automation templates, execute commands/actions/packages/profiles against inventory-managed Linux hosts over SSH, provide backend-mediated shell/file access to inventory-managed Linux hosts, resolve encrypted runtime secrets server-side, deploy Docker Compose projects, query Prometheus metrics, and replicate Linux identity state. Inventory deletion and archival are CMDB operations only; they do not destroy Proxmox VMs. Template reset restores NexusOps defaults only; it does not alter historical Jobs. The platform does not expose VM deletion, ISO installation, Kubernetes, Terraform execution, SSO/federated login, arbitrary SSH targets, raw Proxmox consoles, Docker/container shells, or arbitrary provider-side infrastructure mutation.
+The platform can authenticate local NexusOps users, enforce coarse RBAC boundaries, revoke existing JWT sessions through token-version changes, mutate NexusOps-owned inventory data, import and reconcile discovered Proxmox VMs into Inventory, request controlled Proxmox VM lifecycle actions, provision VMs from Proxmox templates, edit reusable automation templates, execute commands/actions/packages/profiles against inventory-managed Linux hosts over SSH, provide backend-mediated shell/file access to inventory-managed Linux hosts, resolve encrypted runtime secrets server-side, deploy Docker Compose projects, query Prometheus metrics, link out to Prometheus/Grafana/Loki, and replicate non-root Linux identity state. Inventory deletion and archival are CMDB operations only; they do not destroy Proxmox VMs. Template reset restores NexusOps defaults only; it does not alter historical Jobs. The platform does not expose VM deletion, ISO installation, Kubernetes, Terraform execution, SSO/federated login, arbitrary SSH targets, raw Proxmox consoles, Docker/container shells, root account orchestration, or arbitrary provider-side infrastructure mutation.

@@ -1,3 +1,5 @@
+from datetime import UTC, datetime
+import re
 from uuid import UUID
 
 from backend.app.modules.deployments.models import (
@@ -254,6 +256,11 @@ class DockerComposeDeploymentService:
             target_server_ids=[target.server_id] if target else [],
             target_hostname=server.hostname if server else None,
             remote_path=target.remote_path if target else None,
+            ports=self._extract_ports(deployment.compose_content),
+            compose_source="inline",
+            uptime_seconds=self._uptime_seconds(deployment) if deployment.status == DeploymentStatus.RUNNING else None,
+            health_state=self._health_state(deployment.status),
+            sync_status=self._sync_status(deployment, target),
             created_at=deployment.created_at,
             updated_at=deployment.updated_at,
         )
@@ -337,3 +344,41 @@ class DockerComposeDeploymentService:
     def _dotenv_quote(value: str) -> str:
         escaped = value.replace("\\", "\\\\").replace("\n", "\\n").replace('"', '\\"')
         return f'"{escaped}"'
+
+    @staticmethod
+    def _extract_ports(compose_content: str) -> list[str]:
+        ports: list[str] = []
+        for match in re.finditer(r"['\"]?(\d{2,5}:\d{1,5}(?:/(?:tcp|udp))?)['\"]?", compose_content):
+            value = match.group(1)
+            if value not in ports:
+                ports.append(value)
+        return ports[:8]
+
+    @staticmethod
+    def _uptime_seconds(deployment: Deployment) -> int | None:
+        updated_at = deployment.updated_at
+        if updated_at is None:
+            return None
+        if updated_at.tzinfo is None:
+            updated_at = updated_at.replace(tzinfo=UTC)
+        return max(0, int((datetime.now(UTC) - updated_at).total_seconds()))
+
+    @staticmethod
+    def _health_state(status: DeploymentStatus) -> str:
+        if status == DeploymentStatus.RUNNING:
+            return "healthy"
+        if status == DeploymentStatus.FAILED:
+            return "failed"
+        if status == DeploymentStatus.STOPPED:
+            return "stopped"
+        return "unknown"
+
+    @staticmethod
+    def _sync_status(deployment: Deployment, target: DeploymentTarget | None) -> str:
+        if target is None:
+            return "missing-target"
+        if deployment.status == DeploymentStatus.DRAFT:
+            return "pending-deploy"
+        if deployment.status == target.status:
+            return "synced"
+        return "drifted"

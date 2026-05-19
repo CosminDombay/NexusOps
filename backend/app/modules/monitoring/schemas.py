@@ -20,6 +20,8 @@ class ServerMetricsRead(BaseModel):
     disk_usage_percent: float | None = None
     uptime_seconds: float | None = None
     grafana_url: str | None = None
+    prometheus_url: str | None = None
+    loki_url: str | None = None
     collected_at: datetime
 
 
@@ -34,3 +36,6 @@ class PrometheusHealthRead(BaseModel):
     configured: bool
     reachable: bool
     error: str | None = None
+    prometheus_url: str | None = None
+    grafana_url: str | None = None
+    loki_url: str | None = None

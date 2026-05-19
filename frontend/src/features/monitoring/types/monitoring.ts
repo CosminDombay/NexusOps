@@ -8,6 +8,8 @@ export type ServerMetrics = {
   disk_usage_percent: number | null;
   uptime_seconds: number | null;
   grafana_url: string | null;
+  prometheus_url: string | null;
+  loki_url: string | null;
   collected_at: string;
 };
 
@@ -22,4 +24,7 @@ export type PrometheusHealth = {
   configured: boolean;
   reachable: boolean;
   error: string | null;
+  prometheus_url: string | null;
+  grafana_url: string | null;
+  loki_url: string | null;
 };

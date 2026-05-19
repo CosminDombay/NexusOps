@@ -14,6 +14,11 @@ export type Deployment = {
   target_server_ids?: string[];
   target_hostname: string | null;
   remote_path: string | null;
+  ports: string[];
+  compose_source: string;
+  uptime_seconds: number | null;
+  health_state: string;
+  sync_status: string;
   created_at: string;
   updated_at: string;
 };
@@ -40,5 +45,11 @@ export type DeploymentLogs = {
   deployment_id: string;
   target_server_id: string;
   logs: string;
+  job: Job;
+};
+
+export type DeploymentStatusResult = {
+  deployment_id: string;
+  target_server_id: string;
   job: Job;
 };

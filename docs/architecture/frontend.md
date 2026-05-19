@@ -21,6 +21,8 @@ The frontend currently implements:
 - host detail and Proxmox node detail pages
 - integrations settings page
 - deployment and monitoring foundation pages
+- deployment operational card dashboard with drawer-based create/edit
+- monitoring quick links for Prometheus, Grafana, and Loki
 - shared target selection across orchestration pages
 - admin Users & RBAC page
 - unified Host Tools workspace with files/editor and persistent terminal
@@ -80,6 +82,8 @@ It uses Axios with:
 - `VITE_API_BASE_URL`
 - JSON content headers
 - reusable API error formatting
+- bearer token injection from session-scoped auth storage
+- automatic refresh attempt on expired access tokens
 
 Feature folders define their own API functions and types, but they use the shared client for transport.
 
@@ -187,7 +191,7 @@ IdentityPage
   -> FastAPI /api/v1/identity
 ```
 
-The Identity UI includes Linux user creation/replication, group creation/membership replication, SSH public key deployment/revocation, lightweight chmod/chown permission application, and a primary multi-host target selector. Replication results show per-host success/failure details from the Jobs-backed fanout response.
+The Identity UI includes Linux user creation/replication, group creation/membership replication, SSH public key deployment/revocation, lightweight chmod/chown permission application, password expiration, login-shell disable, and a primary multi-host target selector. Replication results show per-host success/failure details from the Jobs-backed fanout response.
 
 The default Identity experience is guided rather than raw-Linux-first:
 
@@ -200,6 +204,8 @@ The default Identity experience is guided rather than raw-Linux-first:
 - replication target selection supports search, select all, clear, and selected host badges
 
 Advanced mode keeps raw shell path, raw group selection, recursive chmod/chown, and raw octal controls available for power users.
+
+The `root` account is intentionally hidden from discovery and blocked from NexusOps identity orchestration. Identity remains Linux infrastructure orchestration, not centralized authentication or privileged root-account ownership.
 
 ## Packages Frontend Flow
 
@@ -312,7 +318,18 @@ DeploymentsPage
   -> FastAPI /api/v1/deployments
 ```
 
-The Deployments UI includes Docker Compose content, non-secret env content, credential-backed env variable mappings, shared target selection, deployment operation buttons, deployment state badges, deployment state/history rows, empty/loading states, and log loading. Credential-backed env mappings send only credential IDs to the backend; secret values are resolved server-side.
+The Deployments UI is now an operational service dashboard rather than a permanently visible create form. It includes:
+
+- service-style deployment cards
+- runtime status, health, sync, uptime, target host, ports, compose source, and credential-ref indicators
+- direct start, stop, restart, redeploy, inspect, logs, edit, and delete actions
+- status filtering
+- inspect and log output panels
+- drawer-based create/edit workflow
+- Docker Compose content, non-secret env content, and credential-backed env variable mappings
+- shared target selection in the drawer
+
+Credential-backed env mappings send only credential IDs to the backend; secret values are resolved server-side.
 
 Deployments now pass both `target_server_id` and optional `target_server_ids` in the request shape. The current backend still executes the first target only; the request shape is prepared for future distributed orchestration queueing.
 
@@ -325,7 +342,17 @@ MonitoringPage
   -> FastAPI /api/v1/monitoring
 ```
 
-The Monitoring UI is still a foundation. It is currently oriented around Prometheus-backed server metrics and Grafana links rather than full alerting, dashboards, or log exploration.
+The Monitoring UI follows the hybrid monitoring model. NexusOps shows quick operational status cards, per-host metrics, and service state summaries, while advanced dashboards and log exploration stay in the external observability stack.
+
+The page exposes:
+
+- Prometheus API health
+- Prometheus quick links
+- Grafana dashboard links
+- Loki exploration links
+- per-host CPU, memory, disk, and uptime summaries
+
+NexusOps does not attempt to rebuild Grafana or Loki inside the application.
 
 ## Types, Hooks, and Utilities
 

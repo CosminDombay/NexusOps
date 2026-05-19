@@ -47,6 +47,8 @@ class LinuxUserCreate(BaseModel):
         stripped = value.strip()
         if not USERNAME_PATTERN.match(stripped):
             raise ValueError("Invalid Linux username")
+        if stripped == "root":
+            raise ValueError("NexusOps cannot manage the root account")
         return stripped
 
     @field_validator("shell")

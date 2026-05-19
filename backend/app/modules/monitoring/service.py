@@ -23,14 +23,34 @@ class MonitoringService:
 
     async def prometheus_health(self) -> PrometheusHealthRead:
         if not settings.prometheus_api_url:
-            return PrometheusHealthRead(configured=False, reachable=False, error="Prometheus is not configured")
+            return PrometheusHealthRead(
+                configured=False,
+                reachable=False,
+                error="Prometheus is not configured",
+                prometheus_url=None,
+                grafana_url=settings.grafana_base_url,
+                loki_url=settings.loki_base_url,
+            )
         try:
             async with httpx.AsyncClient(timeout=settings.monitoring_timeout_seconds) as client:
                 response = await client.get(f"{settings.prometheus_api_url.rstrip('/')}/-/healthy")
                 response.raise_for_status()
-            return PrometheusHealthRead(configured=True, reachable=True)
+            return PrometheusHealthRead(
+                configured=True,
+                reachable=True,
+                prometheus_url=settings.prometheus_api_url,
+                grafana_url=settings.grafana_base_url,
+                loki_url=settings.loki_base_url,
+            )
         except Exception as exc:
-            return PrometheusHealthRead(configured=True, reachable=False, error=str(exc))
+            return PrometheusHealthRead(
+                configured=True,
+                reachable=False,
+                error=str(exc),
+                prometheus_url=settings.prometheus_api_url,
+                grafana_url=settings.grafana_base_url,
+                loki_url=settings.loki_base_url,
+            )
 
     async def server_metrics(self, server_id: UUID) -> ServerMetricsRead:
         server = await self.server_repository.get_by_id(server_id)
@@ -47,6 +67,8 @@ class MonitoringService:
             disk_usage_percent=metrics.get("disk"),
             uptime_seconds=metrics.get("uptime"),
             grafana_url=self._grafana_url(server.hostname),
+            prometheus_url=self._prometheus_url(server.ip_address),
+            loki_url=self._loki_url(server.hostname),
             collected_at=datetime.now(UTC),
         )
 
@@ -64,6 +86,8 @@ class MonitoringService:
                         ip_address=server.ip_address,
                         online=False,
                         grafana_url=self._grafana_url(server.hostname),
+                        prometheus_url=self._prometheus_url(server.ip_address),
+                        loki_url=self._loki_url(server.hostname),
                         collected_at=datetime.now(UTC),
                     )
                 )
@@ -117,3 +141,15 @@ class MonitoringService:
         if not settings.grafana_base_url:
             return None
         return f"{settings.grafana_base_url.rstrip('/')}/d/node-exporter?var-node={hostname}"
+
+    @staticmethod
+    def _prometheus_url(ip_address: str) -> str | None:
+        if not settings.prometheus_api_url:
+            return None
+        return f"{settings.prometheus_api_url.rstrip('/')}/graph?g0.expr=up%7Binstance%3D~%22{ip_address}.*%22%7D"
+
+    @staticmethod
+    def _loki_url(hostname: str) -> str | None:
+        if not settings.loki_base_url:
+            return None
+        return f"{settings.loki_base_url.rstrip('/')}/explore?query=%7Bhost%3D%22{hostname}%22%7D"

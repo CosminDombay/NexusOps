@@ -69,6 +69,9 @@ class IdentityValidationError(Exception):
     """Raised when an identity operation is invalid."""
 
 
+PROTECTED_LINUX_USERS = {"root"}
+
+
 class IdentityPresetService:
     """Friendly operational identity presets layered over Linux primitives."""
 
@@ -348,7 +351,7 @@ class IdentityReplicationService:
                 except ValueError:
                     uid = None
                     gid = None
-                if uid is not None and uid < 1000 and parts[0] != "root":
+                if parts[0] == "root" or (uid is not None and uid < 1000):
                     continue
                 existing = users.get(parts[0])
                 if existing is None:
@@ -367,6 +370,8 @@ class IdentityReplicationService:
     async def discover_user_groups(self, username: str, target_server_ids: list[UUID]) -> UserGroupMembershipRead:
         if not USERNAME_PATTERN.match(username):
             raise IdentityValidationError("Invalid Linux username")
+        if username in PROTECTED_LINUX_USERS:
+            raise IdentityValidationError("NexusOps cannot manage or inspect protected Linux accounts")
         result = await self.job_service.execute_bulk(
             JobBulkExecuteRequest(
                 target_server_ids=target_server_ids,
@@ -498,6 +503,8 @@ class LinuxUserService:
         user = await self.repository.get_by_id(user_id)
         if user is None:
             raise IdentityNotFoundError("Linux user not found")
+        if user.username in PROTECTED_LINUX_USERS and target_server_ids:
+            raise IdentityValidationError("NexusOps cannot run remote operations against protected Linux accounts")
         if target_server_ids:
             command = self._delete_user_command(user.username, remove_home=remove_home)
             await self.replication_service.replicate(
@@ -510,23 +517,47 @@ class LinuxUserService:
 
     async def lock_user(self, user_id: UUID, payload: ReplicationRequest) -> IdentityReplicationRead:
         user = await self._user(user_id)
-        user.locked = True
-        await self.repository.session.commit()
-        return await self.replication_service.replicate(
+        result = await self.replication_service.replicate(
             target_server_ids=payload.target_server_ids,
             operation_type=f"identity:user:{user.username}:lock",
             command=f"sudo passwd -l {quote(user.username)}",
         )
+        if result.failure_count == 0:
+            user.locked = True
+            await self.repository.session.commit()
+        return result
 
     async def unlock_user(self, user_id: UUID, payload: ReplicationRequest) -> IdentityReplicationRead:
         user = await self._user(user_id)
-        user.locked = False
-        await self.repository.session.commit()
-        return await self.replication_service.replicate(
+        result = await self.replication_service.replicate(
             target_server_ids=payload.target_server_ids,
             operation_type=f"identity:user:{user.username}:unlock",
             command=f"sudo passwd -u {quote(user.username)}",
         )
+        if result.failure_count == 0:
+            user.locked = False
+            await self.repository.session.commit()
+        return result
+
+    async def expire_password(self, user_id: UUID, payload: ReplicationRequest) -> IdentityReplicationRead:
+        user = await self._user(user_id)
+        return await self.replication_service.replicate(
+            target_server_ids=payload.target_server_ids,
+            operation_type=f"identity:user:{user.username}:password-expire",
+            command=f"sudo passwd -e {quote(user.username)}",
+        )
+
+    async def disable_shell(self, user_id: UUID, payload: ReplicationRequest) -> IdentityReplicationRead:
+        user = await self._user(user_id)
+        result = await self.replication_service.replicate(
+            target_server_ids=payload.target_server_ids,
+            operation_type=f"identity:user:{user.username}:disable-shell",
+            command=f"sudo usermod -s /usr/sbin/nologin {quote(user.username)}",
+        )
+        if result.failure_count == 0:
+            user.shell = "/usr/sbin/nologin"
+            await self.repository.session.commit()
+        return result
 
     async def replicate_user(self, user_id: UUID, payload: ReplicationRequest) -> IdentityReplicationRead:
         user = await self._user(user_id)
@@ -540,6 +571,8 @@ class LinuxUserService:
         user = await self.repository.get_by_id(user_id)
         if user is None:
             raise IdentityNotFoundError("Linux user not found")
+        if user.username in PROTECTED_LINUX_USERS:
+            raise IdentityValidationError("NexusOps cannot manage protected Linux accounts")
         return user
 
     def _create_user_command(
@@ -720,6 +753,17 @@ class LinuxGroupService:
         return await self.replication_service.replicate(
             target_server_ids=payload.target_server_ids,
             operation_type=f"identity:group:{group.name}:members",
+            command=command,
+        )
+
+    async def remove_members(self, group_id: UUID, payload: GroupMembersRequest) -> IdentityReplicationRead:
+        group = await self._group(group_id)
+        command = " && ".join(
+            f"sudo gpasswd -d {quote(username)} {quote(group.name)}" for username in payload.usernames
+        )
+        return await self.replication_service.replicate(
+            target_server_ids=payload.target_server_ids,
+            operation_type=f"identity:group:{group.name}:members:remove",
             command=command,
         )
 

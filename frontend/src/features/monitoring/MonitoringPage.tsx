@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Activity, Cpu, Database, RefreshCw } from 'lucide-react';
+import { Activity, Cpu, Database, ExternalLink, RefreshCw } from 'lucide-react';
 
 import { PageHeader } from '../../components/layout/PageHeader';
 import { getApiErrorMessage } from '../../lib/api/client';
@@ -49,6 +49,12 @@ export function MonitoringPage() {
         </div>
       ) : null}
 
+      <section className="grid gap-4 md:grid-cols-3">
+        <IntegrationLinkCard label="Prometheus" href={prometheus?.prometheus_url ?? null} status={prometheus?.reachable ? 'Ready' : 'Not ready'} />
+        <IntegrationLinkCard label="Grafana" href={prometheus?.grafana_url ?? null} status={prometheus?.grafana_url ? 'Linked' : 'Not configured'} />
+        <IntegrationLinkCard label="Loki" href={prometheus?.loki_url ?? null} status={prometheus?.loki_url ? 'Linked' : 'Not configured'} />
+      </section>
+
       <section className="rounded-lg border border-zinc-200 bg-white shadow-sm">
         <div className="flex items-center justify-between border-b border-zinc-200 px-5 py-4">
           <h3 className="text-base font-semibold text-zinc-950">Server metrics</h3>
@@ -61,7 +67,7 @@ export function MonitoringPage() {
           <table className="min-w-full divide-y divide-zinc-200 text-sm">
             <thead className="bg-zinc-50">
               <tr>
-                {['Host', 'State', 'CPU', 'Memory', 'Disk', 'Uptime', 'Grafana'].map((heading) => (
+                {['Host', 'State', 'CPU', 'Memory', 'Disk', 'Uptime', 'Links'].map((heading) => (
                   <th key={heading} className="px-5 py-3 text-left text-xs font-semibold uppercase text-zinc-500">{heading}</th>
                 ))}
               </tr>
@@ -79,7 +85,11 @@ export function MonitoringPage() {
                   <td className="px-5 py-4">{formatPercent(server.disk_usage_percent)}</td>
                   <td className="px-5 py-4">{formatDuration(server.uptime_seconds)}</td>
                   <td className="px-5 py-4">
-                    {server.grafana_url ? <a className="font-semibold text-zinc-950 underline" href={server.grafana_url} rel="noreferrer" target="_blank">Open</a> : 'Not configured'}
+                    <div className="flex flex-wrap gap-2">
+                      <MetricLink label="Grafana" href={server.grafana_url} />
+                      <MetricLink label="Prom" href={server.prometheus_url} />
+                      <MetricLink label="Loki" href={server.loki_url} />
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -89,6 +99,37 @@ export function MonitoringPage() {
         </div>
       </section>
     </div>
+  );
+}
+
+function IntegrationLinkCard({ label, href, status }: { label: string; href: string | null; status: string }) {
+  return (
+    <div className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <p className="text-sm font-medium text-zinc-500">{label}</p>
+          <p className="mt-2 text-lg font-semibold text-zinc-950">{status}</p>
+        </div>
+        {href ? (
+          <a className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-zinc-300 text-zinc-700 hover:bg-zinc-50" href={href} rel="noreferrer" target="_blank">
+            <ExternalLink className="h-4 w-4" aria-hidden="true" />
+          </a>
+        ) : (
+          <ExternalLink className="h-5 w-5 text-zinc-300" aria-hidden="true" />
+        )}
+      </div>
+    </div>
+  );
+}
+
+function MetricLink({ label, href }: { label: string; href: string | null }) {
+  if (!href) {
+    return <span className="text-xs text-zinc-400">{label}</span>;
+  }
+  return (
+    <a className="text-xs font-semibold text-zinc-950 underline" href={href} rel="noreferrer" target="_blank">
+      {label}
+    </a>
   );
 }
 

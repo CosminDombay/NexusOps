@@ -47,6 +47,11 @@ class DeploymentRead(BaseModel):
     target_server_ids: list[UUID] = Field(default_factory=list)
     target_hostname: str | None = None
     remote_path: str | None = None
+    ports: list[str] = Field(default_factory=list)
+    compose_source: str = "inline"
+    uptime_seconds: int | None = None
+    health_state: str = "unknown"
+    sync_status: str = "unknown"
     created_at: datetime
     updated_at: datetime
 

@@ -20,6 +20,7 @@ def create_token(user: User, *, token_type: TokenType, expires_delta: timedelta)
         "sub": str(user.id),
         "username": user.username,
         "role": user.role.value,
+        "ver": user.token_version,
         "type": token_type,
         "iat": now,
         "exp": now + expires_delta,
@@ -58,6 +59,7 @@ def decode_token(token: str, *, expected_type: TokenType) -> dict[str, object]:
     try:
         UUID(str(payload["sub"]))
         UserRole(str(payload["role"]))
+        int(payload.get("ver"))
     except (ValueError, TypeError) as exc:
         raise TokenValidationError("Invalid token payload") from exc
 
