@@ -52,7 +52,10 @@ export function VmTable({ vms, actionByVmId, allowActions, allowImport = allowAc
                 <td className="px-5 py-4">
                   <InventoryBadge status={vm.inventory_sync_status} />
                   {vm.inventory_hostname ? (
-                    <div className="mt-1 text-xs text-zinc-500">{vm.inventory_hostname}</div>
+                    <div className="mt-1 text-xs text-zinc-500">
+                      {vm.inventory_hostname}
+                      {vm.inventory_lifecycle_state ? ` - ${titleCase(vm.inventory_lifecycle_state)}` : ''}
+                    </div>
                   ) : null}
                 </td>
                 <td className="px-5 py-4 text-sm text-zinc-700">{formatPercent(vm.cpu_usage)}</td>
@@ -264,7 +267,14 @@ function InventoryBadge({ status }: { status: ProxmoxVm['inventory_sync_status']
           ? 'bg-rose-50 text-rose-700 ring-rose-200'
           : 'bg-amber-50 text-amber-700 ring-amber-200';
 
-  const label = status === 'synced' ? 'Already Managed' : titleCase(status);
+  const label =
+    status === 'synced'
+      ? 'Managed in Inventory'
+      : status === 'archived'
+        ? 'Inactive in Inventory'
+        : status === 'unmanaged'
+          ? 'Discovered Only'
+          : titleCase(status);
 
   return (
     <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium ring-1 ring-inset ${className}`}>

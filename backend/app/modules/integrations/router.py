@@ -53,6 +53,8 @@ async def update_integration(
         return await service.update_integration(integration_id, payload)
     except IntegrationNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
 
 
 @router.delete("/{integration_id}", status_code=status.HTTP_204_NO_CONTENT)

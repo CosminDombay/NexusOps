@@ -306,7 +306,11 @@ class RemoteAccessService:
         server = await self.server_repository.get_by_id(server_id)
         if server is None:
             raise RemoteAccessTargetError("Inventory server not found")
-        if not server.managed or server.lifecycle_state == InventoryLifecycleState.ARCHIVED:
+        if not server.managed or server.lifecycle_state in {
+            InventoryLifecycleState.ARCHIVED,
+            InventoryLifecycleState.DECOMMISSIONED,
+            InventoryLifecycleState.DELETED,
+        }:
             raise RemoteAccessTargetError("Inventory server is not managed")
         return server
 

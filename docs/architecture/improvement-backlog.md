@@ -47,12 +47,13 @@ This backlog captures near-term product and engineering improvements from the Ma
 ### Highest Impact
 
 - Continue moving long-running work out of request/response paths. Scheduled automations now create WorkflowRuns and dispatch through the in-process async queue; provisioning, direct profile/package execution, identity replication, bulk jobs, and deployments still need deeper workflow-backed async entrypoints.
+- Make Proxmox hosts/nodes first-class managed Inventory hypervisors, not just the connection endpoint behind an integration record. Discovery should create or reconcile `node_type=hypervisor` records for every Proxmox node, attach credentials/monitoring/identity/jobs where appropriate, and support host lifecycle actions such as archive, decommission, restore, and provider replacement.
+- Add Proxmox integration endpoint replacement/failover workflows. Operators need to move from one Proxmox host/API endpoint to another or add a multi-node cluster without editing code or environment variables.
 - Add realtime status updates through polling endpoints first, then WebSockets or server-sent events later.
 - Expand the new workflow domain into full orchestration chaining. WorkflowRun and WorkflowStep now exist, but provisioning, deployment, identity, and direct package/profile execution still need complete step-by-step workflow refactors.
 - Implement deployment profile steps in `ProfileService` instead of treating deployment as a placeholder step kind.
 - Add audit persistence for infrastructure actions, provisioning tasks, deployment operations, identity replication, and destructive operations.
-- Make persisted integration records the runtime source of truth for Proxmox, Prometheus, Grafana, and future providers. Environment variables should remain local bootstrap defaults.
-- Wire Monitoring to enabled persisted Prometheus/Grafana/Loki integration records. Keep environment variables as fallback only.
+- Continue making persisted integration records the runtime source of truth for providers. Proxmox and Monitoring have initial integration-driven resolution; provider host/node reconciliation and future adapters still need the same treatment.
 - Add provisioning blueprint or provisioning batch as a Workflow/Automation operation with minimal runtime inputs.
 - Add authentication, authorization, and RBAC before broadening destructive infrastructure capabilities.
 

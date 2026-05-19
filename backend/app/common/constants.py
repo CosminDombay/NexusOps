@@ -33,14 +33,34 @@ class ServerSshAuthMethod(StrEnum):
     PASSWORD = "password"
 
 
+class ManagedNodeType(StrEnum):
+    """Canonical infrastructure node shape."""
+
+    VM = "vm"
+    LXC = "lxc"
+    PHYSICAL = "physical"
+    HYPERVISOR = "hypervisor"
+
+
+class ManagementState(StrEnum):
+    """Whether NexusOps owns orchestration for a node."""
+
+    DISCOVERED = "discovered"
+    UNMANAGED = "unmanaged"
+    MANAGED = "managed"
+    RETIRED = "retired"
+
+
 class InventoryLifecycleState(StrEnum):
     """Inventory entry lifecycle state.
 
     States represent the journey of infrastructure from discovery to archive:
     - DISCOVERED: Found via infrastructure provider, not yet added to inventory
+    - IMPORTED: Added from provider discovery, not necessarily provisioned by NexusOps
     - UNMANAGED: In inventory but not actively managed
     - MANAGED: In inventory and actively managed
     - PROVISIONED: Created by NexusOps provisioning
+    - DECOMMISSIONED: Retired from active orchestration but retained historically
     - DELETING: Deletion cleanup is in progress
     - DELETED: Removed from active inventory
     - FAILED: Lifecycle operation failed
@@ -48,6 +68,7 @@ class InventoryLifecycleState(StrEnum):
     """
 
     DISCOVERED = "discovered"
+    IMPORTED = "imported"
     UNMANAGED = "unmanaged"
     MANAGED = "managed"
     PROVISIONED = "provisioned"
@@ -55,6 +76,7 @@ class InventoryLifecycleState(StrEnum):
     DELETED = "deleted"
     FAILED = "failed"
     ARCHIVED = "archived"
+    DECOMMISSIONED = "decommissioned"
 
 
 class InventorySyncStatus(StrEnum):
@@ -93,11 +115,15 @@ INVENTORY_DEFAULTS = {
     "status": ServerStatus.UNKNOWN,
     "lifecycle_state": InventoryLifecycleState.MANAGED,
     "sync_status": InventorySyncStatus.UNKNOWN,
+    "sync_state": InventorySyncStatus.UNKNOWN,
     "environment": ServerEnvironment.LAB,
     "ssh_port": 22,
     "ssh_auth_method": ServerSshAuthMethod.KEY,
     "managed": True,
     "source": "manual",
+    "node_type": ManagedNodeType.PHYSICAL,
+    "management_state": ManagementState.MANAGED,
+    "capabilities": [],
 }
 
 # Display labels for states
@@ -106,7 +132,16 @@ STATE_LABELS = {
     ServerStatus.ONLINE: "Online",
     ServerStatus.OFFLINE: "Offline",
     ServerStatus.MAINTENANCE: "Maintenance",
+    ManagedNodeType.VM: "VM",
+    ManagedNodeType.LXC: "LXC",
+    ManagedNodeType.PHYSICAL: "Physical",
+    ManagedNodeType.HYPERVISOR: "Hypervisor",
+    ManagementState.DISCOVERED: "Discovered",
+    ManagementState.UNMANAGED: "Unmanaged",
+    ManagementState.MANAGED: "Managed",
+    ManagementState.RETIRED: "Retired",
     InventoryLifecycleState.DISCOVERED: "Discovered",
+    InventoryLifecycleState.IMPORTED: "Imported",
     InventoryLifecycleState.UNMANAGED: "Unmanaged",
     InventoryLifecycleState.MANAGED: "Managed",
     InventoryLifecycleState.PROVISIONED: "Provisioned",
@@ -114,6 +149,7 @@ STATE_LABELS = {
     InventoryLifecycleState.DELETED: "Deleted",
     InventoryLifecycleState.FAILED: "Failed",
     InventoryLifecycleState.ARCHIVED: "Archived",
+    InventoryLifecycleState.DECOMMISSIONED: "Decommissioned",
     InventorySyncStatus.UNKNOWN: "Unknown",
     InventorySyncStatus.SYNCED: "Synced",
     InventorySyncStatus.UNMANAGED: "Unmanaged",

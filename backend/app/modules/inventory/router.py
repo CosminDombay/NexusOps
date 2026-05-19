@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.app.adapters.proxmox import HttpProxmoxAdapter
 from backend.app.adapters.ssh import ParamikoSshAdapter
 from backend.app.db.session import get_db_session
+from backend.app.modules.auth.security.dependencies import require_operator
 from backend.app.modules.inventory.discovery import HostDiscoveryError, HostDiscoveryService
 from backend.app.modules.inventory.models import ServerEnvironment
 from backend.app.modules.inventory.health import InventoryHealthService
@@ -54,12 +55,22 @@ async def list_servers(
     service: Annotated[InventoryService, Depends(get_inventory_service)],
     environment: ServerEnvironment | None = None,
     provider: str | None = None,
+    include_inactive: bool = False,
     search: Annotated[str | None, Query(min_length=1, max_length=255)] = None,
 ) -> list[ServerRead]:
-    return await service.list_servers(environment=environment, provider=provider, search=search)
+    return await service.list_servers(
+        environment=environment,
+        provider=provider,
+        search=search,
+        include_inactive=include_inactive,
+    )
 
 
-@router.post("/health-check/bulk", response_model=list[InventoryHealthCheckResult])
+@router.post(
+    "/health-check/bulk",
+    response_model=list[InventoryHealthCheckResult],
+    dependencies=[Depends(require_operator)],
+)
 async def bulk_health_check(
     payload: BulkInventoryHealthCheckRequest,
     service: Annotated[InventoryHealthService, Depends(get_inventory_health_service)],
@@ -85,7 +96,11 @@ async def get_server(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
 
 
-@router.get("/{server_id}/system", response_model=HostSystemRead)
+@router.get(
+    "/{server_id}/system",
+    response_model=HostSystemRead,
+    dependencies=[Depends(require_operator)],
+)
 async def get_server_system(
     server_id: UUID,
     inventory_service: Annotated[InventoryService, Depends(get_inventory_service)],
@@ -100,7 +115,11 @@ async def get_server_system(
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
 
 
-@router.get("/{server_id}/network", response_model=HostNetworkRead)
+@router.get(
+    "/{server_id}/network",
+    response_model=HostNetworkRead,
+    dependencies=[Depends(require_operator)],
+)
 async def get_server_network(
     server_id: UUID,
     inventory_service: Annotated[InventoryService, Depends(get_inventory_service)],
@@ -115,7 +134,11 @@ async def get_server_network(
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
 
 
-@router.get("/{server_id}/docker", response_model=HostDockerRead)
+@router.get(
+    "/{server_id}/docker",
+    response_model=HostDockerRead,
+    dependencies=[Depends(require_operator)],
+)
 async def get_server_docker(
     server_id: UUID,
     inventory_service: Annotated[InventoryService, Depends(get_inventory_service)],
@@ -130,7 +153,11 @@ async def get_server_docker(
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
 
 
-@router.post("/{server_id}/health-check", response_model=InventoryHealthCheckResult)
+@router.post(
+    "/{server_id}/health-check",
+    response_model=InventoryHealthCheckResult,
+    dependencies=[Depends(require_operator)],
+)
 async def health_check_server(
     server_id: UUID,
     service: Annotated[InventoryHealthService, Depends(get_inventory_health_service)],
@@ -141,7 +168,12 @@ async def health_check_server(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
 
 
-@router.post("", response_model=ServerRead, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "",
+    response_model=ServerRead,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_operator)],
+)
 async def create_server(
     payload: ServerCreate,
     service: Annotated[InventoryService, Depends(get_inventory_service)],
@@ -152,7 +184,12 @@ async def create_server(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
 
 
-@router.post("/sync/proxmox/import", response_model=ServerRead, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/sync/proxmox/import",
+    response_model=ServerRead,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_operator)],
+)
 async def import_proxmox_vm(
     payload: ProxmoxInventoryImport,
     service: Annotated[InventoryService, Depends(get_inventory_service)],
@@ -175,7 +212,11 @@ async def import_proxmox_vm(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
 
 
-@router.post("/sync/proxmox/reconcile", response_model=list[ServerRead])
+@router.post(
+    "/sync/proxmox/reconcile",
+    response_model=list[ServerRead],
+    dependencies=[Depends(require_operator)],
+)
 async def reconcile_proxmox_inventory(
     service: Annotated[InventoryService, Depends(get_inventory_service)],
 ) -> list[ServerRead]:
@@ -184,7 +225,11 @@ async def reconcile_proxmox_inventory(
     return await service.reconcile_proxmox_inventory(vms)
 
 
-@router.put("/{server_id}", response_model=ServerRead)
+@router.put(
+    "/{server_id}",
+    response_model=ServerRead,
+    dependencies=[Depends(require_operator)],
+)
 async def update_server(
     server_id: UUID,
     payload: ServerUpdate,
@@ -198,7 +243,11 @@ async def update_server(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
 
 
-@router.delete("/{server_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/{server_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(require_operator)],
+)
 async def delete_server(
     server_id: UUID,
     service: Annotated[InventoryService, Depends(get_inventory_service)],
@@ -209,12 +258,61 @@ async def delete_server(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
 
 
-@router.post("/{server_id}/archive", response_model=ServerRead)
+@router.post(
+    "/{server_id}/archive",
+    response_model=ServerRead,
+    dependencies=[Depends(require_operator)],
+)
 async def archive_server(
     server_id: UUID,
     service: Annotated[InventoryService, Depends(get_inventory_service)],
 ) -> ServerRead:
     try:
         return await service.archive_server(server_id)
+    except ServerNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+
+@router.post(
+    "/{server_id}/decommission",
+    response_model=ServerRead,
+    dependencies=[Depends(require_operator)],
+)
+async def decommission_server(
+    server_id: UUID,
+    service: Annotated[InventoryService, Depends(get_inventory_service)],
+) -> ServerRead:
+    try:
+        return await service.decommission_server(server_id)
+    except ServerNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+
+@router.post(
+    "/{server_id}/restore",
+    response_model=ServerRead,
+    dependencies=[Depends(require_operator)],
+)
+async def restore_server(
+    server_id: UUID,
+    service: Annotated[InventoryService, Depends(get_inventory_service)],
+) -> ServerRead:
+    try:
+        return await service.restore_server(server_id)
+    except ServerNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+
+@router.post(
+    "/{server_id}/unmanage",
+    response_model=ServerRead,
+    dependencies=[Depends(require_operator)],
+)
+async def unmanage_server(
+    server_id: UUID,
+    service: Annotated[InventoryService, Depends(get_inventory_service)],
+) -> ServerRead:
+    try:
+        return await service.mark_unmanaged(server_id)
     except ServerNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc

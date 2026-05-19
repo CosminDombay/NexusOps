@@ -3,7 +3,7 @@ import pytest
 from backend.app.modules.credentials.repository import CredentialRepository
 from backend.app.modules.credentials.schemas import CredentialCreate
 from backend.app.modules.credentials.service import CredentialService
-from backend.app.modules.integrations.models import Integration, IntegrationType
+from backend.app.modules.integrations.models import Integration, IntegrationProviderType, IntegrationType
 from backend.app.modules.integrations.repository import IntegrationRepository
 from backend.app.modules.integrations.schemas import IntegrationCreate
 from backend.app.modules.integrations.service import IntegrationService
@@ -30,6 +30,7 @@ async def test_proxmox_adapter_uses_enabled_integration_and_credential(client) -
             IntegrationCreate(
                 name="Proxmox Lab",
                 type="infrastructure_provider",
+                provider_type="proxmox",
                 enabled=True,
                 config={"api_url": "https://pve.example:8006/api2/json", "verify_ssl": False},
                 credential_refs={"token_secret": str(credential.id)},
@@ -50,6 +51,7 @@ def test_delete_integration_removes_record(client) -> None:
         json={
             "name": "Prometheus Test",
             "type": "monitoring",
+            "provider_type": "prometheus",
             "enabled": True,
             "config": {"url": "http://prometheus.example:9090", "verify_ssl": False},
             "credential_refs": {},
@@ -77,6 +79,7 @@ async def test_list_integrations_includes_legacy_invalid_records(client) -> None
         integration = Integration(
             name="Proxmox",
             type=IntegrationType.INFRASTRUCTURE_PROVIDER,
+            provider_type=IntegrationProviderType.PROXMOX,
             enabled=True,
             config={"verify_ssl": False},
             credential_refs={},

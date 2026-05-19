@@ -6,9 +6,9 @@ from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, WebSock
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.db.session import get_db_session
-from backend.app.modules.auth.models import User
+from backend.app.modules.auth.models import User, UserRole
 from backend.app.modules.auth.repositories.user_repository import UserRepository
-from backend.app.modules.auth.security.dependencies import get_current_user
+from backend.app.modules.auth.security.dependencies import ROLE_ORDER, require_operator
 from backend.app.modules.auth.security.jwt import TokenValidationError, decode_token
 from backend.app.modules.credentials.repository import CredentialRepository
 from backend.app.modules.credentials.service import CredentialService
@@ -103,6 +103,10 @@ async def _authenticate_websocket(token: str | None, session: AsyncSession) -> U
     user = await UserRepository(session).get_by_id(UUID(str(payload["sub"])))
     if user is None or not user.is_active:
         raise WebSocketDisconnect(code=status.WS_1008_POLICY_VIOLATION)
+    if int(payload["ver"]) != user.token_version:
+        raise WebSocketDisconnect(code=status.WS_1008_POLICY_VIOLATION)
+    if not user.is_superuser and ROLE_ORDER[user.role] < ROLE_ORDER[UserRole.OPERATOR]:
+        raise WebSocketDisconnect(code=status.WS_1008_POLICY_VIOLATION)
     return user
 
 
@@ -127,7 +131,7 @@ async def _shell_to_websocket(websocket: WebSocket, channel) -> None:
 async def list_files(
     server_id: UUID,
     service: Annotated[RemoteAccessService, Depends(get_remote_access_service)],
-    user: Annotated[User, Depends(get_current_user)],
+    user: Annotated[User, Depends(require_operator)],
     path: str = "/",
 ) -> RemoteDirectoryListing:
     try:
@@ -142,7 +146,7 @@ async def list_files(
 async def read_file(
     server_id: UUID,
     service: Annotated[RemoteAccessService, Depends(get_remote_access_service)],
-    user: Annotated[User, Depends(get_current_user)],
+    user: Annotated[User, Depends(require_operator)],
     path: str,
 ) -> RemoteFileRead:
     try:
@@ -158,7 +162,7 @@ async def write_file(
     server_id: UUID,
     payload: RemoteFileWriteRequest,
     service: Annotated[RemoteAccessService, Depends(get_remote_access_service)],
-    user: Annotated[User, Depends(get_current_user)],
+    user: Annotated[User, Depends(require_operator)],
 ) -> RemoteFileWriteResponse:
     audit_remote_access_event("remote_file_write_attempted", server_id=server_id, user=user, path=payload.path)
     try:

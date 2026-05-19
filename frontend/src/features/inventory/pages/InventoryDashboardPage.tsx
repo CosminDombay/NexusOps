@@ -18,11 +18,16 @@ export function InventoryDashboardPage() {
     mutationError,
     isCheckingHealth,
     isRunningVmLifecycleAction,
+    includeInactive,
+    setIncludeInactive,
     refreshServers,
     addServer,
     editServer,
     removeServer,
     archiveInventoryServer,
+    decommissionInventoryServer,
+    restoreInventoryServer,
+    unmanageInventoryServer,
     refreshHealth,
     runVmLifecycleAction,
     clearCreateError,
@@ -46,14 +51,24 @@ export function InventoryDashboardPage() {
       </div>
 
       <div className="flex justify-end">
-        <button
-          className="inline-flex items-center gap-2 rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm font-semibold text-zinc-700 shadow-sm hover:bg-zinc-50"
-          type="button"
-          onClick={() => setIsCreateOpen(true)}
-        >
-          <Plus className="h-4 w-4" aria-hidden="true" />
-          Import existing host
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <label className="inline-flex items-center gap-2 rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm font-semibold text-zinc-700 shadow-sm">
+            <input
+              checked={includeInactive}
+              type="checkbox"
+              onChange={(event) => setIncludeInactive(event.target.checked)}
+            />
+            Show inactive
+          </label>
+          <button
+            className="inline-flex items-center gap-2 rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm font-semibold text-zinc-700 shadow-sm hover:bg-zinc-50"
+            type="button"
+            onClick={() => setIsCreateOpen(true)}
+          >
+            <Plus className="h-4 w-4" aria-hidden="true" />
+            Import existing host
+          </button>
+        </div>
       </div>
 
       <ContextDrawer
@@ -83,6 +98,9 @@ export function InventoryDashboardPage() {
         mutationError={mutationError}
         servers={servers}
         onArchive={archiveInventoryServer}
+        onDecommission={decommissionInventoryServer}
+        onRestore={restoreInventoryServer}
+        onUnmanage={unmanageInventoryServer}
         onClearMutationError={clearMutationError}
         onDelete={removeServer}
         onEdit={editServer}

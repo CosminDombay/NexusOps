@@ -16,17 +16,19 @@ import {
 import type {
   Integration,
   IntegrationPayload,
+  IntegrationProviderType,
   IntegrationTestResult,
   IntegrationType,
 } from './types/integration';
 
 type AuthMode = 'url_only' | 'username_password' | 'token' | 'username_token';
-type IntegrationKind = 'proxmox' | 'prometheus' | 'grafana' | 'tailscale';
+type IntegrationKind = 'proxmox' | 'prometheus' | 'grafana' | 'loki' | 'tailscale';
 
 type FormState = {
   kind: IntegrationKind;
   name: string;
   type: IntegrationType;
+  providerType: IntegrationProviderType;
   enabled: boolean;
   url: string;
   username: string;
@@ -47,6 +49,7 @@ const presets: Record<
     kind: 'proxmox',
     name: 'Proxmox',
     type: 'infrastructure_provider',
+    providerType: 'proxmox',
     enabled: true,
     url: '',
     username: '',
@@ -59,6 +62,7 @@ const presets: Record<
     kind: 'prometheus',
     name: 'Prometheus',
     type: 'monitoring',
+    providerType: 'prometheus',
     enabled: true,
     url: '',
     username: '',
@@ -71,6 +75,20 @@ const presets: Record<
     kind: 'grafana',
     name: 'Grafana',
     type: 'monitoring',
+    providerType: 'grafana',
+    enabled: true,
+    url: '',
+    username: '',
+    tokenId: '',
+    authMode: 'token',
+    verifySsl: true,
+    timeoutSeconds: '10',
+  },
+  loki: {
+    kind: 'loki',
+    name: 'Loki',
+    type: 'monitoring',
+    providerType: 'loki',
     enabled: true,
     url: '',
     username: '',
@@ -83,6 +101,7 @@ const presets: Record<
     kind: 'tailscale',
     name: 'Tailscale',
     type: 'networking',
+    providerType: 'tailscale',
     enabled: true,
     url: 'https://api.tailscale.com',
     username: '',
@@ -144,6 +163,7 @@ export function IntegrationsPage() {
       const payload: IntegrationPayload = {
         name: form.name,
         type: form.type,
+        provider_type: form.providerType,
         enabled: form.enabled,
         config: { ...configPreview, ...advancedConfig },
         credential_refs: Object.fromEntries(
@@ -230,6 +250,7 @@ export function IntegrationsPage() {
       ...formFromPreset(kind),
       name: integration.name,
       type: integration.type,
+      providerType: integration.provider_type,
       enabled: integration.enabled,
       url: String(
         integration.config.api_url ?? integration.config.url ?? integration.config.base_url ?? '',
@@ -524,13 +545,10 @@ function formFromPreset(kind: IntegrationKind): FormState {
 }
 
 function inferIntegrationKind(integration: Integration): IntegrationKind {
-  const name = integration.name.toLowerCase();
-  const url = String(
-    integration.config.api_url ?? integration.config.url ?? integration.config.base_url ?? '',
-  ).toLowerCase();
-  if (name.includes('grafana') || url.includes('grafana')) return 'grafana';
-  if (name.includes('prometheus') || url.includes('prometheus')) return 'prometheus';
-  if (name.includes('tailscale') || url.includes('tailscale')) return 'tailscale';
+  if (integration.provider_type === 'grafana') return 'grafana';
+  if (integration.provider_type === 'prometheus') return 'prometheus';
+  if (integration.provider_type === 'loki') return 'loki';
+  if (integration.provider_type === 'tailscale') return 'tailscale';
   return 'proxmox';
 }
 
@@ -546,6 +564,9 @@ function buildConfig(form: FormState): Record<string, unknown> {
   if (form.kind === 'grafana') {
     return { ...base, base_url: form.url };
   }
+  if (form.kind === 'loki') {
+    return { ...base, base_url: form.url };
+  }
   return { ...base, url: form.url };
 }
 
@@ -553,6 +574,7 @@ function secretKey(form: FormState): string {
   if (form.kind === 'proxmox') return 'token_secret';
   if (form.authMode === 'username_password') return 'password';
   if (form.kind === 'prometheus') return 'bearer_token';
+  if (form.kind === 'loki') return 'bearer_token';
   return 'api_token';
 }
 

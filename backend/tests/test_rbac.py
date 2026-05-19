@@ -21,6 +21,57 @@ def test_viewer_cannot_access_operator_routes(auth_client) -> None:
     assert response.status_code == 403
 
 
+def test_viewer_can_read_inventory_but_cannot_mutate(auth_client) -> None:
+    token = _token_for(auth_client, "viewer")
+    headers = {"Authorization": f"Bearer {token}"}
+
+    read_response = auth_client.get("/api/v1/servers", headers=headers)
+    create_response = auth_client.post(
+        "/api/v1/servers",
+        headers=headers,
+        json={
+            "hostname": "viewer-denied",
+            "ip_address": "10.10.10.10",
+            "operating_system": "Ubuntu",
+            "environment": "development",
+            "ssh_username": "ubuntu",
+        },
+    )
+
+    assert read_response.status_code == 200
+    assert create_response.status_code == 403
+
+
+def test_viewer_cannot_access_remote_files(auth_client) -> None:
+    token = _token_for(auth_client, "viewer")
+
+    response = auth_client.get(
+        "/api/v1/remote-access/hosts/11111111-1111-1111-1111-111111111111/files",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 403
+
+
+def test_remote_files_require_authentication(auth_client) -> None:
+    response = auth_client.get(
+        "/api/v1/remote-access/hosts/11111111-1111-1111-1111-111111111111/files",
+    )
+
+    assert response.status_code == 401
+
+
+def test_operator_can_reach_remote_files_authorization_gate(auth_client) -> None:
+    token = _token_for(auth_client, "operator")
+
+    response = auth_client.get(
+        "/api/v1/remote-access/hosts/11111111-1111-1111-1111-111111111111/files",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 404
+
+
 def test_operator_can_access_operator_routes(auth_client) -> None:
     token = _token_for(auth_client, "operator")
 

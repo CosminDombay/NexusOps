@@ -5,6 +5,10 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.db.session import get_db_session
+from backend.app.modules.credentials.repository import CredentialRepository
+from backend.app.modules.credentials.service import CredentialService
+from backend.app.modules.integrations.repository import IntegrationRepository
+from backend.app.modules.integrations.service import IntegrationService
 from backend.app.modules.inventory.repository import ServerRepository
 from backend.app.modules.inventory.service import ServerNotFoundError
 from backend.app.modules.monitoring.schemas import (
@@ -20,7 +24,13 @@ router = APIRouter()
 async def get_monitoring_service(
     session: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> MonitoringService:
-    return MonitoringService(ServerRepository(session))
+    return MonitoringService(
+        ServerRepository(session),
+        integration_service=IntegrationService(
+            IntegrationRepository(session),
+            credential_service=CredentialService(repository=CredentialRepository(session)),
+        ),
+    )
 
 
 @router.get("/overview", response_model=MonitoringOverviewRead)

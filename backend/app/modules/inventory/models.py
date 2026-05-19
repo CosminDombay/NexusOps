@@ -10,6 +10,8 @@ from backend.app.common.constants import (
     ServerStatus,
     ServerEnvironment,
     ServerSshAuthMethod,
+    ManagedNodeType,
+    ManagementState,
     InventoryLifecycleState,
     InventorySyncStatus,
     InventoryHealthStatus,
@@ -27,6 +29,16 @@ class Server(Base, UuidPrimaryKeyMixin, TimestampMixin):
     ip_address: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     operating_system: Mapped[str] = mapped_column(String(150), nullable=False)
     vmid: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
+    node_type: Mapped[ManagedNodeType] = mapped_column(
+        Enum(
+            ManagedNodeType,
+            name="managed_node_type",
+            values_callable=lambda enum: [member.value for member in enum],
+        ),
+        default=ManagedNodeType.PHYSICAL,
+        nullable=False,
+        index=True,
+    )
     environment: Mapped[ServerEnvironment] = mapped_column(
         Enum(ServerEnvironment, name="server_environment"),
         nullable=False,
@@ -60,6 +72,16 @@ class Server(Base, UuidPrimaryKeyMixin, TimestampMixin):
     external_id: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
     source: Mapped[str] = mapped_column(String(100), default="manual", nullable=False, index=True)
     managed: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False, index=True)
+    management_state: Mapped[ManagementState] = mapped_column(
+        Enum(
+            ManagementState,
+            name="management_state",
+            values_callable=lambda enum: [member.value for member in enum],
+        ),
+        default=ManagementState.MANAGED,
+        nullable=False,
+        index=True,
+    )
     lifecycle_state: Mapped[InventoryLifecycleState] = mapped_column(
         Enum(
             InventoryLifecycleState,
@@ -80,9 +102,20 @@ class Server(Base, UuidPrimaryKeyMixin, TimestampMixin):
         nullable=False,
         index=True,
     )
+    sync_state: Mapped[InventorySyncStatus] = mapped_column(
+        Enum(
+            InventorySyncStatus,
+            name="inventory_sync_status",
+            values_callable=lambda enum: [member.value for member in enum],
+        ),
+        default=InventorySyncStatus.UNKNOWN,
+        nullable=False,
+        index=True,
+    )
     provider_node: Mapped[str | None] = mapped_column(String(100), nullable=True)
     provider_type: Mapped[str | None] = mapped_column(String(50), nullable=True)
     provider_metadata: Mapped[dict[str, object]] = mapped_column(JSON, default=dict, nullable=False)
+    capabilities: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
     last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_health_check_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True),

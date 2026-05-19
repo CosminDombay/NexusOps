@@ -4,7 +4,21 @@ export type ServerStatus = 'unknown' | 'online' | 'offline' | 'maintenance';
 
 export type ServerSshAuthMethod = 'key' | 'password';
 
-export type InventoryLifecycleState = 'discovered' | 'managed' | 'provisioned' | 'unmanaged' | 'archived';
+export type ManagedNodeType = 'vm' | 'lxc' | 'physical' | 'hypervisor';
+
+export type ManagementState = 'discovered' | 'unmanaged' | 'managed' | 'retired';
+
+export type InventoryLifecycleState =
+  | 'discovered'
+  | 'imported'
+  | 'managed'
+  | 'provisioned'
+  | 'unmanaged'
+  | 'deleting'
+  | 'deleted'
+  | 'failed'
+  | 'archived'
+  | 'decommissioned';
 
 export type InventorySyncStatus = 'unknown' | 'synced' | 'unmanaged' | 'orphaned' | 'mismatch' | 'archived';
 
@@ -16,6 +30,7 @@ export type Server = {
   ip_address: string;
   operating_system: string;
   vmid: string | null;
+  node_type: ManagedNodeType;
   environment: ServerEnvironment;
   tags: string[];
   ssh_port: number;
@@ -28,11 +43,14 @@ export type Server = {
   external_id: string | null;
   source: string;
   managed: boolean;
+  management_state: ManagementState;
   lifecycle_state: InventoryLifecycleState;
   sync_status: InventorySyncStatus;
+  sync_state: InventorySyncStatus;
   provider_node: string | null;
   provider_type: string | null;
   provider_metadata: Record<string, unknown>;
+  capabilities: string[];
   last_seen_at: string | null;
   last_health_check_at: string | null;
   last_health_status: InventoryHealthStatus;
@@ -45,6 +63,7 @@ export type CreateServerPayload = {
   hostname: string;
   ip_address: string;
   operating_system: string;
+  node_type?: ManagedNodeType;
   environment: ServerEnvironment;
   tags?: string[];
   provider: string;
@@ -57,11 +76,14 @@ export type CreateServerPayload = {
   external_id?: string | null;
   source?: string;
   managed?: boolean;
+  management_state?: ManagementState;
   lifecycle_state?: InventoryLifecycleState;
   sync_status?: InventorySyncStatus;
+  sync_state?: InventorySyncStatus;
   provider_node?: string | null;
   provider_type?: string | null;
   provider_metadata?: Record<string, unknown>;
+  capabilities?: string[];
 };
 
 export type UpdateServerPayload = Partial<CreateServerPayload> & {

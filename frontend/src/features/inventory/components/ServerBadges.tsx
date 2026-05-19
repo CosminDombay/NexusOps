@@ -2,10 +2,21 @@ import type {
   InventoryHealthStatus,
   InventoryLifecycleState,
   InventorySyncStatus,
+  ManagedNodeType,
+  ManagementState,
   ServerEnvironment,
   ServerStatus,
 } from '../types/server';
-import { environmentStyles, formatLabel, healthStyles, lifecycleStyles, statusStyles, syncStyles } from '../utils/options';
+import {
+  environmentStyles,
+  formatLabel,
+  healthStyles,
+  lifecycleStyles,
+  managementStyles,
+  nodeTypeStyles,
+  statusStyles,
+  syncStyles,
+} from '../utils/options';
 
 type BadgeProps = {
   children: string;
@@ -30,6 +41,14 @@ export function StatusBadge({ status }: { status: ServerStatus }) {
 
 export function LifecycleBadge({ state }: { state: InventoryLifecycleState }) {
   return <Badge className={lifecycleStyles[state]}>{formatLabel(state)}</Badge>;
+}
+
+export function NodeTypeBadge({ nodeType }: { nodeType: ManagedNodeType }) {
+  return <Badge className={nodeTypeStyles[nodeType]}>{formatLabel(nodeType)}</Badge>;
+}
+
+export function ManagementBadge({ state }: { state: ManagementState }) {
+  return <Badge className={managementStyles[state]}>{formatLabel(state)}</Badge>;
 }
 
 export function SyncBadge({ status }: { status: InventorySyncStatus }) {

@@ -1,3 +1,4 @@
+from dataclasses import dataclass, field
 from uuid import UUID
 
 import httpx
@@ -5,18 +6,29 @@ import httpx
 from backend.app.adapters.proxmox import HttpProxmoxAdapter, ProxmoxAdapterError
 from backend.app.core.config import settings
 from backend.app.modules.credentials.service import CredentialService
-from backend.app.modules.integrations.models import Integration, IntegrationType
+from backend.app.modules.integrations.models import Integration, IntegrationProviderType
 from backend.app.modules.integrations.repository import IntegrationRepository
 from backend.app.modules.integrations.schemas import (
     IntegrationCreate,
     IntegrationRead,
     IntegrationTestRead,
     IntegrationUpdate,
+    validate_integration_config,
 )
 
 
 class IntegrationNotFoundError(Exception):
     """Raised when an integration cannot be found."""
+
+
+@dataclass(frozen=True)
+class ProviderConnectionConfig:
+    integration_id: UUID
+    provider_type: IntegrationProviderType
+    base_url: str
+    verify_ssl: bool
+    timeout_seconds: int
+    headers: dict[str, str] = field(default_factory=dict)
 
 
 class IntegrationService:
@@ -38,6 +50,10 @@ class IntegrationService:
         integration = await self.repository.get_by_id(integration_id)
         if integration is None:
             raise IntegrationNotFoundError("Integration not found")
+        validate_integration_config(
+            payload.provider_type or integration.provider_type,
+            payload.config if payload.config is not None else integration.config,
+        )
         for key, value in payload.model_dump(exclude_unset=True).items():
             setattr(integration, key, value)
         await self.repository.session.commit()
@@ -61,17 +77,42 @@ class IntegrationService:
                 status="disabled",
                 message="Integration is disabled.",
             )
-        name = integration.name.lower()
-        if "proxmox" in name:
+        if integration.provider_type == IntegrationProviderType.PROXMOX:
             return await self._test_proxmox(integration)
-        if "prometheus" in name:
+        if integration.provider_type == IntegrationProviderType.PROMETHEUS:
             return await self._test_http(integration, default_url=settings.prometheus_api_url, suffix="/-/healthy")
-        if "grafana" in name:
+        if integration.provider_type == IntegrationProviderType.GRAFANA:
             return await self._test_http(integration, default_url=settings.grafana_base_url, suffix="/api/health")
         return IntegrationTestRead(
             integration_id=integration.id,
             status="unknown",
             message="No connection test is defined for this integration yet.",
+        )
+
+    async def get_enabled_provider(self, provider_type: IntegrationProviderType) -> Integration | None:
+        integrations = await self.repository.list_enabled_by_provider(provider_type)
+        return integrations[0] if integrations else None
+
+    async def get_provider_connection_config(
+        self,
+        provider_type: IntegrationProviderType,
+        *,
+        default_timeout_seconds: int,
+    ) -> ProviderConnectionConfig | None:
+        integration = await self.get_enabled_provider(provider_type)
+        if integration is None:
+            return None
+        base_url = _base_url_config(integration)
+        if not base_url:
+            return None
+        headers = await self._auth_headers(integration)
+        return ProviderConnectionConfig(
+            integration_id=integration.id,
+            provider_type=provider_type,
+            base_url=base_url.rstrip("/"),
+            verify_ssl=_bool_config(integration, "verify_ssl", True),
+            timeout_seconds=_int_config(integration, "timeout_seconds", default_timeout_seconds),
+            headers=headers,
         )
 
     async def get_proxmox_adapter(self) -> HttpProxmoxAdapter:
@@ -101,8 +142,7 @@ class IntegrationService:
         )
 
     async def _active_proxmox_integration(self) -> Integration | None:
-        integrations = await self.repository.list_enabled_by_type(IntegrationType.INFRASTRUCTURE_PROVIDER)
-        return next((item for item in integrations if "proxmox" in item.name.lower()), None)
+        return await self.get_enabled_provider(IntegrationProviderType.PROXMOX)
 
     async def _test_proxmox(self, integration: Integration) -> IntegrationTestRead:
         token_secret, token_username = await self._secret_and_username(
@@ -128,21 +168,26 @@ class IntegrationService:
         )
 
     async def _test_http(self, integration: Integration, *, default_url: str | None, suffix: str) -> IntegrationTestRead:
-        base_url = (_str_config(integration, "url") or _str_config(integration, "base_url") or default_url or "").rstrip("/")
+        base_url = (_base_url_config(integration) or default_url or "").rstrip("/")
         if not base_url:
             return IntegrationTestRead(integration_id=integration.id, status="error", message="No URL configured.")
         try:
-            async with httpx.AsyncClient(timeout=settings.monitoring_timeout_seconds) as client:
-                headers = {}
-                bearer_token = await self._secret_config(integration, "bearer_token", None)
-                api_token = await self._secret_config(integration, "api_token", None)
-                if bearer_token or api_token:
-                    headers["Authorization"] = f"Bearer {bearer_token or api_token}"
-                response = await client.get(f"{base_url}{suffix}", headers=headers)
+            async with httpx.AsyncClient(
+                timeout=_int_config(integration, "timeout_seconds", settings.monitoring_timeout_seconds),
+                verify=_bool_config(integration, "verify_ssl", True),
+            ) as client:
+                response = await client.get(f"{base_url}{suffix}", headers=await self._auth_headers(integration))
                 response.raise_for_status()
         except Exception as exc:
             return IntegrationTestRead(integration_id=integration.id, status="error", message=str(exc))
         return IntegrationTestRead(integration_id=integration.id, status="ok", message="Connection test succeeded.")
+
+    async def _auth_headers(self, integration: Integration) -> dict[str, str]:
+        bearer_token = await self._secret_config(integration, "bearer_token", None)
+        api_token = await self._secret_config(integration, "api_token", None)
+        if bearer_token or api_token:
+            return {"Authorization": f"Bearer {bearer_token or api_token}"}
+        return {}
 
     async def _secret_config(self, integration: Integration, key: str, default: str | None) -> str | None:
         secret, _username = await self._secret_and_username(integration, key, default)
@@ -166,6 +211,14 @@ class IntegrationService:
 def _str_config(integration: Integration, key: str) -> str | None:
     value = integration.config.get(key)
     return value if isinstance(value, str) and value.strip() else None
+
+
+def _base_url_config(integration: Integration) -> str | None:
+    return (
+        _str_config(integration, "api_url")
+        or _str_config(integration, "url")
+        or _str_config(integration, "base_url")
+    )
 
 
 def _bool_config(integration: Integration, key: str, default: bool) -> bool:

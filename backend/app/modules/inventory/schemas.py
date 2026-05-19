@@ -9,6 +9,8 @@ from backend.app.common.constants import (
     InventoryLifecycleState,
     InventoryHealthStatus,
     InventorySyncStatus,
+    ManagedNodeType,
+    ManagementState,
     ServerEnvironment,
     ServerSshAuthMethod,
     ServerStatus,
@@ -20,6 +22,7 @@ class ServerBase(BaseModel):
     ip_address: str
     operating_system: str = Field(min_length=1, max_length=150)
     vmid: str | None = Field(default=None, max_length=100)
+    node_type: ManagedNodeType = ManagedNodeType.PHYSICAL
     environment: ServerEnvironment
     tags: list[str] = Field(default_factory=list)
     ssh_port: int = Field(default=22, ge=1, le=65535)
@@ -33,11 +36,14 @@ class ServerBase(BaseModel):
     external_id: str | None = Field(default=None, max_length=100)
     source: str = Field(default="manual", min_length=1, max_length=100)
     managed: bool = True
+    management_state: ManagementState = ManagementState.MANAGED
     lifecycle_state: InventoryLifecycleState = InventoryLifecycleState.MANAGED
     sync_status: InventorySyncStatus = InventorySyncStatus.UNKNOWN
+    sync_state: InventorySyncStatus = InventorySyncStatus.UNKNOWN
     provider_node: str | None = Field(default=None, max_length=100)
     provider_type: str | None = Field(default=None, max_length=50)
     provider_metadata: dict[str, object] = Field(default_factory=dict)
+    capabilities: list[str] = Field(default_factory=list)
     last_seen_at: datetime | None = None
     last_health_check_at: datetime | None = None
     last_health_status: InventoryHealthStatus = InventoryHealthStatus.UNKNOWN
@@ -63,6 +69,18 @@ class ServerBase(BaseModel):
         seen = set()
         for tag in value:
             clean = tag.strip()
+            if clean and clean not in seen:
+                normalized.append(clean)
+                seen.add(clean)
+        return normalized
+
+    @field_validator("capabilities")
+    @classmethod
+    def normalize_capabilities(cls, value: list[str]) -> list[str]:
+        normalized = []
+        seen = set()
+        for capability in value:
+            clean = capability.strip().lower().replace(" ", "_")
             if clean and clean not in seen:
                 normalized.append(clean)
                 seen.add(clean)
@@ -94,6 +112,7 @@ class ServerUpdate(BaseModel):
     ip_address: str | None = None
     operating_system: str | None = Field(default=None, min_length=1, max_length=150)
     vmid: str | None = Field(default=None, max_length=100)
+    node_type: ManagedNodeType | None = None
     environment: ServerEnvironment | None = None
     tags: list[str] | None = None
     ssh_port: int | None = Field(default=None, ge=1, le=65535)
@@ -107,11 +126,14 @@ class ServerUpdate(BaseModel):
     external_id: str | None = Field(default=None, max_length=100)
     source: str | None = Field(default=None, min_length=1, max_length=100)
     managed: bool | None = None
+    management_state: ManagementState | None = None
     lifecycle_state: InventoryLifecycleState | None = None
     sync_status: InventorySyncStatus | None = None
+    sync_state: InventorySyncStatus | None = None
     provider_node: str | None = Field(default=None, max_length=100)
     provider_type: str | None = Field(default=None, max_length=50)
     provider_metadata: dict[str, object] | None = None
+    capabilities: list[str] | None = None
     last_seen_at: datetime | None = None
     last_health_check_at: datetime | None = None
     last_health_status: InventoryHealthStatus | None = None
@@ -143,6 +165,20 @@ class ServerUpdate(BaseModel):
         seen = set()
         for tag in value:
             clean = tag.strip()
+            if clean and clean not in seen:
+                normalized.append(clean)
+                seen.add(clean)
+        return normalized
+
+    @field_validator("capabilities")
+    @classmethod
+    def normalize_capabilities(cls, value: list[str] | None) -> list[str] | None:
+        if value is None:
+            return None
+        normalized = []
+        seen = set()
+        for capability in value:
+            clean = capability.strip().lower().replace(" ", "_")
             if clean and clean not in seen:
                 normalized.append(clean)
                 seen.add(clean)

@@ -8,8 +8,11 @@ Inventory is the NexusOps orchestration authority. Infrastructure providers such
 
 Inventory records track two related state dimensions:
 
-- Lifecycle state: `discovered`, `managed`, `provisioned`, `unmanaged`, `archived`
+- Node type: `vm`, `lxc`, `physical`, `hypervisor`
+- Lifecycle state: `discovered`, `imported`, `managed`, `provisioned`, `unmanaged`, `archived`, `decommissioned`
+- Management state: `discovered`, `unmanaged`, `managed`, `retired`
 - Synchronization status: `unknown`, `synced`, `unmanaged`, `orphaned`, `mismatch`, `archived`
+- Capabilities: optional metadata such as `ssh`, `shell`, `filesystem`, `identity`, `monitoring`, and `provisioning`
 
 Provider linkage is stored with:
 
@@ -34,6 +37,8 @@ Proxmox VM discovery
   -> Jobs, Packages, Profiles, and Actions execute only against Inventory
 ```
 
+Proxmox host/node management is the next gap to close. The model now supports `node_type=hypervisor`, but discovery does not yet automatically create or reconcile Inventory records for each Proxmox cluster node. Until that is implemented, Proxmox nodes remain visible through Infrastructure discovery and can only be represented manually in Inventory.
+
 ## Reconciliation
 
 Initial reconciliation is intentionally lightweight:
@@ -43,12 +48,15 @@ Initial reconciliation is intentionally lightweight:
 - Inventory hostname differs from Proxmox name: `mismatch`
 - Inventory Proxmox record cannot be found in discovery: `orphaned`
 - Inventory record has been retired locally: `archived`
+- Inventory record has been decommissioned locally: `archived`
 
 Reconciliation updates NexusOps metadata only. It does not start, stop, delete, or otherwise mutate provider infrastructure.
 
 ## Lifecycle Operations
 
-Operators can edit Inventory metadata, archive an Inventory record, or delete it. These actions affect the CMDB and orchestration registry only. Provider destruction remains a non-goal for the current phase.
+Operators can edit Inventory metadata, mark a node unmanaged, archive an Inventory record, decommission a node, restore/reactivate an inactive record, or delete it. These actions affect the CMDB and orchestration registry only. Provider destruction remains a non-goal for the current phase.
+
+Archived and decommissioned records are excluded from active operational flows by default. They remain available through historical inventory queries with `include_inactive=true`.
 
 Provisioning creates Inventory records automatically with:
 

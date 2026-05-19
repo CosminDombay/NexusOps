@@ -157,7 +157,11 @@ class JobService:
         server = await self.server_repository.get_by_id(payload.target_server_id)
         if server is None:
             raise JobTargetNotFoundError("Target server not found")
-        if not server.managed or server.lifecycle_state == InventoryLifecycleState.ARCHIVED:
+        if not server.managed or server.lifecycle_state in {
+            InventoryLifecycleState.ARCHIVED,
+            InventoryLifecycleState.DECOMMISSIONED,
+            InventoryLifecycleState.DELETED,
+        }:
             raise JobTargetNotManagedError("Target server is not managed")
 
         job = Job(

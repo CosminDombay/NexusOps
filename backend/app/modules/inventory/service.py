@@ -9,7 +9,10 @@ from sqlalchemy import delete, update
 from backend.app.modules.deployments.models import DeploymentTarget
 from backend.app.modules.inventory.models import (
     InventoryLifecycleState,
+    InventoryHealthStatus,
     InventorySyncStatus,
+    ManagedNodeType,
+    ManagementState,
     Server,
     ServerEnvironment,
 )
@@ -39,7 +42,11 @@ class InventoryService:
     async def create_server(self, payload: ServerCreate) -> Server:
         await self._ensure_unique(hostname=payload.hostname, ip_address=payload.ip_address)
 
-        server = Server(**payload.model_dump())
+        data = payload.model_dump()
+        if "node_type" not in payload.model_fields_set:
+            data["node_type"] = None
+        data = self._managed_node_defaults(data)
+        server = Server(**data)
         try:
             created = await self.repository.create(server)
             await self.repository.session.commit()
@@ -77,7 +84,10 @@ class InventoryService:
             existing = await self.repository.get_by_ip_address(payload.ip_address)
 
         if existing:
-            if existing.lifecycle_state == InventoryLifecycleState.ARCHIVED:
+            if existing.lifecycle_state in {
+                InventoryLifecycleState.ARCHIVED,
+                InventoryLifecycleState.DECOMMISSIONED,
+            }:
                 return await self._restore_archived_proxmox_server(
                     existing,
                     payload=payload,
@@ -105,8 +115,11 @@ class InventoryService:
             external_id=str(payload.vm_id),
             source="imported",
             managed=True,
+            node_type=self._node_type_from_provider_type(payload.vm_type),
+            management_state=ManagementState.MANAGED,
             lifecycle_state=InventoryLifecycleState.MANAGED,
             sync_status=InventorySyncStatus.SYNCED if discovered_vm else InventorySyncStatus.UNKNOWN,
+            sync_state=InventorySyncStatus.SYNCED if discovered_vm else InventorySyncStatus.UNKNOWN,
             provider_node=payload.node,
             provider_type=payload.vm_type,
             provider_metadata={
@@ -156,8 +169,11 @@ class InventoryService:
         server.external_id = str(payload.vm_id)
         server.source = "imported"
         server.managed = True
+        server.node_type = self._node_type_from_provider_type(payload.vm_type)
+        server.management_state = ManagementState.MANAGED
         server.lifecycle_state = InventoryLifecycleState.MANAGED
         server.sync_status = InventorySyncStatus.SYNCED if discovered_vm else InventorySyncStatus.UNKNOWN
+        server.sync_state = server.sync_status
         server.provider_node = payload.node
         server.provider_type = payload.vm_type
         server.provider_metadata = {"vm_name": vm_name, "restored_from_archive": True}
@@ -190,6 +206,7 @@ class InventoryService:
 
         for key, value in update_data.items():
             setattr(server, key, value)
+        self._normalize_management_fields(server)
 
         try:
             await self.repository.session.flush()
@@ -210,6 +227,65 @@ class InventoryService:
 
         await self._archive_existing_server(server)
         logger.info("server_archived", server_id=str(server.id), hostname=server.hostname)
+        return server
+
+    async def decommission_server(self, server_id: UUID) -> Server:
+        server = await self.repository.get_by_id(server_id)
+        if server is None:
+            raise ServerNotFoundError("Server not found")
+
+        server.managed = False
+        server.management_state = ManagementState.RETIRED
+        server.lifecycle_state = InventoryLifecycleState.DECOMMISSIONED
+        server.sync_status = InventorySyncStatus.ARCHIVED
+        server.sync_state = InventorySyncStatus.ARCHIVED
+        server.last_health_status = InventoryHealthStatus.ARCHIVED
+        server.provider_metadata = {
+            **server.provider_metadata,
+            "decommissioned_at": datetime.now(UTC).isoformat(),
+        }
+        await self.repository.session.commit()
+        await self.repository.session.refresh(server)
+        logger.info("server_decommissioned", server_id=str(server.id), hostname=server.hostname)
+        return server
+
+    async def restore_server(self, server_id: UUID) -> Server:
+        server = await self.repository.get_by_id(server_id)
+        if server is None:
+            raise ServerNotFoundError("Server not found")
+
+        server.managed = True
+        server.management_state = ManagementState.MANAGED
+        server.lifecycle_state = (
+            InventoryLifecycleState.PROVISIONED
+            if server.source == "provisioned"
+            else InventoryLifecycleState.MANAGED
+        )
+        server.sync_status = InventorySyncStatus.UNKNOWN
+        server.sync_state = InventorySyncStatus.UNKNOWN
+        server.last_health_status = InventoryHealthStatus.UNKNOWN
+        server.provider_metadata = {
+            **server.provider_metadata,
+            "restored_at": datetime.now(UTC).isoformat(),
+        }
+        await self.repository.session.commit()
+        await self.repository.session.refresh(server)
+        logger.info("server_restored", server_id=str(server.id), hostname=server.hostname)
+        return server
+
+    async def mark_unmanaged(self, server_id: UUID) -> Server:
+        server = await self.repository.get_by_id(server_id)
+        if server is None:
+            raise ServerNotFoundError("Server not found")
+
+        server.managed = False
+        server.management_state = ManagementState.UNMANAGED
+        server.lifecycle_state = InventoryLifecycleState.UNMANAGED
+        server.sync_status = InventorySyncStatus.UNMANAGED
+        server.sync_state = InventorySyncStatus.UNMANAGED
+        await self.repository.session.commit()
+        await self.repository.session.refresh(server)
+        logger.info("server_marked_unmanaged", server_id=str(server.id), hostname=server.hostname)
         return server
 
     async def delete_server(self, server_id: UUID) -> None:
@@ -258,8 +334,11 @@ class InventoryService:
 
     async def _archive_existing_server(self, server: Server) -> None:
         server.managed = False
+        server.management_state = ManagementState.RETIRED
         server.lifecycle_state = InventoryLifecycleState.ARCHIVED
         server.sync_status = InventorySyncStatus.ARCHIVED
+        server.sync_state = InventorySyncStatus.ARCHIVED
+        server.last_health_status = InventoryHealthStatus.ARCHIVED
         await self.repository.session.commit()
         await self.repository.session.refresh(server)
 
@@ -275,8 +354,14 @@ class InventoryService:
         environment: ServerEnvironment | None = None,
         provider: str | None = None,
         search: str | None = None,
+        include_inactive: bool = False,
     ) -> list[Server]:
-        return await self.repository.list(environment=environment, provider=provider, search=search)
+        return await self.repository.list(
+            environment=environment,
+            provider=provider,
+            search=search,
+            include_inactive=include_inactive,
+        )
 
     async def reconcile_proxmox_inventory(
         self,
@@ -287,7 +372,11 @@ class InventoryService:
         changed: list[Server] = []
 
         for server in await self.repository.list_by_provider("proxmox"):
-            if server.lifecycle_state == InventoryLifecycleState.ARCHIVED:
+            if server.lifecycle_state in {
+                InventoryLifecycleState.ARCHIVED,
+                InventoryLifecycleState.DECOMMISSIONED,
+                InventoryLifecycleState.DELETED,
+            }:
                 continue
 
             vm = by_external_id.get(server.external_id or server.vmid or "") or by_hostname.get(
@@ -300,6 +389,7 @@ class InventoryService:
                 server.vmid = str(vm.vm_id)
                 server.provider_node = vm.node
                 server.provider_type = vm.type
+                server.node_type = self._node_type_from_provider_type(vm.type)
                 server.last_seen_at = datetime.now(UTC)
                 previous_detected_ip = server.provider_metadata.get("detected_ip_address")
                 server.provider_metadata = {
@@ -311,6 +401,7 @@ class InventoryService:
                 if self._should_apply_detected_ip(server, vm, previous_detected_ip):
                     server.ip_address = vm.ip_address
                 server.sync_status = self._sync_status_for_match(server, vm)
+                server.sync_state = server.sync_status
             changed.append(server)
 
         if changed:
@@ -349,14 +440,14 @@ class InventoryService:
         status = InventoryService._sync_status_for_match(match, vm)
         if match.hostname != vm.name:
             notes.append(f"Inventory hostname differs from Proxmox name ({vm.name}).")
-        if match.lifecycle_state == InventoryLifecycleState.ARCHIVED:
-            notes.append("Inventory record is archived.")
+        if match.lifecycle_state in {InventoryLifecycleState.ARCHIVED, InventoryLifecycleState.DECOMMISSIONED}:
+            notes.append(f"Inventory record is {match.lifecycle_state.value}.")
 
         return match, status, notes
 
     @staticmethod
     def _sync_status_for_match(server: Server, vm: ProxmoxVmRead) -> InventorySyncStatus:
-        if server.lifecycle_state == InventoryLifecycleState.ARCHIVED:
+        if server.lifecycle_state in {InventoryLifecycleState.ARCHIVED, InventoryLifecycleState.DECOMMISSIONED}:
             return InventorySyncStatus.ARCHIVED
         if server.hostname != vm.name:
             return InventorySyncStatus.MISMATCH
@@ -396,3 +487,65 @@ class InventoryService:
             if existing and existing.id != exclude_id:
                 logger.warning("server_validation_failed", ip_address=ip_address, reason="ip_exists")
                 raise InventoryConflictError("IP address already exists")
+
+    @classmethod
+    def _managed_node_defaults(cls, data: dict[str, Any]) -> dict[str, Any]:
+        provider_type = data.get("provider_type")
+        provider = str(data.get("provider") or "").lower()
+        if not provider_type and provider == "proxmox" and data.get("vmid"):
+            provider_type = "qemu"
+        elif not provider_type and provider == "proxmox":
+            provider_type = "hypervisor"
+        elif not provider_type and data.get("vmid"):
+            provider_type = "qemu"
+        data["node_type"] = data.get("node_type") or cls._node_type_from_provider_type(provider_type)
+        data["management_state"] = data.get("management_state") or (
+            ManagementState.MANAGED if data.get("managed", True) else ManagementState.UNMANAGED
+        )
+        data["sync_state"] = data.get("sync_state") or data.get("sync_status") or InventorySyncStatus.UNKNOWN
+        data["capabilities"] = data.get("capabilities") or cls._default_capabilities(data)
+        return data
+
+    @staticmethod
+    def _node_type_from_provider_type(provider_type: object) -> ManagedNodeType:
+        normalized = str(provider_type or "").lower()
+        if normalized in {"qemu", "vm"}:
+            return ManagedNodeType.VM
+        if normalized in {"lxc", "ct"}:
+            return ManagedNodeType.LXC
+        if normalized in {"hypervisor", "node", "host"}:
+            return ManagedNodeType.HYPERVISOR
+        return ManagedNodeType.PHYSICAL
+
+    @staticmethod
+    def _default_capabilities(data: dict[str, Any]) -> list[str]:
+        capabilities = ["monitoring"]
+        provider = str(data.get("provider") or "").lower()
+        provider_type = str(data.get("provider_type") or "").lower()
+        if data.get("ssh_username"):
+            capabilities.extend(["ssh", "shell", "filesystem", "identity"])
+        if provider_type in {"qemu", "lxc", "ct"} or provider == "proxmox":
+            capabilities.append("provisioning")
+        return sorted(set(capabilities))
+
+    @staticmethod
+    def _normalize_management_fields(server: Server) -> None:
+        if server.lifecycle_state in {
+            InventoryLifecycleState.ARCHIVED,
+            InventoryLifecycleState.DECOMMISSIONED,
+            InventoryLifecycleState.DELETED,
+        }:
+            server.managed = False
+            server.management_state = ManagementState.RETIRED
+            server.sync_status = InventorySyncStatus.ARCHIVED
+            server.sync_state = InventorySyncStatus.ARCHIVED
+            return
+        if server.lifecycle_state == InventoryLifecycleState.UNMANAGED or not server.managed:
+            server.managed = False
+            server.management_state = ManagementState.UNMANAGED
+            server.sync_status = InventorySyncStatus.UNMANAGED
+            server.sync_state = InventorySyncStatus.UNMANAGED
+            return
+        server.managed = True
+        server.management_state = ManagementState.MANAGED
+        server.sync_state = server.sync_status

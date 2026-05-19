@@ -13,6 +13,15 @@ class IntegrationType(StrEnum):
     DATABASE = "database"
 
 
+class IntegrationProviderType(StrEnum):
+    PROXMOX = "proxmox"
+    PROMETHEUS = "prometheus"
+    GRAFANA = "grafana"
+    LOKI = "loki"
+    TAILSCALE = "tailscale"
+    CUSTOM = "custom"
+
+
 class Integration(Base, UuidPrimaryKeyMixin, TimestampMixin):
     __tablename__ = "integrations"
 
@@ -23,6 +32,16 @@ class Integration(Base, UuidPrimaryKeyMixin, TimestampMixin):
             name="integration_type",
             values_callable=lambda enum: [member.value for member in enum],
         ),
+        nullable=False,
+        index=True,
+    )
+    provider_type: Mapped[IntegrationProviderType] = mapped_column(
+        Enum(
+            IntegrationProviderType,
+            name="integration_provider_type",
+            values_callable=lambda enum: [member.value for member in enum],
+        ),
+        default=IntegrationProviderType.CUSTOM,
         nullable=False,
         index=True,
     )

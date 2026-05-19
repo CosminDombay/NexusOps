@@ -71,7 +71,11 @@ class InventoryHealthService:
 
     async def _check_and_update(self, server: Server) -> InventoryHealthCheckResult:
         checked_at = datetime.now(UTC)
-        if server.lifecycle_state == InventoryLifecycleState.ARCHIVED:
+        if server.lifecycle_state in {
+            InventoryLifecycleState.ARCHIVED,
+            InventoryLifecycleState.DECOMMISSIONED,
+            InventoryLifecycleState.DELETED,
+        }:
             return await self._apply_result(
                 server,
                 status=InventoryHealthStatus.ARCHIVED,

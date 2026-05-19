@@ -2,6 +2,8 @@ import type {
   InventoryLifecycleState,
   InventoryHealthStatus,
   InventorySyncStatus,
+  ManagedNodeType,
+  ManagementState,
   ServerEnvironment,
   ServerSshAuthMethod,
   ServerStatus,
@@ -30,10 +32,29 @@ export const statusStyles: Record<ServerStatus, string> = {
 
 export const lifecycleStyles: Record<InventoryLifecycleState, string> = {
   discovered: 'bg-blue-50 text-blue-700 ring-blue-200',
+  imported: 'bg-cyan-50 text-cyan-700 ring-cyan-200',
   managed: 'bg-emerald-50 text-emerald-700 ring-emerald-200',
   provisioned: 'bg-indigo-50 text-indigo-700 ring-indigo-200',
   unmanaged: 'bg-zinc-100 text-zinc-700 ring-zinc-200',
+  deleting: 'bg-orange-50 text-orange-700 ring-orange-200',
+  deleted: 'bg-stone-100 text-stone-700 ring-stone-200',
+  failed: 'bg-rose-50 text-rose-700 ring-rose-200',
   archived: 'bg-stone-100 text-stone-700 ring-stone-200',
+  decommissioned: 'bg-slate-100 text-slate-700 ring-slate-200',
+};
+
+export const nodeTypeStyles: Record<ManagedNodeType, string> = {
+  vm: 'bg-indigo-50 text-indigo-700 ring-indigo-200',
+  lxc: 'bg-cyan-50 text-cyan-700 ring-cyan-200',
+  physical: 'bg-teal-50 text-teal-700 ring-teal-200',
+  hypervisor: 'bg-violet-50 text-violet-700 ring-violet-200',
+};
+
+export const managementStyles: Record<ManagementState, string> = {
+  discovered: 'bg-blue-50 text-blue-700 ring-blue-200',
+  unmanaged: 'bg-amber-50 text-amber-700 ring-amber-200',
+  managed: 'bg-emerald-50 text-emerald-700 ring-emerald-200',
+  retired: 'bg-stone-100 text-stone-700 ring-stone-200',
 };
 
 export const syncStyles: Record<InventorySyncStatus, string> = {

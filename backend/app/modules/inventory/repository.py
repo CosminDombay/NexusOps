@@ -6,6 +6,13 @@ from backend.app.common.repository import BaseRepository
 from backend.app.modules.inventory.models import InventoryLifecycleState, Server, ServerEnvironment
 
 
+INACTIVE_LIFECYCLE_STATES = {
+    InventoryLifecycleState.ARCHIVED,
+    InventoryLifecycleState.DECOMMISSIONED,
+    InventoryLifecycleState.DELETED,
+}
+
+
 class ServerRepository(BaseRepository[Server]):
     async def create(self, server: Server) -> Server:
         self.session.add(server)
@@ -41,6 +48,7 @@ class ServerRepository(BaseRepository[Server]):
         environment: ServerEnvironment | None = None,
         provider: str | None = None,
         search: str | None = None,
+        include_inactive: bool = False,
     ) -> list[Server]:
         query = select(Server).order_by(Server.created_at.desc())
 
@@ -60,7 +68,8 @@ class ServerRepository(BaseRepository[Server]):
                 )
             )
 
-        query = query.where(Server.lifecycle_state != InventoryLifecycleState.ARCHIVED)
+        if not include_inactive:
+            query = query.where(Server.lifecycle_state.not_in(INACTIVE_LIFECYCLE_STATES))
 
         result = await self.session.execute(query)
         return list(result.scalars().all())

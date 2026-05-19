@@ -11,8 +11,10 @@ import type {
   UpdateServerPayload,
 } from '../types/server';
 
-export async function listServers(): Promise<Server[]> {
-  const response = await apiClient.get<Server[]>('/servers');
+export async function listServers(includeInactive = false): Promise<Server[]> {
+  const response = await apiClient.get<Server[]>('/servers', {
+    params: includeInactive ? { include_inactive: true } : undefined,
+  });
   return response.data;
 }
 
@@ -37,6 +39,21 @@ export async function deleteServer(serverId: string): Promise<void> {
 
 export async function archiveServer(serverId: string): Promise<Server> {
   const response = await apiClient.post<Server>(`/servers/${serverId}/archive`);
+  return response.data;
+}
+
+export async function decommissionServer(serverId: string): Promise<Server> {
+  const response = await apiClient.post<Server>(`/servers/${serverId}/decommission`);
+  return response.data;
+}
+
+export async function restoreServer(serverId: string): Promise<Server> {
+  const response = await apiClient.post<Server>(`/servers/${serverId}/restore`);
+  return response.data;
+}
+
+export async function unmanageServer(serverId: string): Promise<Server> {
+  const response = await apiClient.post<Server>(`/servers/${serverId}/unmanage`);
   return response.data;
 }
 

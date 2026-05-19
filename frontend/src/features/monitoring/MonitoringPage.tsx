@@ -4,7 +4,7 @@ import { Activity, Cpu, Database, ExternalLink, RefreshCw } from 'lucide-react';
 import { PageHeader } from '../../components/layout/PageHeader';
 import { getApiErrorMessage } from '../../lib/api/client';
 import { getMonitoringOverview, getPrometheusHealth } from './api/monitoringApi';
-import type { MonitoringOverview, PrometheusHealth } from './types/monitoring';
+import type { MonitoringOverview, MonitoringProviderStatus, PrometheusHealth } from './types/monitoring';
 
 export function MonitoringPage() {
   const [overview, setOverview] = useState<MonitoringOverview | null>(null);
@@ -30,6 +30,11 @@ export function MonitoringPage() {
     void refresh();
   }, []);
 
+  const providers = prometheus?.providers ?? overview?.providers ?? [];
+  const prometheusProvider = providerByType(providers, 'prometheus');
+  const grafanaProvider = providerByType(providers, 'grafana');
+  const lokiProvider = providerByType(providers, 'loki');
+
   return (
     <div className="space-y-6">
       <PageHeader title="Monitoring" description="Prometheus-backed host metrics and inventory health signals." />
@@ -40,19 +45,19 @@ export function MonitoringPage() {
         <MetricCard icon={Database} label="Servers" value={overview?.total_servers ?? 0} />
         <MetricCard icon={Activity} label="Online" value={overview?.online_servers ?? 0} />
         <MetricCard icon={Activity} label="Offline" value={overview?.offline_servers ?? 0} />
-        <MetricCard icon={Cpu} label="Prometheus" value={prometheus?.reachable ? 'Ready' : 'Unavailable'} />
+        <MetricCard icon={Cpu} label="Prometheus" value={prometheusProvider?.reachable ? 'Ready' : 'Unavailable'} />
       </div>
 
-      {prometheus && !prometheus.reachable ? (
+      {prometheusProvider && !prometheusProvider.reachable ? (
         <div className="rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-800">
-          {prometheus.configured ? prometheus.error : 'Prometheus API is not configured yet.'}
+          {providerMessage(prometheusProvider)}
         </div>
       ) : null}
 
       <section className="grid gap-4 md:grid-cols-3">
-        <IntegrationLinkCard label="Prometheus" href={prometheus?.prometheus_url ?? null} status={prometheus?.reachable ? 'Ready' : 'Not ready'} />
-        <IntegrationLinkCard label="Grafana" href={prometheus?.grafana_url ?? null} status={prometheus?.grafana_url ? 'Linked' : 'Not configured'} />
-        <IntegrationLinkCard label="Loki" href={prometheus?.loki_url ?? null} status={prometheus?.loki_url ? 'Linked' : 'Not configured'} />
+        <IntegrationLinkCard label="Prometheus" href={prometheusProvider?.url ?? null} status={providerStatus(prometheusProvider)} />
+        <IntegrationLinkCard label="Grafana" href={grafanaProvider?.url ?? null} status={providerStatus(grafanaProvider)} />
+        <IntegrationLinkCard label="Loki" href={lokiProvider?.url ?? null} status={providerStatus(lokiProvider)} />
       </section>
 
       <section className="rounded-lg border border-zinc-200 bg-white shadow-sm">
@@ -100,6 +105,20 @@ export function MonitoringPage() {
       </section>
     </div>
   );
+}
+
+function providerByType(providers: MonitoringProviderStatus[], providerType: string): MonitoringProviderStatus | undefined {
+  return providers.find((provider) => provider.provider_type === providerType);
+}
+
+function providerStatus(provider: MonitoringProviderStatus | undefined): string {
+  if (!provider?.configured) return 'Not configured';
+  return provider.reachable ? 'Ready' : 'Unavailable';
+}
+
+function providerMessage(provider: MonitoringProviderStatus): string {
+  if (!provider.configured) return 'Prometheus integration is not configured or is disabled.';
+  return provider.error ?? 'Prometheus integration is configured but not reachable.';
 }
 
 function IntegrationLinkCard({ label, href, status }: { label: string; href: string | null; status: string }) {

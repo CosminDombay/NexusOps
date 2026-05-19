@@ -22,8 +22,14 @@ def test_inventory_crud_flow(client) -> None:
     server_id = created["id"]
     assert created["hostname"] == "app-01"
     assert created["managed"] is True
+    assert created["node_type"] == "vm"
+    assert created["management_state"] == "managed"
     assert created["lifecycle_state"] == "managed"
     assert created["sync_status"] == "unknown"
+    assert created["sync_state"] == "unknown"
+    assert {"ssh", "shell", "filesystem", "identity", "monitoring", "provisioning"}.issubset(
+        set(created["capabilities"])
+    )
 
     get_response = client.get(f"/api/v1/servers/{server_id}")
     assert get_response.status_code == 200
@@ -108,6 +114,21 @@ def test_inventory_filters_by_provider(client) -> None:
     assert servers[0]["hostname"] == "baremetal-01"
 
 
+def test_inventory_classifies_proxmox_host_without_vmid_as_hypervisor(client) -> None:
+    response = client.post(
+        "/api/v1/servers",
+        json=server_payload(
+            hostname="pve-01",
+            ip_address="10.0.0.21",
+            vmid=None,
+            provider="proxmox",
+        ),
+    )
+
+    assert response.status_code == 201
+    assert response.json()["node_type"] == "hypervisor"
+
+
 def test_inventory_requires_password_for_password_auth(client) -> None:
     response = client.post(
         "/api/v1/servers",
@@ -150,13 +171,74 @@ def test_inventory_archives_without_deleting_provider_metadata(client) -> None:
     assert archive_response.status_code == 200
     archived = archive_response.json()
     assert archived["managed"] is False
+    assert archived["management_state"] == "retired"
     assert archived["lifecycle_state"] == "archived"
     assert archived["sync_status"] == "archived"
+    assert archived["sync_state"] == "archived"
     assert archived["external_id"] == "100"
 
     list_response = client.get("/api/v1/servers")
     assert list_response.status_code == 200
     assert list_response.json() == []
+
+    historical_response = client.get("/api/v1/servers", params={"include_inactive": True})
+    assert historical_response.status_code == 200
+    assert historical_response.json()[0]["id"] == server_id
+
+
+def test_inventory_decommission_and_restore_lifecycle(client) -> None:
+    create_response = client.post(
+        "/api/v1/servers",
+        json=server_payload(hostname="retire-me", ip_address="10.0.0.40"),
+    )
+    assert create_response.status_code == 201
+    server_id = create_response.json()["id"]
+
+    decommission_response = client.post(f"/api/v1/servers/{server_id}/decommission")
+    assert decommission_response.status_code == 200
+    decommissioned = decommission_response.json()
+    assert decommissioned["managed"] is False
+    assert decommissioned["management_state"] == "retired"
+    assert decommissioned["lifecycle_state"] == "decommissioned"
+    assert decommissioned["sync_state"] == "archived"
+    assert decommissioned["last_health_status"] == "archived"
+
+    active_response = client.get("/api/v1/servers")
+    assert active_response.status_code == 200
+    assert active_response.json() == []
+
+    historical_response = client.get("/api/v1/servers", params={"include_inactive": True})
+    assert historical_response.status_code == 200
+    assert historical_response.json()[0]["id"] == server_id
+
+    restore_response = client.post(f"/api/v1/servers/{server_id}/restore")
+    assert restore_response.status_code == 200
+    restored = restore_response.json()
+    assert restored["managed"] is True
+    assert restored["management_state"] == "managed"
+    assert restored["lifecycle_state"] == "managed"
+    assert restored["sync_state"] == "unknown"
+
+
+def test_inventory_unmanage_keeps_node_visible_but_not_managed(client) -> None:
+    create_response = client.post(
+        "/api/v1/servers",
+        json=server_payload(hostname="manual-node", ip_address="10.0.0.41"),
+    )
+    assert create_response.status_code == 201
+    server_id = create_response.json()["id"]
+
+    unmanage_response = client.post(f"/api/v1/servers/{server_id}/unmanage")
+    assert unmanage_response.status_code == 200
+    unmanaged = unmanage_response.json()
+    assert unmanaged["managed"] is False
+    assert unmanaged["management_state"] == "unmanaged"
+    assert unmanaged["lifecycle_state"] == "unmanaged"
+    assert unmanaged["sync_state"] == "unmanaged"
+
+    list_response = client.get("/api/v1/servers")
+    assert list_response.status_code == 200
+    assert list_response.json()[0]["id"] == server_id
 
 
 def test_inventory_import_restores_archived_proxmox_record(client) -> None:

@@ -370,14 +370,26 @@ class ProvisioningService:
             await self.server_repository.get_by_hostname(hostname),
             await self.server_repository.get_by_ip_address(ip_address),
         ):
-            if server and server.lifecycle_state != InventoryLifecycleState.ARCHIVED:
+            if server and server.lifecycle_state not in {
+                InventoryLifecycleState.ARCHIVED,
+                InventoryLifecycleState.DECOMMISSIONED,
+                InventoryLifecycleState.DELETED,
+            }:
                 return True
         return False
 
     async def _archived_inventory_candidate(self, *, hostname: str, ip_address: str):
         ip_match = await self.server_repository.get_by_ip_address(ip_address)
         hostname_match = await self.server_repository.get_by_hostname(hostname)
-        candidates = [server for server in (ip_match, hostname_match) if server and server.lifecycle_state == InventoryLifecycleState.ARCHIVED]
+        candidates = [
+            server
+            for server in (ip_match, hostname_match)
+            if server
+            and server.lifecycle_state in {
+                InventoryLifecycleState.ARCHIVED,
+                InventoryLifecycleState.DECOMMISSIONED,
+            }
+        ]
         if not candidates:
             return None
         candidate = candidates[0]

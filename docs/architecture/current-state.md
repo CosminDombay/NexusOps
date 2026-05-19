@@ -38,8 +38,11 @@ The implemented system is focused on foundations, visibility, narrowly scoped VM
   - filter/search server inventory
 - Inventory CMDB metadata:
   - managed/unmanaged state
-  - lifecycle state: discovered, managed, provisioned, unmanaged, deleting, deleted, failed, archived
+  - managed node type: VM, LXC, physical host, or hypervisor
+  - lifecycle state: discovered, imported, managed, provisioned, unmanaged, deleting, deleted, failed, archived, decommissioned
+  - management state: discovered, unmanaged, managed, retired
   - synchronization state: unknown, synced, unmanaged, orphaned, mismatch, archived
+  - capability metadata foundation for SSH, shell, filesystem, identity, monitoring, and provisioning
   - provider linkage through provider, external ID/VMID, node, type, source, and last-seen metadata
 - PostgreSQL-backed persistence through async SQLAlchemy.
 - Alembic migrations for inventory, jobs, SSH authentication metadata, credentials, variables, and orchestration template metadata.
@@ -77,6 +80,8 @@ The implemented system is focused on foundations, visibility, narrowly scoped VM
   - reconciliation for missing, mismatched, and orphaned inventory records
   - guest-agent IP discovery for QEMU VMs when the agent is available
   - node detail page with per-node VM visibility
+  - Proxmox VMID-backed inventory imports are classified as managed `vm` nodes
+  - Proxmox hosts without VMIDs can be represented as `hypervisor` inventory records, but automated Proxmox host registration and host-level management are not yet complete
 - Provisioning:
   - Proxmox template selection
   - NexusOps provisioning blueprints for reusable VM defaults
@@ -175,7 +180,8 @@ The implemented system is focused on foundations, visibility, narrowly scoped VM
   - optional advanced JSON overlay for extra configuration
   - contextual add/edit drawer for integration configuration
   - Proxmox runtime can resolve an enabled persisted Proxmox integration record
-  - Prometheus/Grafana/Loki monitoring runtime still uses environment-backed settings and does not yet consume persisted integration records as source-of-truth
+  - Monitoring runtime resolves enabled Prometheus, Grafana, and Loki integration records by explicit provider type
+  - environment-backed monitoring settings remain fallback/bootstrap only
 - ESLint 9 flat configuration, TypeScript build, TailwindCSS, and Prettier configuration.
 - Docker Compose deployments:
   - deployment definitions with compose/env storage
@@ -195,6 +201,8 @@ The implemented system is focused on foundations, visibility, narrowly scoped VM
   - basic per-server CPU, memory, disk, and uptime query support
   - Grafana deep-link generation when configured
   - Prometheus, Grafana, and Loki quick links for hybrid monitoring workflows
+  - provider readiness and connection status derived from enabled Integration records
+  - partial provider failures return status/error metadata without crashing the monitoring overview
   - monitoring summary is currently integration-adjacent, not a complete observability control plane
 - Linux identity orchestration:
   - reusable Linux user and group records
@@ -322,6 +330,22 @@ Discovered VMs are shown as unmanaged until an operator imports them. Import cre
 
 Inventory deletion now performs reference cleanup before removing the active server record. It clears provisioning request links, virtual machine links, workflow target links, and deployment target rows where applicable. If historical constraints prevent a hard delete, NexusOps archives the inventory record instead of destroying history.
 
+Inventory also now has a managed-node lifecycle foundation:
+
+```text
+provider discovery -> discovered/unmanaged
+operator import -> imported/managed
+NexusOps provisioning -> provisioned/managed
+operator unmanage -> unmanaged
+operator archive -> archived/retired
+operator decommission -> decommissioned/retired
+operator restore -> managed
+```
+
+Archived and decommissioned records are hidden from active operational flows by default but remain historically queryable with `include_inactive=true`. Jobs, deployments, remote access, provisioning reuse, and health checks treat retired records as non-active targets.
+
+Important gap: this foundation models `hypervisor` nodes, but Proxmox host/node management is not first-class yet. NexusOps still discovers Proxmox nodes from the active Proxmox integration and does not automatically register each Proxmox cluster node as an Inventory-managed hypervisor with host lifecycle, monitoring, credentials, and migration/replacement workflows. This is the next required convergence point.
+
 ### UX Consistency and Operational Workspace
 
 Orchestration pages now share common target-selection and contextual-workflow patterns:
@@ -371,12 +395,13 @@ The next refinement pass standardized create/edit workflows around contextual dr
 
 The latest review confirmed several important boundaries:
 
-- Integration records for Prometheus/Grafana/Loki can be created and tested, but Monitoring does not yet consume them at runtime.
+- Integration records for Prometheus/Grafana/Loki can be created, tested, and consumed by Monitoring at runtime.
 - Monitoring remains a quick summary and external-link surface rather than a complete observability workspace.
 - The single VM provisioning wizard still dominates the Provisioning page and should be moved into the contextual workspace pattern.
 - Provisioning blueprints should become workflow/automation operations rather than Profile steps, because profiles execute against already-existing Inventory targets.
 - Automations currently execute actions, packages, and profiles only; provisioning and deployment automation are not wired yet.
 - CT/LXC support is partial: discovery/lifecycle visibility exists, but QEMU VM provisioning remains the implemented path.
+- Managed-node lifecycle foundations exist for VMs, LXCs, physical hosts, and hypervisors, but Proxmox host/node registration and host-level management still need implementation.
 
 ## Architecture Status
 
@@ -427,8 +452,8 @@ The latest review confirmed several important boundaries:
 - No centralized domain identity provider. Identity is Linux orchestration only; LDAP, Kerberos, FreeIPA, Active Directory, SSSD, PAM rewriting, and login federation are intentionally out of scope.
 - Identity discovery reads live Linux state through Jobs and does not yet persist per-host user/group membership snapshots as first-class inventory records.
 - Existing `docs/architecture.md` is older and less precise than the newer files in `docs/architecture/`.
-- Runtime adapter support from persisted integration records is partial; Proxmox can resolve active integration records, while other adapters still need deeper runtime integration.
-- Monitoring does not yet consume persisted Prometheus/Grafana/Loki integration records; it still uses environment-backed settings for health, metrics, and generated links.
+- Runtime adapter support from persisted integration records is partial; Proxmox and Monitoring can resolve active integration records, while future adapters still need deeper runtime integration.
+- Proxmox cluster hosts are not yet managed-node first-class citizens. They can be manually represented as `hypervisor` inventory records, but discovery does not yet create/update hypervisor nodes and Proxmox integration failover/replacement workflows are not implemented.
 - Provisioning still presents the single VM wizard as a large page section; it needs the same contextual workflow treatment as batch provisioning and blueprint actions.
 - Provisioning blueprints are not yet first-class Workflow/Automation operations.
 - CT/LXC provisioning and CT/LXC execution-target management are not implemented end-to-end.

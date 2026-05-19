@@ -3,7 +3,17 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { getApiErrorMessage } from '../../../lib/api/client';
 import { runVmAction } from '../../proxmox/api/proxmoxApi';
 import type { ProxmoxVmAction } from '../../proxmox/types/proxmox';
-import { archiveServer, checkServersHealthBulk, createServer, deleteServer, listServers, updateServer } from '../api/serversApi';
+import {
+  archiveServer,
+  checkServersHealthBulk,
+  createServer,
+  decommissionServer,
+  deleteServer,
+  listServers,
+  restoreServer,
+  unmanageServer,
+  updateServer,
+} from '../api/serversApi';
 import type { CreateServerPayload, Server, UpdateServerPayload } from '../types/server';
 
 type UseServersResult = {
@@ -15,11 +25,16 @@ type UseServersResult = {
   mutationError: string | null;
   isCheckingHealth: boolean;
   isRunningVmLifecycleAction: boolean;
+  includeInactive: boolean;
+  setIncludeInactive: (value: boolean) => void;
   refreshServers: () => Promise<void>;
   addServer: (payload: CreateServerPayload) => Promise<boolean>;
   editServer: (serverId: string, payload: UpdateServerPayload) => Promise<boolean>;
   removeServer: (serverId: string) => Promise<boolean>;
   archiveInventoryServer: (serverId: string) => Promise<boolean>;
+  decommissionInventoryServer: (serverId: string) => Promise<boolean>;
+  restoreInventoryServer: (serverId: string) => Promise<boolean>;
+  unmanageInventoryServer: (serverId: string) => Promise<boolean>;
   refreshHealth: (serverIds?: string[]) => Promise<boolean>;
   runVmLifecycleAction: (serverIds: string[], action: ProxmoxVmAction) => Promise<boolean>;
   clearCreateError: () => void;
@@ -35,20 +50,21 @@ export function useServers(): UseServersResult {
   const [mutationError, setMutationError] = useState<string | null>(null);
   const [isCheckingHealth, setIsCheckingHealth] = useState(false);
   const [isRunningVmLifecycleAction, setIsRunningVmLifecycleAction] = useState(false);
+  const [includeInactive, setIncludeInactive] = useState(false);
 
   const refreshServers = useCallback(async () => {
     setIsLoading(true);
     setError(null);
 
     try {
-      const nextServers = await listServers();
+      const nextServers = await listServers(includeInactive);
       setServers(nextServers);
     } catch (caughtError) {
       setError(getApiErrorMessage(caughtError));
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [includeInactive]);
 
   const addServer = useCallback(async (payload: CreateServerPayload) => {
     setIsCreating(true);
@@ -102,6 +118,42 @@ export function useServers(): UseServersResult {
       setServers((currentServers) =>
         currentServers.filter((server) => server.id !== serverId).concat(archivedServer),
       );
+      await refreshServers();
+      return true;
+    } catch (caughtError) {
+      setMutationError(getApiErrorMessage(caughtError));
+      return false;
+    }
+  }, [refreshServers]);
+
+  const decommissionInventoryServer = useCallback(async (serverId: string) => {
+    setMutationError(null);
+    try {
+      await decommissionServer(serverId);
+      await refreshServers();
+      return true;
+    } catch (caughtError) {
+      setMutationError(getApiErrorMessage(caughtError));
+      return false;
+    }
+  }, [refreshServers]);
+
+  const restoreInventoryServer = useCallback(async (serverId: string) => {
+    setMutationError(null);
+    try {
+      await restoreServer(serverId);
+      await refreshServers();
+      return true;
+    } catch (caughtError) {
+      setMutationError(getApiErrorMessage(caughtError));
+      return false;
+    }
+  }, [refreshServers]);
+
+  const unmanageInventoryServer = useCallback(async (serverId: string) => {
+    setMutationError(null);
+    try {
+      await unmanageServer(serverId);
       await refreshServers();
       return true;
     } catch (caughtError) {
@@ -185,11 +237,16 @@ export function useServers(): UseServersResult {
       mutationError,
       isCheckingHealth,
       isRunningVmLifecycleAction,
+      includeInactive,
+      setIncludeInactive,
       refreshServers,
       addServer,
       editServer,
       removeServer,
       archiveInventoryServer,
+      decommissionInventoryServer,
+      restoreInventoryServer,
+      unmanageInventoryServer,
       refreshHealth,
       runVmLifecycleAction,
       clearCreateError: () => setCreateError(null),
@@ -199,8 +256,10 @@ export function useServers(): UseServersResult {
       addServer,
       archiveInventoryServer,
       createError,
+      decommissionInventoryServer,
       editServer,
       error,
+      includeInactive,
       isCreating,
       isCheckingHealth,
       isLoading,
@@ -208,9 +267,11 @@ export function useServers(): UseServersResult {
       mutationError,
       refreshServers,
       removeServer,
+      restoreInventoryServer,
       refreshHealth,
       runVmLifecycleAction,
       servers,
+      unmanageInventoryServer,
     ],
   );
 }

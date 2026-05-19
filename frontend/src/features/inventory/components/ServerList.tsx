@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { AlertCircle, Archive, CheckSquare, Pencil, Play, Power, RefreshCw, RotateCw, ServerIcon, Trash2 } from 'lucide-react';
+import { AlertCircle, Archive, CheckSquare, Pencil, Play, Power, RefreshCw, RotateCcw, RotateCw, ServerIcon, Trash2 } from 'lucide-react';
 
 import type { ProxmoxVmAction } from '../../proxmox/types/proxmox';
 import type { Server, UpdateServerPayload } from '../types/server';
 import { formatLabel } from '../utils/options';
-import { EnvironmentBadge, HealthBadge, LifecycleBadge, SyncBadge } from './ServerBadges';
+import { EnvironmentBadge, HealthBadge, LifecycleBadge, ManagementBadge, NodeTypeBadge, SyncBadge } from './ServerBadges';
 import { EditServerModal } from './EditServerModal';
 
 type ServerListProps = {
@@ -17,6 +17,9 @@ type ServerListProps = {
   onEdit: (serverId: string, payload: UpdateServerPayload) => Promise<boolean>;
   onDelete: (serverId: string) => Promise<boolean>;
   onArchive: (serverId: string) => Promise<boolean>;
+  onDecommission: (serverId: string) => Promise<boolean>;
+  onRestore: (serverId: string) => Promise<boolean>;
+  onUnmanage: (serverId: string) => Promise<boolean>;
   onHealthCheck: (serverIds?: string[]) => Promise<boolean>;
   onVmLifecycleAction: (serverIds: string[], action: ProxmoxVmAction) => Promise<boolean>;
   isCheckingHealth: boolean;
@@ -33,6 +36,9 @@ export function ServerList({
   onEdit,
   onDelete,
   onArchive,
+  onDecommission,
+  onRestore,
+  onUnmanage,
   onHealthCheck,
   onVmLifecycleAction,
   isCheckingHealth,
@@ -130,7 +136,7 @@ export function ServerList({
           <h3 className="text-base font-semibold text-zinc-950">Registered servers</h3>
           <p className="mt-1 text-sm text-zinc-500">
             {servers.length} hosts tracked by inventory
-            {hasSelection ? ` · ${selectedServerIds.length} selected` : ''}
+            {hasSelection ? ` - ${selectedServerIds.length} selected` : ''}
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -214,7 +220,7 @@ export function ServerList({
                   onChange={(event) => toggleAllServers(event.target.checked)}
                 />
               </th>
-              {['Hostname', 'IP address', 'Environment', 'Provider', 'Lifecycle', 'Sync', 'Health', 'Last checked', 'Actions'].map((heading) => (
+              {['Hostname', 'Type', 'IP address', 'Environment', 'Provider', 'Lifecycle', 'Mgmt', 'Sync', 'Health', 'Last checked', 'Actions'].map((heading) => (
                 <th key={heading} className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-normal text-zinc-500">
                   {heading}
                 </th>
@@ -245,6 +251,9 @@ export function ServerList({
                   </Link>
                   <div className="mt-1 text-xs text-zinc-500">{server.operating_system}</div>
                 </td>
+                <td className="px-5 py-4">
+                  <NodeTypeBadge nodeType={server.node_type} />
+                </td>
                 <td className="px-5 py-4 text-sm font-mono text-zinc-700">{server.ip_address}</td>
                 <td className="px-5 py-4">
                   <EnvironmentBadge environment={server.environment} />
@@ -254,7 +263,10 @@ export function ServerList({
                   <LifecycleBadge state={server.lifecycle_state} />
                 </td>
                 <td className="px-5 py-4">
-                  <SyncBadge status={server.sync_status} />
+                  <ManagementBadge state={server.management_state} />
+                </td>
+                <td className="px-5 py-4">
+                  <SyncBadge status={server.sync_state} />
                 </td>
                 <td className="px-5 py-4">
                   <HealthBadge status={server.last_health_status} />
@@ -270,7 +282,10 @@ export function ServerList({
                       setSaveError(null);
                     }}
                     onArchive={onArchive}
+                    onDecommission={onDecommission}
                     onDelete={onDelete}
+                    onRestore={onRestore}
+                    onUnmanage={onUnmanage}
                   />
                 </td>
               </tr>
@@ -308,8 +323,10 @@ export function ServerList({
             </div>
             <div className="mt-4 flex flex-wrap gap-2">
               <EnvironmentBadge environment={server.environment} />
+              <NodeTypeBadge nodeType={server.node_type} />
               <LifecycleBadge state={server.lifecycle_state} />
-              <SyncBadge status={server.sync_status} />
+              <ManagementBadge state={server.management_state} />
+              <SyncBadge status={server.sync_state} />
               <HealthBadge status={server.last_health_status} />
               <span className="inline-flex items-center rounded-full bg-zinc-100 px-2.5 py-1 text-xs font-medium text-zinc-700 ring-1 ring-inset ring-zinc-200">
                 {formatLabel(server.provider)}
@@ -328,7 +345,10 @@ export function ServerList({
                   setSaveError(null);
                 }}
                 onArchive={onArchive}
+                onDecommission={onDecommission}
                 onDelete={onDelete}
+                onRestore={onRestore}
+                onUnmanage={onUnmanage}
               />
             </div>
           </article>
@@ -430,16 +450,45 @@ function ServerActions({
   server,
   onOpenEdit,
   onArchive,
+  onDecommission,
   onDelete,
+  onRestore,
+  onUnmanage,
 }: {
   server: Server;
   onOpenEdit: () => void;
   onArchive: (serverId: string) => Promise<boolean>;
+  onDecommission: (serverId: string) => Promise<boolean>;
   onDelete: (serverId: string) => Promise<boolean>;
+  onRestore: (serverId: string) => Promise<boolean>;
+  onUnmanage: (serverId: string) => Promise<boolean>;
 }) {
+  const inactive =
+    server.lifecycle_state === 'archived' ||
+    server.lifecycle_state === 'decommissioned' ||
+    server.lifecycle_state === 'deleted';
+
   async function archiveServer() {
     if (window.confirm(`Archive ${server.hostname}? Jobs will no longer target this inventory record.`)) {
       await onArchive(server.id);
+    }
+  }
+
+  async function decommissionServer() {
+    if (window.confirm(`Decommission ${server.hostname}? The node will leave active operational flows but remain historically queryable.`)) {
+      await onDecommission(server.id);
+    }
+  }
+
+  async function restoreServer() {
+    if (window.confirm(`Restore ${server.hostname} to active managed inventory?`)) {
+      await onRestore(server.id);
+    }
+  }
+
+  async function unmanageServer() {
+    if (window.confirm(`Mark ${server.hostname} as unmanaged? It will stay visible but jobs and remote access will no longer target it.`)) {
+      await onUnmanage(server.id);
     }
   }
 
@@ -451,22 +500,60 @@ function ServerActions({
 
   return (
     <div className="flex flex-wrap gap-2">
-      <button
-        className="inline-flex items-center gap-1.5 rounded-md border border-zinc-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-zinc-700 transition hover:bg-zinc-50"
-        type="button"
-        onClick={onOpenEdit}
-      >
-        <Pencil className="h-3.5 w-3.5" aria-hidden="true" />
-        Edit
-      </button>
-      <button
-        className="inline-flex items-center gap-1.5 rounded-md border border-amber-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-amber-700 transition hover:bg-amber-50"
-        type="button"
-        onClick={archiveServer}
-      >
-        <Archive className="h-3.5 w-3.5" aria-hidden="true" />
-        Archive
-      </button>
+      {inactive ? (
+        <button
+          className="inline-flex items-center gap-1.5 rounded-md border border-emerald-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-emerald-700 transition hover:bg-emerald-50"
+          type="button"
+          onClick={restoreServer}
+        >
+          <RotateCcw className="h-3.5 w-3.5" aria-hidden="true" />
+          Restore
+        </button>
+      ) : (
+        <>
+          <button
+            className="inline-flex items-center gap-1.5 rounded-md border border-zinc-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-zinc-700 transition hover:bg-zinc-50"
+            type="button"
+            onClick={onOpenEdit}
+          >
+            <Pencil className="h-3.5 w-3.5" aria-hidden="true" />
+            Edit
+          </button>
+          {server.management_state === 'managed' ? (
+            <button
+              className="inline-flex items-center gap-1.5 rounded-md border border-zinc-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-zinc-700 transition hover:bg-zinc-50"
+              type="button"
+              onClick={unmanageServer}
+            >
+              Unmanage
+            </button>
+          ) : (
+            <button
+              className="inline-flex items-center gap-1.5 rounded-md border border-emerald-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-emerald-700 transition hover:bg-emerald-50"
+              type="button"
+              onClick={restoreServer}
+            >
+              <RotateCcw className="h-3.5 w-3.5" aria-hidden="true" />
+              Manage
+            </button>
+          )}
+          <button
+            className="inline-flex items-center gap-1.5 rounded-md border border-amber-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-amber-700 transition hover:bg-amber-50"
+            type="button"
+            onClick={archiveServer}
+          >
+            <Archive className="h-3.5 w-3.5" aria-hidden="true" />
+            Archive
+          </button>
+          <button
+            className="inline-flex items-center gap-1.5 rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50"
+            type="button"
+            onClick={decommissionServer}
+          >
+            Decommission
+          </button>
+        </>
+      )}
       <button
         className="inline-flex items-center gap-1.5 rounded-md border border-rose-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-rose-700 transition hover:bg-rose-50"
         type="button"

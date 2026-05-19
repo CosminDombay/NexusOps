@@ -4,12 +4,13 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from backend.app.modules.integrations.models import IntegrationType
+from backend.app.modules.integrations.models import IntegrationProviderType, IntegrationType
 
 
 class IntegrationFields(BaseModel):
     name: str = Field(min_length=1, max_length=255)
     type: IntegrationType
+    provider_type: IntegrationProviderType = IntegrationProviderType.CUSTOM
     enabled: bool = True
     config: dict[str, object] = Field(default_factory=dict)
     credential_refs: dict[str, str] = Field(default_factory=dict)
@@ -26,7 +27,7 @@ class IntegrationFields(BaseModel):
 class IntegrationBase(IntegrationFields):
     @model_validator(mode="after")
     def validate_known_config(self) -> Self:
-        validate_integration_config(self.name, self.config)
+        validate_integration_config(self.provider_type, self.config)
         return self
 
 
@@ -37,6 +38,7 @@ class IntegrationCreate(IntegrationBase):
 class IntegrationUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=255)
     type: IntegrationType | None = None
+    provider_type: IntegrationProviderType | None = None
     enabled: bool | None = None
     config: dict[str, object] | None = None
     credential_refs: dict[str, str] | None = None
@@ -56,7 +58,7 @@ class IntegrationUpdate(BaseModel):
         if not self.model_dump(exclude_unset=True):
             raise ValueError("At least one field must be provided")
         if self.config is not None:
-            validate_integration_config(self.name or "", self.config)
+            validate_integration_config(self.provider_type or IntegrationProviderType.CUSTOM, self.config)
         return self
 
 
@@ -74,10 +76,9 @@ class IntegrationTestRead(BaseModel):
     message: str
 
 
-def validate_integration_config(name: str, config: dict[str, object]) -> None:
-    normalized = name.lower()
+def validate_integration_config(provider_type: IntegrationProviderType, config: dict[str, object]) -> None:
     url_keys = ("api_url", "url", "base_url")
-    if any(label in normalized for label in ("proxmox", "prometheus", "grafana", "tailscale")):
+    if provider_type != IntegrationProviderType.CUSTOM:
         if not any(isinstance(config.get(key), str) and str(config.get(key)).strip() for key in url_keys):
             raise ValueError("Integration URL is required")
 
