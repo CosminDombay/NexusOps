@@ -8,6 +8,34 @@ The goal is not to add a new architecture layer. NexusOps remains a modular mono
 
 ## Implemented
 
+### Operational Workspace Refactor
+
+Create/edit/configuration workflows were standardized around contextual drawers instead of independent collapsibles or permanently visible CRUD forms.
+
+Added:
+
+- `frontend/src/components/ContextDrawer.tsx`
+
+The drawer is now the shared shell for secondary workflows that should preserve operational page context.
+
+Updated frontend workflows:
+
+- Inventory manual onboarding is labeled `Import Existing Host` and opens in a contextual drawer.
+- Credentials create/edit opens in a contextual drawer.
+- Jobs custom action create/edit opens in a contextual drawer.
+- Automations create/edit opens in a contextual drawer.
+- Packages create/edit opens in a contextual drawer with explicit cancel/close behavior.
+- Profiles create/edit opens in a contextual drawer with explicit cancel/close behavior.
+- Integrations add/edit opens in a contextual drawer.
+- RBAC user create/edit opens in a contextual drawer.
+- Provisioning keeps the VM provisioning wizard as the primary center workflow while blueprint actions and batch provisioning open in contextual drawers.
+
+Scheduled automation cards now show target hostnames so operators can see where recurring work is enabled.
+
+Manual host registration was renamed to `Import Existing Host` to clarify that provisioning and provider discovery are primary onboarding paths.
+
+The Proxmox inventory synchronization control is labeled as discovered-guest synchronization rather than a complete desired-state reconciliation workflow.
+
 ### Deployment UX
 
 Docker Deployments were refactored from a permanent create/edit form plus table into an operational service dashboard.
@@ -27,6 +55,7 @@ The page now provides:
 - inspect output panel
 - log output panel
 - drawer-based create/edit workflow
+- centered responsive drawer positioning
 
 The backend now includes lightweight derived deployment metadata in `DeploymentRead`:
 
@@ -110,6 +139,6 @@ The following items remain for later refinement slices:
 - reusable execution target abstraction for host, VM, LXC, and Docker container workflows
 - full Docker container runtime management
 - HDS-DEV rebuild blueprint workflow
-- broader create/edit drawer cleanup across packages, profiles, integrations, hosts, and provider entities
+- deeper explorer-driven page layouts beyond the shared drawer foundation
 - refresh-token rotation and reuse detection
 - short-lived scoped remote-access tokens for shell WebSockets

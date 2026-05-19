@@ -44,6 +44,7 @@ The implemented system is focused on foundations, visibility, narrowly scoped VM
 - PostgreSQL-backed persistence through async SQLAlchemy.
 - Alembic migrations for inventory, jobs, SSH authentication metadata, credentials, variables, and orchestration template metadata.
 - React inventory dashboard with create form, responsive server list, loading states, and error handling.
+- Shared contextual drawer component for secondary create/edit/configure workflows across operational pages.
 - Inventory SSH authentication metadata:
   - key authentication
   - password authentication
@@ -53,7 +54,7 @@ The implemented system is focused on foundations, visibility, narrowly scoped VM
   - encrypted reusable credential records for passwords, SSH passwords, SSH keys, API tokens, and environment secrets
   - Fernet encryption using `NEXUSOPS_MASTER_KEY`
   - masked API responses that never return decrypted values
-  - type-aware frontend form for credential creation
+  - type-aware frontend drawer for credential creation and metadata/secret replacement edits
   - credential selection in Inventory node create/edit flows
 - Variable Manager foundations:
   - persisted variable records with key, value, category, description, secret flag, and optional credential reference
@@ -126,6 +127,7 @@ The implemented system is focused on foundations, visibility, narrowly scoped VM
   - APScheduler startup/shutdown integration
   - automation runs create WorkflowRuns and execute through existing Jobs/Profile/Package services
   - frontend Automations page with edit and delete controls
+  - scheduled automation cards show execution target hostnames for operational visibility
 - Inventory health:
   - lightweight TCP reachability check against SSH port
   - per-host last health state, timestamp, and error metadata
@@ -144,6 +146,7 @@ The implemented system is focused on foundations, visibility, narrowly scoped VM
   - restore-default workflow for built-in package overrides
   - install, uninstall, validation, variable, tag, category, and description editing
   - visual variable editor for required/sensitive/defaulted variables
+  - contextual create/edit drawer so package management does not dominate the page layout
   - simple `{{ variable_name }}` command parameterization with execution-time inputs
   - sensitive variables resolved from Credential Manager references at runtime
   - persisted job commands redacted when sensitive runtime values are injected
@@ -162,6 +165,7 @@ The implemented system is focused on foundations, visibility, narrowly scoped VM
   - variable definitions through a visual editor
   - execution modal with normal runtime inputs and credential dropdowns for sensitive variables
   - move up/down and drag-and-drop step ordering in the editor
+  - contextual create/edit drawer so profile authoring remains secondary to profile selection and execution
 - Integrations:
   - persisted integration records for infrastructure providers, monitoring, networking, and database integrations
   - credential reference fields for API tokens and bearer-style auth secrets
@@ -169,6 +173,7 @@ The implemented system is focused on foundations, visibility, narrowly scoped VM
   - structured settings forms for Proxmox, Prometheus, Grafana, and Tailscale placeholder configuration
   - normal UX hides secrets and generates config JSON server-compatible payloads
   - optional advanced JSON overlay for extra configuration
+  - contextual add/edit drawer for integration configuration
 - ESLint 9 flat configuration, TypeScript build, TailwindCSS, and Prettier configuration.
 - Docker Compose deployments:
   - deployment definitions with compose/env storage
@@ -180,7 +185,7 @@ The implemented system is focused on foundations, visibility, narrowly scoped VM
   - deploy/redeploy/restart/stop/status/log operations through Jobs
   - deployment edit and delete API/UI
   - operational deployment cards with runtime status, target host, ports, compose source, uptime, health state, and synchronization state
-  - create/edit deployment drawer so forms appear only when requested
+  - centered responsive create/edit deployment drawer so forms appear only when requested
   - inspect and log panels for operational feedback
   - shared target selector and request-shape support for future bulk deployment fanout while preserving current single-target execution
 - Monitoring foundation:
@@ -312,13 +317,23 @@ Inventory deletion now performs reference cleanup before removing the active ser
 
 ### UX Consistency and Operational Workspace
 
-Orchestration pages now share a common target-selection pattern:
+Orchestration pages now share common target-selection and contextual-workflow patterns:
 
 ```text
 TargetSelector -> selected inventory host(s) -> module-specific request -> existing service pipeline
 ```
 
 Packages, Profiles, Automations, Jobs, and Deployments use the shared selector for consistent search, filtering, single-target selection, and bulk-target intent. Deployments accept bulk target IDs in the request shape but still execute the current single-target Docker Compose service path until distributed orchestration queueing is implemented.
+
+Create/edit/configuration workflows are now treated as secondary contextual actions instead of permanent CRUD panels:
+
+```text
+entity list / explorer -> operational cards or tables -> ContextDrawer for create/edit/configure
+```
+
+The shared `ContextDrawer` component provides the standard right-size overlay shell for Inventory host import, Credential create/edit, custom Job action create/edit, Automation create/edit, Package create/edit, Profile create/edit, Integration add/edit, and provisioning blueprint/batch actions. The Deployments drawer was centered and kept as the primary visual baseline for service-style operational workflows.
+
+Inventory manual onboarding is now labeled `Import Existing Host` to clarify that provisioning and provider discovery are the primary onboarding paths. The Proxmox synchronization action is labeled as discovered-guest synchronization rather than a completed desired-state reconciliation workflow.
 
 Remote Access now presents files and the file editor above a persistent terminal console. The backend shell, SFTP, RBAC, credential resolution, and audit boundaries remain unchanged.
 
@@ -333,6 +348,17 @@ The first final-refinement slice tightened operational UX and session safety wit
 - Local auth tokens now carry a per-user token version, allowing logout, password reset, and security-sensitive user changes to revoke older tokens.
 - Frontend auth persistence now uses `sessionStorage` and clears older `localStorage` tokens.
 - Linux `root` is treated as a protected account for identity orchestration.
+
+### Operational Workspace Refactor
+
+The next refinement pass standardized create/edit workflows around contextual drawers instead of independent collapsibles or permanently visible forms:
+
+- Added reusable `ContextDrawer`.
+- Inventory import is a secondary `Import Existing Host` workflow.
+- Credentials, Jobs custom actions, Automations, Packages, Profiles, Integrations, and RBAC users use contextual drawer workflows for create/edit.
+- Provisioning keeps the VM wizard as the main center workflow, while blueprint actions and batch provisioning move into drawers.
+- Scheduled automations show target hostnames.
+- Deployment create/edit positioning is centered and responsive.
 
 ## Architecture Status
 
@@ -351,6 +377,7 @@ The first final-refinement slice tightened operational UX and session safety wit
 - Batch provisioning creates a parent batch record and normal child provisioning requests. Each generated VM still goes through the existing Proxmox clone, cloud-init, SSH readiness, Inventory registration, and optional bootstrap flow.
 - Docker Compose deployments reuse Jobs for deploy/redeploy/restart/stop/status/logs and resolve credential-backed env values server-side.
 - Deployment API reads include derived operational metadata, but execution still flows through the existing Jobs pipeline.
+- Frontend create/edit/configuration workflows should prefer `ContextDrawer` or focused modals over permanent page-level forms.
 - Remote Access reuses Inventory as the target boundary and Credential Manager resolution for SSH material; it does not accept arbitrary host targets or expose credentials to the frontend.
 - RBAC user management is implemented under the auth module and remains admin-only through backend route dependencies.
 - Inventory deletion cleanup is owned by `InventoryService`; it clears active references without hard-deleting historical job logs.

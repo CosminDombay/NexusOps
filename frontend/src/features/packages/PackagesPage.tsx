@@ -1,7 +1,11 @@
 import { useEffect, useState } from 'react';
 
+import { ContextDrawer } from '../../components/ContextDrawer';
 import { PageHeader } from '../../components/layout/PageHeader';
-import { ExecutionVariablesModal, type ExecutionVariableValues } from '../../components/ExecutionVariablesModal';
+import {
+  ExecutionVariablesModal,
+  type ExecutionVariableValues,
+} from '../../components/ExecutionVariablesModal';
 import { VariableDefinitionEditor } from '../../components/VariableDefinitionEditor';
 import { getApiErrorMessage } from '../../lib/api/client';
 import { listCredentials } from '../credentials/api/credentialsApi';
@@ -58,6 +62,7 @@ export function PackagesPage() {
   const [pendingPackage, setPendingPackage] = useState<PackageDefinition | null>(null);
   const [bulkResult, setBulkResult] = useState<BulkExecutionResponse | null>(null);
   const [editingPackageId, setEditingPackageId] = useState<string | null>(null);
+  const [isBuilderOpen, setIsBuilderOpen] = useState(false);
   const targetSelector = useTargetSelection('single');
 
   useEffect(() => {
@@ -92,6 +97,7 @@ export function PackagesPage() {
   }
 
   function startEdit(packageDefinition: PackageDefinition) {
+    setIsBuilderOpen(true);
     setEditingPackageId(packageDefinition.id);
     setFormState({
       id: packageDefinition.id,
@@ -114,6 +120,7 @@ export function PackagesPage() {
   function resetEditor() {
     setEditingPackageId(null);
     setFormState(initialFormState);
+    setIsBuilderOpen(false);
   }
 
   async function handleCreatePackage() {
@@ -134,11 +141,13 @@ export function PackagesPage() {
         install_command: formState.install_command.trim(),
         uninstall_command: formState.uninstall_command.trim(),
         validation_command: formState.validation_command.trim() || 'true',
-        variables: formState.variables.filter((variable) => variable.name.trim()).map((variable) => ({
-          ...variable,
-          name: variable.name.trim(),
-          description: variable.description.trim(),
-        })),
+        variables: formState.variables
+          .filter((variable) => variable.name.trim())
+          .map((variable) => ({
+            ...variable,
+            name: variable.name.trim(),
+            description: variable.description.trim(),
+          })),
         tags: splitCsv(formState.tags_text),
         description: formState.description.trim() || 'Custom package definition.',
       };
@@ -153,7 +162,11 @@ export function PackagesPage() {
       }
       resetEditor();
     } catch (caughtError) {
-      setError(caughtError instanceof SyntaxError ? 'Variables must be valid JSON.' : getApiErrorMessage(caughtError));
+      setError(
+        caughtError instanceof SyntaxError
+          ? 'Variables must be valid JSON.'
+          : getApiErrorMessage(caughtError),
+      );
     } finally {
       setIsCreating(false);
     }
@@ -165,7 +178,10 @@ export function PackagesPage() {
       return;
     }
     try {
-      const cloned = await clonePackageDefinition(packageDefinition.id, { id: id.trim(), name: `${packageDefinition.name} Copy` });
+      const cloned = await clonePackageDefinition(packageDefinition.id, {
+        id: id.trim(),
+        name: `${packageDefinition.name} Copy`,
+      });
       setPackages((current) => [...current, cloned]);
       setSuccess(`Cloned package ${cloned.name}.`);
     } catch (caughtError) {
@@ -174,7 +190,9 @@ export function PackagesPage() {
   }
 
   async function handleResetPackage(packageDefinition: PackageDefinition) {
-    const confirmed = window.confirm(`Restore ${packageDefinition.name} to the built-in default? Current edits will be discarded.`);
+    const confirmed = window.confirm(
+      `Restore ${packageDefinition.name} to the built-in default? Current edits will be discarded.`,
+    );
     if (!confirmed) {
       return;
     }
@@ -195,7 +213,9 @@ export function PackagesPage() {
 
     try {
       await deletePackageDefinition(packageId);
-      setPackages((current) => current.filter((packageDefinition) => packageDefinition.id !== packageId));
+      setPackages((current) =>
+        current.filter((packageDefinition) => packageDefinition.id !== packageId),
+      );
       setSuccess(`Deleted package ${packageId}.`);
     } catch (caughtError) {
       setError(getApiErrorMessage(caughtError));
@@ -212,7 +232,10 @@ export function PackagesPage() {
     setSuccess(null);
   }
 
-  async function runPackage(packageDefinition: PackageDefinition, executionVariables: ExecutionVariableValues) {
+  async function runPackage(
+    packageDefinition: PackageDefinition,
+    executionVariables: ExecutionVariableValues,
+  ) {
     setExecutingPackageId(packageDefinition.id);
     setError(null);
     setSuccess(null);
@@ -227,7 +250,9 @@ export function PackagesPage() {
           executionVariables.credential_refs,
         );
         setBulkResult(result);
-        setSuccess(`Package ${packageDefinition.name}: ${result.success_count} succeeded, ${result.failure_count} failed.`);
+        setSuccess(
+          `Package ${packageDefinition.name}: ${result.success_count} succeeded, ${result.failure_count} failed.`,
+        );
       } else {
         const job = await executePackageDefinition(
           packageDefinition.id,
@@ -254,7 +279,11 @@ export function PackagesPage() {
 
       <TargetSelector
         servers={servers}
-        selection={{ mode: targetSelector.selection.mode, selectedId: selectedServerId, selectedIds: selectedServerIds }}
+        selection={{
+          mode: targetSelector.selection.mode,
+          selectedId: selectedServerId,
+          selectedIds: selectedServerIds,
+        }}
         filters={targetSelector.filters}
         title="Package targets"
         description="Install package definitions against one host or a filtered bulk selection."
@@ -266,18 +295,44 @@ export function PackagesPage() {
         }}
       />
 
-      <PackageBuilder
-        formState={formState}
-        editingPackageId={editingPackageId}
-        isCreating={isCreating}
-        onCreate={handleCreatePackage}
-        onCancel={resetEditor}
-        onFieldChange={updateField}
-        onVariablesChange={(variables) => setFormState((current) => ({ ...current, variables }))}
-      />
+      <div className="flex justify-end">
+        <button
+          className="rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm font-semibold text-zinc-700 shadow-sm hover:bg-zinc-50"
+          type="button"
+          onClick={() => setIsBuilderOpen(true)}
+        >
+          Create package
+        </button>
+      </div>
 
-      {success ? <p className="rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-700">{success}</p> : null}
-      {error ? <p className="rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">{error}</p> : null}
+      <ContextDrawer
+        description="Create or tune package standards without losing the target and package list context."
+        isOpen={isBuilderOpen}
+        title={editingPackageId ? 'Edit Package' : 'Create Package'}
+        width="xl"
+        onClose={resetEditor}
+      >
+        <PackageBuilder
+          formState={formState}
+          editingPackageId={editingPackageId}
+          isCreating={isCreating}
+          onCreate={handleCreatePackage}
+          onCancel={resetEditor}
+          onFieldChange={updateField}
+          onVariablesChange={(variables) => setFormState((current) => ({ ...current, variables }))}
+        />
+      </ContextDrawer>
+
+      {success ? (
+        <p className="rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-700">
+          {success}
+        </p>
+      ) : null}
+      {error ? (
+        <p className="rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">
+          {error}
+        </p>
+      ) : null}
       {bulkResult ? <BulkResultPanel result={bulkResult} /> : null}
       {isLoading ? <LoadingGrid /> : null}
       {!isLoading && !error ? (
@@ -300,12 +355,16 @@ export function PackagesPage() {
         credentials={credentials}
         isLoading={executingPackageId === pendingPackage?.id}
         isOpen={pendingPackage !== null}
-        previewItems={pendingPackage ? [`Install ${pendingPackage.name}`, `Validate ${pendingPackage.name}`] : []}
+        previewItems={
+          pendingPackage
+            ? [`Install ${pendingPackage.name}`, `Validate ${pendingPackage.name}`]
+            : []
+        }
         targetLabel={`${selectedServerIds.length || 1} host(s) selected`}
         title={pendingPackage ? `Run ${pendingPackage.name}` : 'Run package'}
         variables={pendingPackage?.variables ?? []}
         onCancel={() => setPendingPackage(null)}
-        onConfirm={(values) => pendingPackage ? runPackage(pendingPackage, values) : undefined}
+        onConfirm={(values) => (pendingPackage ? runPackage(pendingPackage, values) : undefined)}
       />
     </div>
   );
@@ -321,11 +380,19 @@ function BulkResultPanel({ result }: { result: BulkExecutionResponse }) {
       <div className="mt-4 divide-y divide-zinc-100 rounded-md border border-zinc-200">
         {result.results.map((item) => (
           <div key={item.target_server_id} className="px-3 py-2 text-sm">
-            <span className={item.success ? 'font-semibold text-emerald-700' : 'font-semibold text-rose-700'}>
+            <span
+              className={
+                item.success ? 'font-semibold text-emerald-700' : 'font-semibold text-rose-700'
+              }
+            >
               {item.success ? 'Success' : 'Failed'}
             </span>
-            <span className="ml-2 text-zinc-700">{item.target_hostname ?? item.target_server_id}</span>
-            {item.error ? <p className="mt-1 font-mono text-xs text-zinc-500">{item.error}</p> : null}
+            <span className="ml-2 text-zinc-700">
+              {item.target_hostname ?? item.target_server_id}
+            </span>
+            {item.error ? (
+              <p className="mt-1 font-mono text-xs text-zinc-500">{item.error}</p>
+            ) : null}
           </div>
         ))}
       </div>
@@ -352,22 +419,79 @@ function PackageBuilder({
 }) {
   return (
     <section className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm">
-      <h3 className="text-base font-semibold text-zinc-950">{editingPackageId ? 'Edit package definition' : 'Add package definition'}</h3>
+      <h3 className="text-base font-semibold text-zinc-950">
+        {editingPackageId ? 'Edit package definition' : 'Add package definition'}
+      </h3>
       <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-        <TextInput label="ID" name="id" placeholder="custom-agent" value={formState.id} onChange={onFieldChange} />
-        <TextInput label="Name" name="name" placeholder="Custom Agent" value={formState.name} onChange={onFieldChange} />
-        <TextInput label="Category" name="category" placeholder="Monitoring" value={formState.category} onChange={onFieldChange} />
-        <TextInput label="Supported OS" name="supported_os_text" placeholder="ubuntu,debian" value={formState.supported_os_text} onChange={onFieldChange} />
-        <TextInput label="Tags" name="tags_text" placeholder="monitoring,agent" value={formState.tags_text} onChange={onFieldChange} />
-        <TextInput label="Description" name="description" placeholder="Installs a custom agent" value={formState.description} onChange={onFieldChange} />
-        <TextArea label="Install command" name="install_command" value={formState.install_command} onChange={onFieldChange} />
-        <TextArea label="Uninstall command" name="uninstall_command" value={formState.uninstall_command} onChange={onFieldChange} />
-        <TextArea label="Validation command" name="validation_command" value={formState.validation_command} onChange={onFieldChange} />
+        <TextInput
+          label="ID"
+          name="id"
+          placeholder="custom-agent"
+          value={formState.id}
+          onChange={onFieldChange}
+        />
+        <TextInput
+          label="Name"
+          name="name"
+          placeholder="Custom Agent"
+          value={formState.name}
+          onChange={onFieldChange}
+        />
+        <TextInput
+          label="Category"
+          name="category"
+          placeholder="Monitoring"
+          value={formState.category}
+          onChange={onFieldChange}
+        />
+        <TextInput
+          label="Supported OS"
+          name="supported_os_text"
+          placeholder="ubuntu,debian"
+          value={formState.supported_os_text}
+          onChange={onFieldChange}
+        />
+        <TextInput
+          label="Tags"
+          name="tags_text"
+          placeholder="monitoring,agent"
+          value={formState.tags_text}
+          onChange={onFieldChange}
+        />
+        <TextInput
+          label="Description"
+          name="description"
+          placeholder="Installs a custom agent"
+          value={formState.description}
+          onChange={onFieldChange}
+        />
+        <TextArea
+          label="Install command"
+          name="install_command"
+          value={formState.install_command}
+          onChange={onFieldChange}
+        />
+        <TextArea
+          label="Uninstall command"
+          name="uninstall_command"
+          value={formState.uninstall_command}
+          onChange={onFieldChange}
+        />
+        <TextArea
+          label="Validation command"
+          name="validation_command"
+          value={formState.validation_command}
+          onChange={onFieldChange}
+        />
         <VariableDefinitionEditor variables={formState.variables} onChange={onVariablesChange} />
       </div>
       <div className="mt-4 flex justify-end gap-2">
         {editingPackageId ? (
-          <button className="rounded-md border border-zinc-300 px-4 py-2 text-sm font-semibold text-zinc-700 transition hover:bg-zinc-50" type="button" onClick={onCancel}>
+          <button
+            className="rounded-md border border-zinc-300 px-4 py-2 text-sm font-semibold text-zinc-700 transition hover:bg-zinc-50"
+            type="button"
+            onClick={onCancel}
+          >
             Cancel
           </button>
         ) : null}
@@ -406,7 +530,9 @@ function PackageCard({
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0">
           <h3 className="text-lg font-semibold text-zinc-950">{packageDefinition.name}</h3>
-          <p className="mt-2 max-w-3xl text-sm leading-6 text-zinc-600">{packageDefinition.description}</p>
+          <p className="mt-2 max-w-3xl text-sm leading-6 text-zinc-600">
+            {packageDefinition.description}
+          </p>
         </div>
         <div className="flex flex-wrap gap-2">
           <span className="inline-flex w-fit rounded-full bg-zinc-100 px-2.5 py-1 text-xs font-medium text-zinc-700 ring-1 ring-inset ring-zinc-200">
@@ -416,13 +542,18 @@ function PackageCard({
             {packageDefinition.is_builtin ? 'Built-in' : 'Custom'}
           </span>
           {packageDefinition.is_modified ? <Badge label="Modified" /> : null}
-          {packageDefinition.source_template_id && !packageDefinition.is_builtin ? <Badge label="Cloned" /> : null}
+          {packageDefinition.source_template_id && !packageDefinition.is_builtin ? (
+            <Badge label="Cloned" />
+          ) : null}
         </div>
       </div>
 
       <div className="mt-4 flex flex-wrap gap-2">
         {packageDefinition.tags.map((tag) => (
-          <span key={tag} className="rounded-full bg-zinc-50 px-2.5 py-1 text-xs text-zinc-600 ring-1 ring-zinc-200">
+          <span
+            key={tag}
+            className="rounded-full bg-zinc-50 px-2.5 py-1 text-xs text-zinc-600 ring-1 ring-zinc-200"
+          >
             {tag}
           </span>
         ))}
@@ -430,7 +561,9 @@ function PackageCard({
 
       <dl className="mt-5 space-y-4 rounded-md border border-zinc-200 bg-zinc-50 p-3">
         <CommandBlock label="Install" value={packageDefinition.install_command} />
-        {packageDefinition.uninstall_command ? <CommandBlock label="Uninstall" value={packageDefinition.uninstall_command} /> : null}
+        {packageDefinition.uninstall_command ? (
+          <CommandBlock label="Uninstall" value={packageDefinition.uninstall_command} />
+        ) : null}
         <CommandBlock label="Validate" value={packageDefinition.validation_command} />
       </dl>
       {packageDefinition.variables.length ? (
@@ -438,8 +571,13 @@ function PackageCard({
           <p className="text-xs font-semibold uppercase text-zinc-500">Variables</p>
           <div className="mt-2 flex flex-wrap gap-2">
             {packageDefinition.variables.map((variable) => (
-              <span key={variable.name} className="rounded bg-zinc-100 px-2 py-1 font-mono text-xs text-zinc-700">
-                {variable.name}{variable.required ? ' *' : ''}{variable.sensitive ? ' sensitive' : ''}
+              <span
+                key={variable.name}
+                className="rounded bg-zinc-100 px-2 py-1 font-mono text-xs text-zinc-700"
+              >
+                {variable.name}
+                {variable.required ? ' *' : ''}
+                {variable.sensitive ? ' sensitive' : ''}
               </span>
             ))}
           </div>
@@ -451,14 +589,26 @@ function PackageCard({
       </p>
 
       <div className="mt-5 flex flex-wrap justify-end gap-2">
-        <button className="rounded-md border border-zinc-300 px-3 py-2 text-sm font-semibold text-zinc-700 transition hover:bg-zinc-50" type="button" onClick={() => onClone(packageDefinition)}>
+        <button
+          className="rounded-md border border-zinc-300 px-3 py-2 text-sm font-semibold text-zinc-700 transition hover:bg-zinc-50"
+          type="button"
+          onClick={() => onClone(packageDefinition)}
+        >
           Clone
         </button>
-        <button className="rounded-md border border-zinc-300 px-3 py-2 text-sm font-semibold text-zinc-700 transition hover:bg-zinc-50" type="button" onClick={() => onEdit(packageDefinition)}>
+        <button
+          className="rounded-md border border-zinc-300 px-3 py-2 text-sm font-semibold text-zinc-700 transition hover:bg-zinc-50"
+          type="button"
+          onClick={() => onEdit(packageDefinition)}
+        >
           Edit
         </button>
         {packageDefinition.is_builtin && packageDefinition.is_modified ? (
-          <button className="rounded-md border border-amber-300 px-3 py-2 text-sm font-semibold text-amber-700 transition hover:bg-amber-50" type="button" onClick={() => onReset(packageDefinition)}>
+          <button
+            className="rounded-md border border-amber-300 px-3 py-2 text-sm font-semibold text-amber-700 transition hover:bg-amber-50"
+            type="button"
+            onClick={() => onReset(packageDefinition)}
+          >
             Restore default
           </button>
         ) : null}

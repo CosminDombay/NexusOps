@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 
+import { ContextDrawer } from '../../components/ContextDrawer';
 import { PageHeader } from '../../components/layout/PageHeader';
 import { getApiErrorMessage } from '../../lib/api/client';
 import { listPackageDefinitions } from '../packages/api/packagesApi';
@@ -117,10 +118,16 @@ export function ProvisioningPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<{ tone: 'success' | 'danger' | 'warning'; message: string } | null>(null);
+  const [notice, setNotice] = useState<{
+    tone: 'success' | 'danger' | 'warning';
+    message: string;
+  } | null>(null);
+  const [isBlueprintOpen, setIsBlueprintOpen] = useState(false);
+  const [isBatchOpen, setIsBatchOpen] = useState(false);
 
   const selectedTemplate = useMemo(
-    () => templates.find((template) => String(template.template_id) === formState.template_id) ?? null,
+    () =>
+      templates.find((template) => String(template.template_id) === formState.template_id) ?? null,
     [formState.template_id, templates],
   );
 
@@ -140,7 +147,14 @@ export function ProvisioningPage() {
       setIsLoading(true);
       setError(null);
       try {
-        const [nextTemplates, nextProfiles, nextPackages, nextRequests, nextBlueprints, nextBatches] = await Promise.all([
+        const [
+          nextTemplates,
+          nextProfiles,
+          nextPackages,
+          nextRequests,
+          nextBlueprints,
+          nextBatches,
+        ] = await Promise.all([
           listProxmoxTemplates(),
           listProfiles(),
           listPackageDefinitions(),
@@ -148,9 +162,15 @@ export function ProvisioningPage() {
           listProvisioningBlueprints(),
           listProvisioningBatches(),
         ]);
-        const nodeNames = Array.from(new Set(nextTemplates.map((template) => template.node).filter(Boolean)));
+        const nodeNames = Array.from(
+          new Set(nextTemplates.map((template) => template.node).filter(Boolean)),
+        );
         const nextStorage = (
-          await Promise.all(nodeNames.length ? nodeNames.map((nodeName) => listProxmoxStorage(nodeName)) : [listProxmoxStorage()])
+          await Promise.all(
+            nodeNames.length
+              ? nodeNames.map((nodeName) => listProxmoxStorage(nodeName))
+              : [listProxmoxStorage()],
+          )
         ).flat();
         setTemplates(nextTemplates);
         setStorageOptions(nextStorage);
@@ -230,7 +250,10 @@ export function ProvisioningPage() {
       bootstrap_profile_ids: blueprint.bootstrap_profile_ids,
       bootstrap_package_ids: blueprint.bootstrap_package_ids,
     }));
-    const slug = blueprint.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+    const slug = blueprint.name
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-|-$/g, '');
     setBatchFormState((current) => ({
       ...current,
       blueprint_id: blueprint.id,
@@ -260,7 +283,9 @@ export function ProvisioningPage() {
     setNotice(null);
     try {
       const created = await createProvisioningBlueprint(payload);
-      setBlueprints((current) => [...current, created].sort((left, right) => left.name.localeCompare(right.name)));
+      setBlueprints((current) =>
+        [...current, created].sort((left, right) => left.name.localeCompare(right.name)),
+      );
       setSelectedBlueprintId(created.id);
       setNotice({ tone: 'success', message: `Saved blueprint ${created.name}.` });
     } catch (caughtError) {
@@ -283,7 +308,9 @@ export function ProvisioningPage() {
     try {
       const updated = await updateProvisioningBlueprint(blueprint.id, payload);
       setBlueprints((current) =>
-        current.map((item) => (item.id === updated.id ? updated : item)).sort((left, right) => left.name.localeCompare(right.name)),
+        current
+          .map((item) => (item.id === updated.id ? updated : item))
+          .sort((left, right) => left.name.localeCompare(right.name)),
       );
       setBlueprintName(updated.name);
       setNotice({ tone: 'success', message: `Updated blueprint ${updated.name}.` });
@@ -313,7 +340,9 @@ export function ProvisioningPage() {
     setNotice(null);
     try {
       const created = await createProvisioningBlueprint(payload);
-      setBlueprints((current) => [...current, created].sort((left, right) => left.name.localeCompare(right.name)));
+      setBlueprints((current) =>
+        [...current, created].sort((left, right) => left.name.localeCompare(right.name)),
+      );
       setSelectedBlueprintId(created.id);
       setBlueprintName(created.name);
       setNotice({ tone: 'success', message: `Cloned blueprint ${created.name}.` });
@@ -351,11 +380,15 @@ export function ProvisioningPage() {
   async function handleSubmit() {
     const payload = toPayload(formState, selectedTemplate);
     if (!payload) {
-      setError('Fill in VM name, VMID, template, static IP/CIDR, gateway, and cloud-init hostname.');
+      setError(
+        'Fill in VM name, VMID, template, static IP/CIDR, gateway, and cloud-init hostname.',
+      );
       return;
     }
 
-    const confirmed = window.confirm(`Provision ${payload.vm_name} from template ${payload.template_id}?`);
+    const confirmed = window.confirm(
+      `Provision ${payload.vm_name} from template ${payload.template_id}?`,
+    );
     if (!confirmed) {
       return;
     }
@@ -397,7 +430,12 @@ export function ProvisioningPage() {
       setBatches((current) => [created, ...current]);
       setRequests((current) => [...created.requests, ...current]);
       setNotice({
-        tone: created.status === 'completed' ? 'success' : created.status === 'partial_failed' ? 'warning' : 'danger',
+        tone:
+          created.status === 'completed'
+            ? 'success'
+            : created.status === 'partial_failed'
+              ? 'warning'
+              : 'danger',
         message: `Batch finished with status ${created.status}: ${created.completed_count}/${created.count} completed.`,
       });
     } catch (caughtError) {
@@ -408,7 +446,9 @@ export function ProvisioningPage() {
   }
 
   async function handleDeleteRequest(request: ProvisioningRequest) {
-    const confirmed = window.confirm(`Delete provisioning history for ${request.vm_name}? This only removes the NexusOps request record; it does not delete the VM or inventory host.`);
+    const confirmed = window.confirm(
+      `Delete provisioning history for ${request.vm_name}? This only removes the NexusOps request record; it does not delete the VM or inventory host.`,
+    );
     if (!confirmed) {
       return;
     }
@@ -417,7 +457,10 @@ export function ProvisioningPage() {
     try {
       await deleteProvisioningRequest(request.id);
       setRequests((current) => current.filter((item) => item.id !== request.id));
-      setNotice({ tone: 'success', message: `Deleted provisioning history for ${request.vm_name}.` });
+      setNotice({
+        tone: 'success',
+        message: `Deleted provisioning history for ${request.vm_name}.`,
+      });
     } catch (caughtError) {
       setError(getApiErrorMessage(caughtError));
     }
@@ -430,7 +473,11 @@ export function ProvisioningPage() {
         description="Template-based Proxmox provisioning with cloud-init, static IPs, inventory registration, and bootstrap workflows."
       />
 
-      {error ? <p className="rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">{error}</p> : null}
+      {error ? (
+        <p className="rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">
+          {error}
+        </p>
+      ) : null}
       {notice ? <Notice tone={notice.tone} message={notice.message} /> : null}
 
       <section className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm">
@@ -457,269 +504,466 @@ export function ProvisioningPage() {
               ))}
             </select>
           </label>
-          <label className="flex-1 text-sm font-medium text-zinc-700">
-            Save current defaults as
-            <input
-              className="mt-1 w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-950 shadow-sm outline-none transition focus:border-zinc-900 focus:ring-2 focus:ring-zinc-900/10"
-              placeholder="Ubuntu Docker Host"
-              value={blueprintName}
-              onChange={(event) => setBlueprintName(event.target.value)}
-            />
-          </label>
-          <div className="flex flex-wrap gap-2">
-            <button
-              className="rounded-md bg-zinc-950 px-4 py-2 text-sm font-semibold text-white transition hover:bg-zinc-800 disabled:bg-zinc-300"
-              disabled={isSubmitting}
-              type="button"
-              onClick={() => void handleSaveBlueprint()}
-            >
-              Save blueprint
-            </button>
-            <button
-              className="rounded-md border border-zinc-300 px-4 py-2 text-sm font-semibold text-zinc-700 transition hover:bg-zinc-50 disabled:opacity-50"
-              disabled={!selectedBlueprintId || isSubmitting}
-              type="button"
-              onClick={() => void handleUpdateBlueprint()}
-            >
-              Update
-            </button>
-            <button
-              className="rounded-md border border-zinc-300 px-4 py-2 text-sm font-semibold text-zinc-700 transition hover:bg-zinc-50 disabled:opacity-50"
-              disabled={!selectedBlueprintId || isSubmitting}
-              type="button"
-              onClick={() => void handleCloneBlueprint()}
-            >
-              Clone
-            </button>
-            <button
-              className="rounded-md border border-rose-300 px-4 py-2 text-sm font-semibold text-rose-700 transition hover:bg-rose-50 disabled:opacity-50"
-              disabled={!selectedBlueprintId || isSubmitting}
-              type="button"
-              onClick={() => void handleDeleteBlueprint()}
-            >
-              Delete
-            </button>
-          </div>
-        </div>
-        <p className="mt-3 text-sm text-zinc-500">
-          Blueprints keep the fixed provisioning shape: Proxmox template, sizing, disks, network, environment, and bootstrap profiles. VMID, hostname, and IP stay per-machine.
-        </p>
-      </section>
-
-      <section className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm">
-        <div className="flex flex-col gap-1">
-          <h3 className="text-base font-semibold text-zinc-950">Batch provisioning</h3>
-          <p className="text-sm text-zinc-500">
-            Create multiple VMs from one blueprint using sequential VMIDs and IP addresses.
-          </p>
-        </div>
-        <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-          <label className="text-sm font-medium text-zinc-700">
-            Blueprint
-            <select
-              className="mt-1 w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-950 shadow-sm outline-none transition focus:border-zinc-900 focus:ring-2 focus:ring-zinc-900/10"
-              value={batchFormState.blueprint_id}
-              onChange={(event) => updateBatchField('blueprint_id', event.target.value)}
-            >
-              <option value="">Select blueprint</option>
-              {blueprints.map((blueprint) => (
-                <option key={blueprint.id} value={blueprint.id}>
-                  {blueprint.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <BatchTextInput label="Batch name" name="name" value={batchFormState.name} onChange={updateBatchField} />
-          <BatchTextInput label="Count" name="count" type="number" value={batchFormState.count} onChange={updateBatchField} />
-          <BatchTextInput label="VM name pattern" name="vm_name_pattern" value={batchFormState.vm_name_pattern} onChange={updateBatchField} />
-          <BatchTextInput label="Hostname pattern" name="hostname_pattern" value={batchFormState.hostname_pattern} onChange={updateBatchField} />
-          <BatchTextInput label="Starting VMID" name="starting_vm_id" type="number" value={batchFormState.starting_vm_id} onChange={updateBatchField} />
-          <BatchTextInput label="Starting IP/CIDR" name="starting_ip_cidr" value={batchFormState.starting_ip_cidr} onChange={updateBatchField} />
-          <BatchTextInput label="Cloud-init password" name="cloud_init_password" type="password" value={batchFormState.cloud_init_password} onChange={updateBatchField} />
-          <BatchTextInput label="Description" name="description" value={batchFormState.description} onChange={updateBatchField} />
-        </div>
-        <p className="mt-3 text-xs text-zinc-500">
-          Patterns support <code>{'{index}'}</code> as zero-padded numbers like 001 and <code>{'{number}'}</code> as plain numbers.
-        </p>
-        <div className="mt-5 flex justify-end">
           <button
-            className="rounded-md bg-zinc-950 px-4 py-2 text-sm font-semibold text-white transition hover:bg-zinc-800 disabled:bg-zinc-300"
-            disabled={isSubmitting}
+            className="rounded-md border border-zinc-300 px-4 py-2 text-sm font-semibold text-zinc-700 transition hover:bg-zinc-50"
             type="button"
-            onClick={() => void handleBatchSubmit()}
+            onClick={() => setIsBlueprintOpen(true)}
           >
-            {isSubmitting ? 'Provisioning batch' : 'Provision batch'}
+            Save / edit blueprint
           </button>
         </div>
-      </section>
-
-      <section className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm">
-        <h3 className="text-base font-semibold text-zinc-950">Provision VM</h3>
-        <WizardSteps
-          steps={['Blueprint', 'VM fields', 'Cloud-init/auth', 'Bootstrap', 'Review', 'Run']}
-          currentIndex={reviewCompleteness(formState, selectedBlueprintId)}
-        />
-        {isLoading ? <div className="mt-4 h-40 animate-pulse rounded-md bg-zinc-100" /> : null}
-        {!isLoading ? (
-          <>
-            <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-              <TextInput label="VM name" name="vm_name" value={formState.vm_name} onChange={updateField} />
-              <TextInput label="Cloud hostname" name="cloud_init_hostname" value={formState.cloud_init_hostname} onChange={updateField} />
-              <TextInput label="New VMID" name="new_vm_id" type="number" value={formState.new_vm_id} onChange={updateField} />
-              <label className="text-sm font-medium text-zinc-700">
-                Template
-                <select
-                  className="mt-1 w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-950 shadow-sm outline-none transition focus:border-zinc-900 focus:ring-2 focus:ring-zinc-900/10"
-                  value={formState.template_id}
-                  onChange={(event) => {
-                    const template = templates.find((item) => String(item.template_id) === event.target.value);
-                    updateField('template_id', event.target.value);
-                    if (template) updateField('target_node', template.node);
-                  }}
-                >
-                  {templates.map((template) => (
-                    <option key={`${template.node}-${template.template_id}`} value={template.template_id}>
-                      {template.name} ({template.template_id})
-                    </option>
-                  ))}
-                </select>
-              </label>
-                      <TextInput label="Target node" name="target_node" value={formState.target_node} onChange={updateField} />
-              <TextInput label="Network bridge" name="network_bridge" value={formState.network_bridge} onChange={updateField} />
-              <TextInput label="CPU cores" name="cpu_cores" type="number" value={formState.cpu_cores} onChange={updateField} />
-              <TextInput label="RAM MB" name="memory_mb" type="number" value={formState.memory_mb} onChange={updateField} />
-              <TextInput label="Root disk GB" name="disk_gb" type="number" value={formState.disk_gb} onChange={updateField} />
-              <TextInput label="Static IP/CIDR" name="static_ip_cidr" value={formState.static_ip_cidr} onChange={updateField} />
-              <TextInput label="Gateway" name="gateway" value={formState.gateway} onChange={updateField} />
-              <TextInput label="DNS servers" name="dns_servers_text" value={formState.dns_servers_text} onChange={updateField} />
-              <TextInput label="Cloud-init user" name="cloud_init_username" value={formState.cloud_init_username} onChange={updateField} />
-              <TextInput label="Cloud-init password" name="cloud_init_password" type="password" value={formState.cloud_init_password} onChange={updateField} />
-              <TextInput label="Environment" name="environment" value={formState.environment} onChange={updateField} />
-              <TextInput label="Tags" name="tags_text" value={formState.tags_text} onChange={updateField} />
-              <TextInput label="Description" name="description" value={formState.description} onChange={updateField} />
-              <label className="flex items-center gap-2 text-sm font-medium text-zinc-700">
-                <input
-                  checked={formState.start_on_boot}
-                  type="checkbox"
-                  onChange={(event) => updateField('start_on_boot', event.target.checked)}
-                />
-                Start on boot
-              </label>
-              <label className="text-sm font-medium text-zinc-700 xl:col-span-3">
-                SSH public key
-                <textarea
-                  className="mt-1 min-h-20 w-full rounded-md border border-zinc-300 bg-white px-3 py-2 font-mono text-sm text-zinc-950 shadow-sm outline-none transition focus:border-zinc-900 focus:ring-2 focus:ring-zinc-900/10"
-                  value={formState.ssh_public_key}
-                  onChange={(event) => updateField('ssh_public_key', event.target.value)}
-                />
-              </label>
-            </div>
-
-            <div className="mt-5 rounded-md border border-zinc-200 p-4">
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <h4 className="text-sm font-semibold text-zinc-950">Additional disks</h4>
-                  <p className="mt-1 text-xs text-zinc-500">Extra disks are added after the root disk as scsi1, scsi2, and onward by default.</p>
-                </div>
-                <button
-                  className="rounded-md border border-zinc-300 px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
-                  type="button"
-                  onClick={() =>
-                    updateField('additional_disks', [
-                      ...formState.additional_disks,
-                      { size_gb: '32', storage: diskStorageOptions[0]?.storage ?? 'local-lvm', bus: 'scsi' },
-                    ])
-                  }
-                >
-                  Add disk
-                </button>
-              </div>
-              {formState.additional_disks.length ? (
-                <div className="mt-4 space-y-3">
-                  {formState.additional_disks.map((disk, index) => (
-                    <div key={index} className="grid gap-3 md:grid-cols-[1fr_1fr_1fr_auto]">
-                      <label className="text-sm font-medium text-zinc-700">
-                        Size GB
-                        <input
-                          className="mt-1 w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-950"
-                          min="1"
-                          type="number"
-                          value={disk.size_gb}
-                          onChange={(event) => updateAdditionalDisk(index, { size_gb: event.target.value })}
-                        />
-                      </label>
-                      <label className="text-sm font-medium text-zinc-700">
-                        Storage
-                        <select
-                          className="mt-1 w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-950"
-                          value={disk.storage}
-                          onChange={(event) => updateAdditionalDisk(index, { storage: event.target.value })}
-                        >
-                          {diskStorageOptions.length === 0 ? <option value={disk.storage}>{disk.storage || 'local-lvm'}</option> : null}
-                          {diskStorageOptions.map((storage) => (
-                            <option key={`${storage.node ?? 'cluster'}-${storage.storage}`} value={storage.storage}>
-                              {storage.storage}{storage.type ? ` (${storage.type})` : ''}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                      <label className="text-sm font-medium text-zinc-700">
-                        Bus
-                        <select
-                          className="mt-1 w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-950"
-                          value={disk.bus}
-                          onChange={(event) => updateAdditionalDisk(index, { bus: event.target.value as 'scsi' | 'virtio' | 'sata' })}
-                        >
-                          <option value="scsi">SCSI</option>
-                          <option value="virtio">VirtIO</option>
-                          <option value="sata">SATA</option>
-                        </select>
-                      </label>
-                      <button
-                        className="self-end rounded-md border border-rose-300 px-3 py-2 text-sm font-semibold text-rose-700 hover:bg-rose-50"
-                        type="button"
-                        onClick={() =>
-                          updateField(
-                            'additional_disks',
-                            formState.additional_disks.filter((_, diskIndex) => diskIndex !== index),
-                          )
-                        }
-                      >
-                        Remove
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              ) : null}
-            </div>
-
-            <div className="mt-5 grid gap-4 md:grid-cols-2">
-              <MultiSelect
-                label="Bootstrap profiles"
-                options={profiles.map((profile) => ({ label: profile.name, value: profile.id }))}
-                value={formState.bootstrap_profile_ids}
-                onChange={(value) => updateField('bootstrap_profile_ids', value)}
+        <ContextDrawer
+          description="Save the current wizard defaults, duplicate selected blueprints, or maintain blueprint records."
+          isOpen={isBlueprintOpen}
+          title="Blueprint Actions"
+          width="lg"
+          onClose={() => setIsBlueprintOpen(false)}
+        >
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-end">
+            <label className="flex-1 text-sm font-medium text-zinc-700">
+              Save current defaults as
+              <input
+                className="mt-1 w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-950 shadow-sm outline-none transition focus:border-zinc-900 focus:ring-2 focus:ring-zinc-900/10"
+                placeholder="Ubuntu Docker Host"
+                value={blueprintName}
+                onChange={(event) => setBlueprintName(event.target.value)}
               />
-              <MultiSelect
-                label="Bootstrap packages"
-                options={packages.map((pkg) => ({ label: pkg.name, value: pkg.id }))}
-                value={formState.bootstrap_package_ids}
-                onChange={(value) => updateField('bootstrap_package_ids', value)}
-              />
-            </div>
-
-            <div className="mt-5 flex justify-end">
+            </label>
+            <div className="flex flex-wrap gap-2">
               <button
                 className="rounded-md bg-zinc-950 px-4 py-2 text-sm font-semibold text-white transition hover:bg-zinc-800 disabled:bg-zinc-300"
                 disabled={isSubmitting}
                 type="button"
-                onClick={handleSubmit}
+                onClick={() => void handleSaveBlueprint()}
               >
-                {isSubmitting ? 'Provisioning' : 'Provision VM'}
+                Save blueprint
+              </button>
+              <button
+                className="rounded-md border border-zinc-300 px-4 py-2 text-sm font-semibold text-zinc-700 transition hover:bg-zinc-50 disabled:opacity-50"
+                disabled={!selectedBlueprintId || isSubmitting}
+                type="button"
+                onClick={() => void handleUpdateBlueprint()}
+              >
+                Update
+              </button>
+              <button
+                className="rounded-md border border-zinc-300 px-4 py-2 text-sm font-semibold text-zinc-700 transition hover:bg-zinc-50 disabled:opacity-50"
+                disabled={!selectedBlueprintId || isSubmitting}
+                type="button"
+                onClick={() => void handleCloneBlueprint()}
+              >
+                Clone
+              </button>
+              <button
+                className="rounded-md border border-rose-300 px-4 py-2 text-sm font-semibold text-rose-700 transition hover:bg-rose-50 disabled:opacity-50"
+                disabled={!selectedBlueprintId || isSubmitting}
+                type="button"
+                onClick={() => void handleDeleteBlueprint()}
+              >
+                Delete
               </button>
             </div>
-          </>
-        ) : null}
+          </div>
+        </ContextDrawer>
+        <p className="mt-3 text-sm text-zinc-500">
+          Blueprints keep the fixed provisioning shape: Proxmox template, sizing, disks, network,
+          environment, and bootstrap profiles. VMID, hostname, and IP stay per-machine.
+        </p>
+      </section>
+
+      <section className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex flex-col gap-1">
+            <h3 className="text-base font-semibold text-zinc-950">Batch provisioning</h3>
+            <p className="text-sm text-zinc-500">
+              Create multiple VMs from one blueprint using sequential VMIDs and IP addresses.
+            </p>
+          </div>
+          <button
+            className="rounded-md border border-zinc-300 px-4 py-2 text-sm font-semibold text-zinc-700 transition hover:bg-zinc-50"
+            type="button"
+            onClick={() => setIsBatchOpen(true)}
+          >
+            Provision batch
+          </button>
+        </div>
+        <ContextDrawer
+          description="Create multiple VMs from one blueprint using sequential VMIDs and IP addresses."
+          isOpen={isBatchOpen}
+          title="Batch Provisioning"
+          width="xl"
+          onClose={() => setIsBatchOpen(false)}
+        >
+          <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+            <label className="text-sm font-medium text-zinc-700">
+              Blueprint
+              <select
+                className="mt-1 w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-950 shadow-sm outline-none transition focus:border-zinc-900 focus:ring-2 focus:ring-zinc-900/10"
+                value={batchFormState.blueprint_id}
+                onChange={(event) => updateBatchField('blueprint_id', event.target.value)}
+              >
+                <option value="">Select blueprint</option>
+                {blueprints.map((blueprint) => (
+                  <option key={blueprint.id} value={blueprint.id}>
+                    {blueprint.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <BatchTextInput
+              label="Batch name"
+              name="name"
+              value={batchFormState.name}
+              onChange={updateBatchField}
+            />
+            <BatchTextInput
+              label="Count"
+              name="count"
+              type="number"
+              value={batchFormState.count}
+              onChange={updateBatchField}
+            />
+            <BatchTextInput
+              label="VM name pattern"
+              name="vm_name_pattern"
+              value={batchFormState.vm_name_pattern}
+              onChange={updateBatchField}
+            />
+            <BatchTextInput
+              label="Hostname pattern"
+              name="hostname_pattern"
+              value={batchFormState.hostname_pattern}
+              onChange={updateBatchField}
+            />
+            <BatchTextInput
+              label="Starting VMID"
+              name="starting_vm_id"
+              type="number"
+              value={batchFormState.starting_vm_id}
+              onChange={updateBatchField}
+            />
+            <BatchTextInput
+              label="Starting IP/CIDR"
+              name="starting_ip_cidr"
+              value={batchFormState.starting_ip_cidr}
+              onChange={updateBatchField}
+            />
+            <BatchTextInput
+              label="Cloud-init password"
+              name="cloud_init_password"
+              type="password"
+              value={batchFormState.cloud_init_password}
+              onChange={updateBatchField}
+            />
+            <BatchTextInput
+              label="Description"
+              name="description"
+              value={batchFormState.description}
+              onChange={updateBatchField}
+            />
+          </div>
+          <p className="mt-3 text-xs text-zinc-500">
+            Patterns support <code>{'{index}'}</code> as zero-padded numbers like 001 and{' '}
+            <code>{'{number}'}</code> as plain numbers.
+          </p>
+          <div className="mt-5 flex justify-end">
+            <button
+              className="rounded-md bg-zinc-950 px-4 py-2 text-sm font-semibold text-white transition hover:bg-zinc-800 disabled:bg-zinc-300"
+              disabled={isSubmitting}
+              type="button"
+              onClick={() => void handleBatchSubmit()}
+            >
+              {isSubmitting ? 'Provisioning batch' : 'Provision batch'}
+            </button>
+          </div>
+        </ContextDrawer>
+      </section>
+
+      <section className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm">
+        <h3 className="text-base font-semibold text-zinc-950">Provision VM</h3>
+        <>
+          <WizardSteps
+            steps={['Blueprint', 'VM fields', 'Cloud-init/auth', 'Bootstrap', 'Review', 'Run']}
+            currentIndex={reviewCompleteness(formState, selectedBlueprintId)}
+          />
+          {isLoading ? <div className="mt-4 h-40 animate-pulse rounded-md bg-zinc-100" /> : null}
+          {!isLoading ? (
+            <>
+              <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                <TextInput
+                  label="VM name"
+                  name="vm_name"
+                  value={formState.vm_name}
+                  onChange={updateField}
+                />
+                <TextInput
+                  label="Cloud hostname"
+                  name="cloud_init_hostname"
+                  value={formState.cloud_init_hostname}
+                  onChange={updateField}
+                />
+                <TextInput
+                  label="New VMID"
+                  name="new_vm_id"
+                  type="number"
+                  value={formState.new_vm_id}
+                  onChange={updateField}
+                />
+                <label className="text-sm font-medium text-zinc-700">
+                  Template
+                  <select
+                    className="mt-1 w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-950 shadow-sm outline-none transition focus:border-zinc-900 focus:ring-2 focus:ring-zinc-900/10"
+                    value={formState.template_id}
+                    onChange={(event) => {
+                      const template = templates.find(
+                        (item) => String(item.template_id) === event.target.value,
+                      );
+                      updateField('template_id', event.target.value);
+                      if (template) updateField('target_node', template.node);
+                    }}
+                  >
+                    {templates.map((template) => (
+                      <option
+                        key={`${template.node}-${template.template_id}`}
+                        value={template.template_id}
+                      >
+                        {template.name} ({template.template_id})
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <TextInput
+                  label="Target node"
+                  name="target_node"
+                  value={formState.target_node}
+                  onChange={updateField}
+                />
+                <TextInput
+                  label="Network bridge"
+                  name="network_bridge"
+                  value={formState.network_bridge}
+                  onChange={updateField}
+                />
+                <TextInput
+                  label="CPU cores"
+                  name="cpu_cores"
+                  type="number"
+                  value={formState.cpu_cores}
+                  onChange={updateField}
+                />
+                <TextInput
+                  label="RAM MB"
+                  name="memory_mb"
+                  type="number"
+                  value={formState.memory_mb}
+                  onChange={updateField}
+                />
+                <TextInput
+                  label="Root disk GB"
+                  name="disk_gb"
+                  type="number"
+                  value={formState.disk_gb}
+                  onChange={updateField}
+                />
+                <TextInput
+                  label="Static IP/CIDR"
+                  name="static_ip_cidr"
+                  value={formState.static_ip_cidr}
+                  onChange={updateField}
+                />
+                <TextInput
+                  label="Gateway"
+                  name="gateway"
+                  value={formState.gateway}
+                  onChange={updateField}
+                />
+                <TextInput
+                  label="DNS servers"
+                  name="dns_servers_text"
+                  value={formState.dns_servers_text}
+                  onChange={updateField}
+                />
+                <TextInput
+                  label="Cloud-init user"
+                  name="cloud_init_username"
+                  value={formState.cloud_init_username}
+                  onChange={updateField}
+                />
+                <TextInput
+                  label="Cloud-init password"
+                  name="cloud_init_password"
+                  type="password"
+                  value={formState.cloud_init_password}
+                  onChange={updateField}
+                />
+                <TextInput
+                  label="Environment"
+                  name="environment"
+                  value={formState.environment}
+                  onChange={updateField}
+                />
+                <TextInput
+                  label="Tags"
+                  name="tags_text"
+                  value={formState.tags_text}
+                  onChange={updateField}
+                />
+                <TextInput
+                  label="Description"
+                  name="description"
+                  value={formState.description}
+                  onChange={updateField}
+                />
+                <label className="flex items-center gap-2 text-sm font-medium text-zinc-700">
+                  <input
+                    checked={formState.start_on_boot}
+                    type="checkbox"
+                    onChange={(event) => updateField('start_on_boot', event.target.checked)}
+                  />
+                  Start on boot
+                </label>
+                <label className="text-sm font-medium text-zinc-700 xl:col-span-3">
+                  SSH public key
+                  <textarea
+                    className="mt-1 min-h-20 w-full rounded-md border border-zinc-300 bg-white px-3 py-2 font-mono text-sm text-zinc-950 shadow-sm outline-none transition focus:border-zinc-900 focus:ring-2 focus:ring-zinc-900/10"
+                    value={formState.ssh_public_key}
+                    onChange={(event) => updateField('ssh_public_key', event.target.value)}
+                  />
+                </label>
+              </div>
+
+              <div className="mt-5 rounded-md border border-zinc-200 p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <h4 className="text-sm font-semibold text-zinc-950">Additional disks</h4>
+                    <p className="mt-1 text-xs text-zinc-500">
+                      Extra disks are added after the root disk as scsi1, scsi2, and onward by
+                      default.
+                    </p>
+                  </div>
+                  <button
+                    className="rounded-md border border-zinc-300 px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
+                    type="button"
+                    onClick={() =>
+                      updateField('additional_disks', [
+                        ...formState.additional_disks,
+                        {
+                          size_gb: '32',
+                          storage: diskStorageOptions[0]?.storage ?? 'local-lvm',
+                          bus: 'scsi',
+                        },
+                      ])
+                    }
+                  >
+                    Add disk
+                  </button>
+                </div>
+                {formState.additional_disks.length ? (
+                  <div className="mt-4 space-y-3">
+                    {formState.additional_disks.map((disk, index) => (
+                      <div key={index} className="grid gap-3 md:grid-cols-[1fr_1fr_1fr_auto]">
+                        <label className="text-sm font-medium text-zinc-700">
+                          Size GB
+                          <input
+                            className="mt-1 w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-950"
+                            min="1"
+                            type="number"
+                            value={disk.size_gb}
+                            onChange={(event) =>
+                              updateAdditionalDisk(index, { size_gb: event.target.value })
+                            }
+                          />
+                        </label>
+                        <label className="text-sm font-medium text-zinc-700">
+                          Storage
+                          <select
+                            className="mt-1 w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-950"
+                            value={disk.storage}
+                            onChange={(event) =>
+                              updateAdditionalDisk(index, { storage: event.target.value })
+                            }
+                          >
+                            {diskStorageOptions.length === 0 ? (
+                              <option value={disk.storage}>{disk.storage || 'local-lvm'}</option>
+                            ) : null}
+                            {diskStorageOptions.map((storage) => (
+                              <option
+                                key={`${storage.node ?? 'cluster'}-${storage.storage}`}
+                                value={storage.storage}
+                              >
+                                {storage.storage}
+                                {storage.type ? ` (${storage.type})` : ''}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                        <label className="text-sm font-medium text-zinc-700">
+                          Bus
+                          <select
+                            className="mt-1 w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-950"
+                            value={disk.bus}
+                            onChange={(event) =>
+                              updateAdditionalDisk(index, {
+                                bus: event.target.value as 'scsi' | 'virtio' | 'sata',
+                              })
+                            }
+                          >
+                            <option value="scsi">SCSI</option>
+                            <option value="virtio">VirtIO</option>
+                            <option value="sata">SATA</option>
+                          </select>
+                        </label>
+                        <button
+                          className="self-end rounded-md border border-rose-300 px-3 py-2 text-sm font-semibold text-rose-700 hover:bg-rose-50"
+                          type="button"
+                          onClick={() =>
+                            updateField(
+                              'additional_disks',
+                              formState.additional_disks.filter(
+                                (_, diskIndex) => diskIndex !== index,
+                              ),
+                            )
+                          }
+                        >
+                          Remove
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+
+              <div className="mt-5 grid gap-4 md:grid-cols-2">
+                <MultiSelect
+                  label="Bootstrap profiles"
+                  options={profiles.map((profile) => ({
+                    label: profile.name,
+                    value: profile.id,
+                  }))}
+                  value={formState.bootstrap_profile_ids}
+                  onChange={(value) => updateField('bootstrap_profile_ids', value)}
+                />
+                <MultiSelect
+                  label="Bootstrap packages"
+                  options={packages.map((pkg) => ({ label: pkg.name, value: pkg.id }))}
+                  value={formState.bootstrap_package_ids}
+                  onChange={(value) => updateField('bootstrap_package_ids', value)}
+                />
+              </div>
+
+              <div className="mt-5 flex justify-end">
+                <button
+                  className="rounded-md bg-zinc-950 px-4 py-2 text-sm font-semibold text-white transition hover:bg-zinc-800 disabled:bg-zinc-300"
+                  disabled={isSubmitting}
+                  type="button"
+                  onClick={handleSubmit}
+                >
+                  {isSubmitting ? 'Provisioning' : 'Provision VM'}
+                </button>
+              </div>
+            </>
+          ) : null}
+        </>
       </section>
 
       <ProvisioningBatchHistory batches={batches} />
@@ -876,20 +1120,29 @@ function ProvisioningHistory({
                 </button>
               </div>
             </div>
-            {request.error_message ? <p className="mt-3 text-sm text-rose-700">{request.error_message}</p> : null}
+            {request.error_message ? (
+              <p className="mt-3 text-sm text-rose-700">{request.error_message}</p>
+            ) : null}
             <p className="mt-3 text-xs text-zinc-500">
-              Tasks: {request.proxmox_task_ids.length} | Bootstrap jobs: {request.bootstrap_job_ids.length}
+              Tasks: {request.proxmox_task_ids.length} | Bootstrap jobs:{' '}
+              {request.bootstrap_job_ids.length}
             </p>
             <ProvisioningTimeline request={request} />
           </article>
         ))}
-        {requests.length === 0 ? <p className="text-sm text-zinc-500">No provisioning requests yet.</p> : null}
+        {requests.length === 0 ? (
+          <p className="text-sm text-zinc-500">No provisioning requests yet.</p>
+        ) : null}
       </div>
     </section>
   );
 }
 
-function StatusPill({ status }: { status: ProvisioningRequest['status'] | ProvisioningBatch['status'] }) {
+function StatusPill({
+  status,
+}: {
+  status: ProvisioningRequest['status'] | ProvisioningBatch['status'];
+}) {
   const className =
     status === 'completed'
       ? 'bg-emerald-400/10 text-emerald-200 ring-emerald-400/40'
@@ -899,7 +1152,9 @@ function StatusPill({ status }: { status: ProvisioningRequest['status'] | Provis
           ? 'bg-amber-400/10 text-amber-200 ring-amber-400/50'
           : 'bg-sky-400/10 text-sky-200 ring-sky-400/40';
   return (
-    <span className={`inline-flex w-fit rounded-full px-2.5 py-1 text-xs font-medium ring-1 ${className}`}>
+    <span
+      className={`inline-flex w-fit rounded-full px-2.5 py-1 text-xs font-medium ring-1 ${className}`}
+    >
       {status}
     </span>
   );
@@ -919,7 +1174,8 @@ function ProvisioningBatchHistory({ batches }: { batches: ProvisioningBatch[] })
               <div>
                 <h4 className="font-semibold text-zinc-950">{batch.name}</h4>
                 <p className="mt-1 text-sm text-zinc-500">
-                  {batch.count} VMs from VMID {batch.starting_vm_id}, starting at {batch.starting_ip_cidr}
+                  {batch.count} VMs from VMID {batch.starting_vm_id}, starting at{' '}
+                  {batch.starting_ip_cidr}
                 </p>
               </div>
               <StatusPill status={batch.status} />
@@ -930,11 +1186,15 @@ function ProvisioningBatchHistory({ batches }: { batches: ProvisioningBatch[] })
               <MetricCard label="Children" value={`${batch.requests.length}`} />
             </div>
             {batch.error_message ? (
-              <p className="mt-3 whitespace-pre-line text-sm text-rose-700">{batch.error_message}</p>
+              <p className="mt-3 whitespace-pre-line text-sm text-rose-700">
+                {batch.error_message}
+              </p>
             ) : null}
           </article>
         ))}
-        {batches.length === 0 ? <p className="text-sm text-zinc-500">No batch requests yet.</p> : null}
+        {batches.length === 0 ? (
+          <p className="text-sm text-zinc-500">No batch requests yet.</p>
+        ) : null}
       </div>
     </section>
   );
@@ -971,15 +1231,27 @@ function ProvisioningTimeline({ request }: { request: ProvisioningRequest }) {
               {item.state}
             </span>
           </div>
-          {item.detail ? <p className="mt-1 break-all font-mono text-[11px] text-zinc-500">{item.detail}</p> : null}
+          {item.detail ? (
+            <p className="mt-1 break-all font-mono text-[11px] text-zinc-500">{item.detail}</p>
+          ) : null}
         </li>
       ))}
     </ol>
   );
 }
 
-function toPayload(formState: FormState, selectedTemplate: ProxmoxTemplate | null): CreateProvisioningPayload | null {
-  if (!formState.vm_name || !formState.cloud_init_hostname || !formState.new_vm_id || !formState.template_id || !formState.static_ip_cidr || !formState.gateway) {
+function toPayload(
+  formState: FormState,
+  selectedTemplate: ProxmoxTemplate | null,
+): CreateProvisioningPayload | null {
+  if (
+    !formState.vm_name ||
+    !formState.cloud_init_hostname ||
+    !formState.new_vm_id ||
+    !formState.template_id ||
+    !formState.static_ip_cidr ||
+    !formState.gateway
+  ) {
     return null;
   }
 
@@ -1075,8 +1347,18 @@ function toBatchPayload(formState: BatchFormState) {
 
 function reviewCompleteness(formState: FormState, selectedBlueprintId: string): number {
   if (!selectedBlueprintId) return 0;
-  if (!formState.vm_name || !formState.new_vm_id || !formState.cloud_init_hostname || !formState.static_ip_cidr) return 1;
-  if (!formState.cloud_init_username || (!formState.cloud_init_password && !formState.ssh_public_key)) return 2;
+  if (
+    !formState.vm_name ||
+    !formState.new_vm_id ||
+    !formState.cloud_init_hostname ||
+    !formState.static_ip_cidr
+  )
+    return 1;
+  if (
+    !formState.cloud_init_username ||
+    (!formState.cloud_init_password && !formState.ssh_public_key)
+  )
+    return 2;
   if (formState.bootstrap_profile_ids.length || formState.bootstrap_package_ids.length) return 3;
   if (toPayload(formState, null)) return 4;
   return 3;

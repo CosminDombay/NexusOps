@@ -45,7 +45,14 @@ const defaultCompose = `services:
 `;
 
 const defaultRemotePath = '/opt/nexusops/deployments';
-const statusFilters: Array<DeploymentStatus | 'all'> = ['all', 'running', 'deploying', 'stopped', 'failed', 'draft'];
+const statusFilters: Array<DeploymentStatus | 'all'> = [
+  'all',
+  'running',
+  'deploying',
+  'stopped',
+  'failed',
+  'draft',
+];
 
 type DrawerMode = 'create' | 'edit' | null;
 type DeploymentOperationName = 'deploy' | 'redeploy' | 'restart' | 'stop';
@@ -63,7 +70,9 @@ export function DeploymentsPage() {
   const [composeContent, setComposeContent] = useState(defaultCompose);
   const [envContent, setEnvContent] = useState('');
   const [remotePath, setRemotePath] = useState(defaultRemotePath);
-  const [credentialRefs, setCredentialRefs] = useState<Array<{ key: string; credentialId: string }>>([]);
+  const [credentialRefs, setCredentialRefs] = useState<
+    Array<{ key: string; credentialId: string }>
+  >([]);
   const [logs, setLogs] = useState('');
   const [inspectOutput, setInspectOutput] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -71,9 +80,16 @@ export function DeploymentsPage() {
   const [isWorking, setIsWorking] = useState(false);
   const [editingDeploymentId, setEditingDeploymentId] = useState<string | null>(null);
 
-  const selectedDeployment = deployments.find((deployment) => deployment.id === selectedDeploymentId) ?? deployments[0] ?? null;
+  const selectedDeployment =
+    deployments.find((deployment) => deployment.id === selectedDeploymentId) ??
+    deployments[0] ??
+    null;
   const filteredDeployments = useMemo(
-    () => deployments.filter((deployment) => statusFilter === 'all' || normalizeStatus(deployment.status) === statusFilter),
+    () =>
+      deployments.filter(
+        (deployment) =>
+          statusFilter === 'all' || normalizeStatus(deployment.status) === statusFilter,
+      ),
     [deployments, statusFilter],
   );
 
@@ -81,7 +97,11 @@ export function DeploymentsPage() {
     setIsLoading(true);
     setError(null);
     try {
-      const [nextDeployments, nextServers, nextCredentials] = await Promise.all([listDeployments(), listServers(), listCredentials()]);
+      const [nextDeployments, nextServers, nextCredentials] = await Promise.all([
+        listDeployments(),
+        listServers(),
+        listCredentials(),
+      ]);
       setDeployments(nextDeployments);
       setServers(nextServers);
       setCredentials(nextCredentials);
@@ -134,7 +154,12 @@ export function DeploymentsPage() {
     setComposeContent(deployment.compose_content);
     setEnvContent(deployment.env_content ?? '');
     setRemotePath(deployment.remote_path ?? defaultRemotePath);
-    setCredentialRefs(Object.entries(deployment.credential_refs ?? {}).map(([key, credentialId]) => ({ key, credentialId })));
+    setCredentialRefs(
+      Object.entries(deployment.credential_refs ?? {}).map(([key, credentialId]) => ({
+        key,
+        credentialId,
+      })),
+    );
     targetSelector.setMode('single');
     targetSelector.setSelectedId(deployment.target_server_id ?? '');
     targetSelector.setSelectedIds([]);
@@ -158,7 +183,9 @@ export function DeploymentsPage() {
       const payload = deploymentPayload(targets);
       if (editingDeploymentId) {
         const deployment = await updateDeployment(editingDeploymentId, payload);
-        setDeployments((current) => current.map((item) => (item.id === deployment.id ? deployment : item)));
+        setDeployments((current) =>
+          current.map((item) => (item.id === deployment.id ? deployment : item)),
+        );
         setSelectedDeploymentId(deployment.id);
       } else {
         const deployment = await createDeployment(payload);
@@ -180,7 +207,9 @@ export function DeploymentsPage() {
     setError(null);
     try {
       const result = await runDeploymentOperation(deployment.id, operation);
-      setDeployments((current) => current.map((item) => (item.id === result.deployment.id ? result.deployment : item)));
+      setDeployments((current) =>
+        current.map((item) => (item.id === result.deployment.id ? result.deployment : item)),
+      );
       setLogs(`${result.job.stdout ?? ''}${result.job.stderr ? `\n${result.job.stderr}` : ''}`);
     } catch (caughtError) {
       setError(getApiErrorMessage(caughtError));
@@ -195,7 +224,9 @@ export function DeploymentsPage() {
     setError(null);
     try {
       const result = await getDeploymentStatus(deployment.id);
-      setInspectOutput(`${result.job.stdout ?? ''}${result.job.stderr ? `\n${result.job.stderr}` : ''}`);
+      setInspectOutput(
+        `${result.job.stdout ?? ''}${result.job.stderr ? `\n${result.job.stderr}` : ''}`,
+      );
     } catch (caughtError) {
       setError(getApiErrorMessage(caughtError));
     } finally {
@@ -244,23 +275,47 @@ export function DeploymentsPage() {
 
   return (
     <div className="space-y-5">
-      <PageHeader title="Docker Deployments" description="Operational Compose services deployed to inventory-managed Linux hosts." />
+      <PageHeader
+        title="Docker Deployments"
+        description="Operational Compose services deployed to inventory-managed Linux hosts."
+      />
 
-      {error ? <div className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</div> : null}
+      {error ? (
+        <div className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
+          {error}
+        </div>
+      ) : null}
 
       <section className="flex flex-col gap-3 rounded-md border border-zinc-200 bg-white p-4 shadow-sm lg:flex-row lg:items-center lg:justify-between">
         <div className="grid gap-3 sm:grid-cols-4">
           <Metric label="Services" value={deployments.length} />
-          <Metric label="Running" value={deployments.filter((item) => normalizeStatus(item.status) === 'running').length} />
-          <Metric label="Failed" value={deployments.filter((item) => normalizeStatus(item.status) === 'failed').length} />
-          <Metric label="Drift" value={deployments.filter((item) => item.sync_status !== 'synced').length} />
+          <Metric
+            label="Running"
+            value={deployments.filter((item) => normalizeStatus(item.status) === 'running').length}
+          />
+          <Metric
+            label="Failed"
+            value={deployments.filter((item) => normalizeStatus(item.status) === 'failed').length}
+          />
+          <Metric
+            label="Drift"
+            value={deployments.filter((item) => item.sync_status !== 'synced').length}
+          />
         </div>
         <div className="flex flex-wrap gap-2">
-          <button className="inline-flex h-10 items-center gap-2 rounded-md border border-zinc-300 px-3 text-sm font-semibold text-zinc-700 hover:bg-zinc-50" type="button" onClick={() => void refresh()}>
+          <button
+            className="inline-flex h-10 items-center gap-2 rounded-md border border-zinc-300 px-3 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
+            type="button"
+            onClick={() => void refresh()}
+          >
             <RefreshCw className="h-4 w-4" aria-hidden="true" />
             Refresh
           </button>
-          <button className="inline-flex h-10 items-center gap-2 rounded-md bg-zinc-950 px-3 text-sm font-semibold text-white hover:bg-zinc-800" type="button" onClick={openCreateDrawer}>
+          <button
+            className="inline-flex h-10 items-center gap-2 rounded-md bg-zinc-950 px-3 text-sm font-semibold text-white hover:bg-zinc-800"
+            type="button"
+            onClick={openCreateDrawer}
+          >
             <Plus className="h-4 w-4" aria-hidden="true" />
             Create
           </button>
@@ -280,7 +335,11 @@ export function DeploymentsPage() {
         ))}
       </section>
 
-      {isLoading ? <div className="rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-500">Loading deployments...</div> : null}
+      {isLoading ? (
+        <div className="rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-500">
+          Loading deployments...
+        </div>
+      ) : null}
 
       <section className="grid gap-4 xl:grid-cols-3">
         {filteredDeployments.map((deployment) => (
@@ -305,7 +364,10 @@ export function DeploymentsPage() {
       </section>
 
       <section className="grid gap-4 xl:grid-cols-2">
-        <OutputPanel title="Inspect" value={inspectOutput || selectedDeploymentSummary(selectedDeployment)} />
+        <OutputPanel
+          title="Inspect"
+          value={inspectOutput || selectedDeploymentSummary(selectedDeployment)}
+        />
         <OutputPanel title="Logs" value={logs || 'No logs loaded.'} />
       </section>
 
@@ -360,7 +422,9 @@ function DeploymentCard({
   onDelete: (deployment: Deployment) => Promise<void>;
 }) {
   return (
-    <article className={`rounded-md border bg-white p-4 shadow-sm ${selected ? 'border-cyan-400 ring-1 ring-cyan-200' : 'border-zinc-200'}`}>
+    <article
+      className={`rounded-md border bg-white p-4 shadow-sm ${selected ? 'border-cyan-400 ring-1 ring-cyan-200' : 'border-zinc-200'}`}
+    >
       <button className="w-full text-left" type="button" onClick={onSelect}>
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
@@ -368,35 +432,92 @@ function DeploymentCard({
             <p className="mt-1 flex items-center gap-1 text-sm text-zinc-500">
               <Server className="h-4 w-4" aria-hidden="true" />
               {deployment.target_server_id ? (
-                <Link className="font-semibold text-zinc-700 hover:text-zinc-950" to={`/inventory/${deployment.target_server_id}`} onClick={(event) => event.stopPropagation()}>
+                <Link
+                  className="font-semibold text-zinc-700 hover:text-zinc-950"
+                  to={`/inventory/${deployment.target_server_id}`}
+                  onClick={(event) => event.stopPropagation()}
+                >
                   {deployment.target_hostname ?? 'Open host'}
                 </Link>
-              ) : 'No target'}
+              ) : (
+                'No target'
+              )}
             </p>
           </div>
           <DeploymentStatusBadge status={deployment.status} />
         </div>
         <div className="mt-4 grid gap-2 sm:grid-cols-2">
-          <Info label="Ports" value={deployment.ports.length ? deployment.ports.join(', ') : 'none'} />
+          <Info
+            label="Ports"
+            value={deployment.ports.length ? deployment.ports.join(', ') : 'none'}
+          />
           <Info label="Health" value={deployment.health_state} />
           <Info label="Sync" value={deployment.sync_status} />
           <Info label="Uptime" value={formatDuration(deployment.uptime_seconds)} />
         </div>
         <div className="mt-3 flex flex-wrap gap-1.5">
           <Chip icon={FileText} label={deployment.compose_source} />
-          {Object.keys(deployment.credential_refs ?? {}).length ? <Chip icon={KeyRound} label={`${Object.keys(deployment.credential_refs).length} secret refs`} /> : null}
-          {deployment.remote_path ? <Chip icon={Activity} label={deploymentPathPreview(deployment)} /> : null}
+          {Object.keys(deployment.credential_refs ?? {}).length ? (
+            <Chip
+              icon={KeyRound}
+              label={`${Object.keys(deployment.credential_refs).length} secret refs`}
+            />
+          ) : null}
+          {deployment.remote_path ? (
+            <Chip icon={Activity} label={deploymentPathPreview(deployment)} />
+          ) : null}
         </div>
       </button>
       <div className="mt-4 flex flex-wrap gap-2">
-        <ActionButton icon={Play} label="Start" disabled={isWorking} onClick={() => void onRun(deployment, 'deploy')} />
-        <ActionButton icon={Square} label="Stop" disabled={isWorking} onClick={() => void onRun(deployment, 'stop')} />
-        <ActionButton icon={RotateCw} label="Restart" disabled={isWorking} onClick={() => void onRun(deployment, 'restart')} />
-        <ActionButton icon={RefreshCw} label="Redeploy" disabled={isWorking} onClick={() => void onRun(deployment, 'redeploy')} />
-        <ActionButton icon={Eye} label="Inspect" disabled={isWorking} onClick={() => void onInspect(deployment)} />
-        <ActionButton icon={Terminal} label="Logs" disabled={isWorking} onClick={() => void onLogs(deployment)} />
-        <ActionButton icon={Pencil} label="Edit" disabled={isWorking} onClick={() => onEdit(deployment)} />
-        <ActionButton icon={Trash2} label="Delete" disabled={isWorking} tone="danger" onClick={() => void onDelete(deployment)} />
+        <ActionButton
+          icon={Play}
+          label="Start"
+          disabled={isWorking}
+          onClick={() => void onRun(deployment, 'deploy')}
+        />
+        <ActionButton
+          icon={Square}
+          label="Stop"
+          disabled={isWorking}
+          onClick={() => void onRun(deployment, 'stop')}
+        />
+        <ActionButton
+          icon={RotateCw}
+          label="Restart"
+          disabled={isWorking}
+          onClick={() => void onRun(deployment, 'restart')}
+        />
+        <ActionButton
+          icon={RefreshCw}
+          label="Redeploy"
+          disabled={isWorking}
+          onClick={() => void onRun(deployment, 'redeploy')}
+        />
+        <ActionButton
+          icon={Eye}
+          label="Inspect"
+          disabled={isWorking}
+          onClick={() => void onInspect(deployment)}
+        />
+        <ActionButton
+          icon={Terminal}
+          label="Logs"
+          disabled={isWorking}
+          onClick={() => void onLogs(deployment)}
+        />
+        <ActionButton
+          icon={Pencil}
+          label="Edit"
+          disabled={isWorking}
+          onClick={() => onEdit(deployment)}
+        />
+        <ActionButton
+          icon={Trash2}
+          label="Delete"
+          disabled={isWorking}
+          tone="danger"
+          onClick={() => void onDelete(deployment)}
+        />
       </div>
     </article>
   );
@@ -442,52 +563,89 @@ function DeploymentDrawer({
   onSave: () => void;
 }) {
   return (
-    <div className="fixed inset-0 z-40 flex justify-end bg-zinc-950/40">
-      <aside className="h-full w-full max-w-3xl overflow-auto bg-white p-5 shadow-xl">
-        <div className="flex items-center justify-between gap-3">
+    <div className="fixed inset-0 z-40 overflow-hidden bg-zinc-950/40 p-3 sm:p-5">
+      <aside className="mx-auto flex h-full w-[min(100%,56rem)] max-w-[calc(100vw-1.5rem)] flex-col overflow-hidden rounded-md bg-white shadow-xl sm:max-w-[calc(100vw-2.5rem)]">
+        <div className="flex shrink-0 items-center justify-between gap-3 border-b border-zinc-200 p-5">
           <div>
-            <h2 className="text-lg font-semibold text-zinc-950">{mode === 'edit' ? 'Edit deployment' : 'Create deployment'}</h2>
-            <p className="mt-1 text-sm text-zinc-500">Compose content, target host, and runtime secrets stay in the existing deployment workflow.</p>
+            <h2 className="text-lg font-semibold text-zinc-950">
+              {mode === 'edit' ? 'Edit deployment' : 'Create deployment'}
+            </h2>
+            <p className="mt-1 text-sm text-zinc-500">
+              Compose content, target host, and runtime secrets stay in the existing deployment
+              workflow.
+            </p>
           </div>
-          <button className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-zinc-300 text-zinc-600 hover:bg-zinc-50" type="button" onClick={onClose}>
+          <button
+            className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-zinc-300 text-zinc-600 hover:bg-zinc-50"
+            type="button"
+            onClick={onClose}
+          >
             <X className="h-4 w-4" aria-hidden="true" />
           </button>
         </div>
-        <div className="mt-5 grid gap-4">
+        <div className="grid min-w-0 flex-1 gap-4 overflow-y-auto overflow-x-hidden p-5">
           <label className="block">
             <span className="text-sm font-medium text-zinc-950">Deployment name</span>
-            <input className="mt-2 h-10 w-full rounded-md border border-zinc-300 px-3 text-sm" value={name} onChange={(event) => onNameChange(event.target.value)} />
+            <input
+              className="mt-2 h-10 w-full rounded-md border border-zinc-300 px-3 text-sm"
+              value={name}
+              onChange={(event) => onNameChange(event.target.value)}
+            />
           </label>
-          <TargetSelector
-            servers={servers}
-            selection={targetSelector.selection}
-            filters={targetSelector.filters}
-            title="Deployment target"
-            description="Select the inventory host that will run this Compose service."
-            onFiltersChange={targetSelector.setFilters}
-            onSelectionChange={(selection) => {
-              targetSelector.setMode(selection.mode);
-              targetSelector.setSelectedId(selection.selectedId);
-              targetSelector.setSelectedIds(selection.selectedIds);
-              onTargetServerIdChange(selection.selectedId);
-            }}
-          />
+          <div className="min-w-0">
+            <TargetSelector
+              servers={servers}
+              selection={targetSelector.selection}
+              filters={targetSelector.filters}
+              title="Deployment target"
+              description="Select the inventory host that will run this Compose service."
+              onFiltersChange={targetSelector.setFilters}
+              onSelectionChange={(selection) => {
+                targetSelector.setMode(selection.mode);
+                targetSelector.setSelectedId(selection.selectedId);
+                targetSelector.setSelectedIds(selection.selectedIds);
+                onTargetServerIdChange(selection.selectedId);
+              }}
+            />
+          </div>
           <label className="block">
             <span className="text-sm font-medium text-zinc-950">Compose YAML</span>
-            <textarea className="mt-2 min-h-72 w-full rounded-md border border-zinc-300 p-3 font-mono text-sm" value={composeContent} onChange={(event) => onComposeChange(event.target.value)} />
+            <textarea
+              className="mt-2 min-h-72 w-full rounded-md border border-zinc-300 p-3 font-mono text-sm"
+              value={composeContent}
+              onChange={(event) => onComposeChange(event.target.value)}
+            />
           </label>
           <label className="block">
             <span className="text-sm font-medium text-zinc-950">Remote base path</span>
-            <input className="mt-2 h-10 w-full rounded-md border border-zinc-300 px-3 font-mono text-sm" placeholder={defaultRemotePath} value={remotePath} onChange={(event) => onRemotePathChange(event.target.value)} />
+            <input
+              className="mt-2 h-10 w-full rounded-md border border-zinc-300 px-3 font-mono text-sm"
+              placeholder={defaultRemotePath}
+              value={remotePath}
+              onChange={(event) => onRemotePathChange(event.target.value)}
+            />
           </label>
           <label className="block">
             <span className="text-sm font-medium text-zinc-950">Environment file</span>
-            <textarea className="mt-2 min-h-28 w-full rounded-md border border-zinc-300 p-3 font-mono text-sm" value={envContent} onChange={(event) => onEnvChange(event.target.value)} />
+            <textarea
+              className="mt-2 min-h-28 w-full rounded-md border border-zinc-300 p-3 font-mono text-sm"
+              value={envContent}
+              onChange={(event) => onEnvChange(event.target.value)}
+            />
           </label>
           <section className="space-y-3 rounded-md border border-zinc-200 bg-zinc-50 p-4">
             <div className="flex items-center justify-between gap-3">
               <span className="text-sm font-medium text-zinc-950">Credential-backed env</span>
-              <button className="inline-flex items-center gap-2 rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50" type="button" onClick={() => onCredentialRefsChange([...credentialRefs, { key: '', credentialId: credentials[0]?.id ?? '' }])}>
+              <button
+                className="inline-flex items-center gap-2 rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
+                type="button"
+                onClick={() =>
+                  onCredentialRefsChange([
+                    ...credentialRefs,
+                    { key: '', credentialId: credentials[0]?.id ?? '' },
+                  ])
+                }
+              >
                 <Plus className="h-4 w-4" aria-hidden="true" />
                 Add secret
               </button>
@@ -496,26 +654,71 @@ function DeploymentDrawer({
               <div className="space-y-2">
                 {credentialRefs.map((item, index) => (
                   <div key={index} className="grid gap-2 md:grid-cols-[1fr_1fr_auto]">
-                    <input className="h-10 rounded-md border border-zinc-300 px-3 font-mono text-sm" placeholder="ENV_KEY" value={item.key} onChange={(event) => onCredentialRefsChange(credentialRefs.map((row, rowIndex) => (rowIndex === index ? { ...row, key: event.target.value } : row)))} />
-                    <select className="h-10 rounded-md border border-zinc-300 px-3 text-sm" value={item.credentialId} onChange={(event) => onCredentialRefsChange(credentialRefs.map((row, rowIndex) => (rowIndex === index ? { ...row, credentialId: event.target.value } : row)))}>
+                    <input
+                      className="h-10 rounded-md border border-zinc-300 px-3 font-mono text-sm"
+                      placeholder="ENV_KEY"
+                      value={item.key}
+                      onChange={(event) =>
+                        onCredentialRefsChange(
+                          credentialRefs.map((row, rowIndex) =>
+                            rowIndex === index ? { ...row, key: event.target.value } : row,
+                          ),
+                        )
+                      }
+                    />
+                    <select
+                      className="h-10 rounded-md border border-zinc-300 px-3 text-sm"
+                      value={item.credentialId}
+                      onChange={(event) =>
+                        onCredentialRefsChange(
+                          credentialRefs.map((row, rowIndex) =>
+                            rowIndex === index ? { ...row, credentialId: event.target.value } : row,
+                          ),
+                        )
+                      }
+                    >
                       <option value="">Select credential</option>
                       {credentials.map((credential) => (
-                        <option key={credential.id} value={credential.id}>{credential.name}</option>
+                        <option key={credential.id} value={credential.id}>
+                          {credential.name}
+                        </option>
                       ))}
                     </select>
-                    <button className="inline-flex h-10 items-center justify-center rounded-md border border-rose-300 px-3 text-rose-700 hover:bg-rose-50" type="button" onClick={() => onCredentialRefsChange(credentialRefs.filter((_, rowIndex) => rowIndex !== index))}>
+                    <button
+                      className="inline-flex h-10 items-center justify-center rounded-md border border-rose-300 px-3 text-rose-700 hover:bg-rose-50"
+                      type="button"
+                      onClick={() =>
+                        onCredentialRefsChange(
+                          credentialRefs.filter((_, rowIndex) => rowIndex !== index),
+                        )
+                      }
+                    >
                       <Trash2 className="h-4 w-4" aria-hidden="true" />
                     </button>
                   </div>
                 ))}
               </div>
             ) : (
-              <p className="text-sm text-zinc-500">Use credentials for tokens, passwords, and API keys that should not live in the env editor.</p>
+              <p className="text-sm text-zinc-500">
+                Use credentials for tokens, passwords, and API keys that should not live in the env
+                editor.
+              </p>
             )}
           </section>
           <div className="flex justify-end gap-2 border-t border-zinc-200 pt-4">
-            <button className="inline-flex h-10 items-center rounded-md border border-zinc-300 px-4 text-sm font-semibold text-zinc-700 hover:bg-zinc-50" type="button" onClick={onClose}>Cancel</button>
-            <button className="inline-flex h-10 items-center rounded-md bg-zinc-950 px-4 text-sm font-semibold text-white disabled:bg-zinc-300" disabled={isWorking} type="button" onClick={onSave}>
+            <button
+              className="inline-flex h-10 items-center rounded-md border border-zinc-300 px-4 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
+              type="button"
+              onClick={onClose}
+            >
+              Cancel
+            </button>
+            <button
+              className="inline-flex h-10 items-center rounded-md bg-zinc-950 px-4 text-sm font-semibold text-white disabled:bg-zinc-300"
+              disabled={isWorking}
+              type="button"
+              onClick={onSave}
+            >
               {mode === 'edit' ? 'Save changes' : 'Create deployment'}
             </button>
           </div>
@@ -556,7 +759,9 @@ function OutputPanel({ title, value }: { title: string; value: string }) {
   return (
     <section className="rounded-md border border-zinc-200 bg-white p-4 shadow-sm">
       <h3 className="text-base font-semibold text-zinc-950">{title}</h3>
-      <pre className="mt-3 max-h-96 overflow-auto rounded-md border border-zinc-800 bg-zinc-950 p-4 text-xs leading-5 text-zinc-100 shadow-inner">{value}</pre>
+      <pre className="mt-3 max-h-96 overflow-auto rounded-md border border-zinc-800 bg-zinc-950 p-4 text-xs leading-5 text-zinc-100 shadow-inner">
+        {value}
+      </pre>
     </section>
   );
 }
@@ -589,7 +794,13 @@ function DeploymentStatusBadge({ status }: { status: DeploymentStatus }) {
           : normalized === 'deploying'
             ? 'bg-sky-50 text-sky-700 ring-sky-200'
             : 'bg-zinc-100 text-zinc-700 ring-zinc-200';
-  return <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ring-1 ring-inset ${className}`}>{statusLabel(normalized)}</span>;
+  return (
+    <span
+      className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ring-1 ring-inset ${className}`}
+    >
+      {statusLabel(normalized)}
+    </span>
+  );
 }
 
 function ActionButton({
@@ -605,9 +816,10 @@ function ActionButton({
   tone?: 'default' | 'danger';
   onClick: () => void;
 }) {
-  const className = tone === 'danger'
-    ? 'inline-flex h-9 items-center gap-2 rounded-md border border-rose-300 px-2.5 text-xs font-semibold text-rose-700 hover:bg-rose-50 disabled:opacity-50'
-    : 'inline-flex h-9 items-center gap-2 rounded-md border border-zinc-300 px-2.5 text-xs font-semibold text-zinc-700 hover:bg-zinc-50 disabled:opacity-50';
+  const className =
+    tone === 'danger'
+      ? 'inline-flex h-9 items-center gap-2 rounded-md border border-rose-300 px-2.5 text-xs font-semibold text-rose-700 hover:bg-rose-50 disabled:opacity-50'
+      : 'inline-flex h-9 items-center gap-2 rounded-md border border-zinc-300 px-2.5 text-xs font-semibold text-zinc-700 hover:bg-zinc-50 disabled:opacity-50';
   return (
     <button className={className} disabled={disabled} type="button" onClick={onClick}>
       <Icon className="h-3.5 w-3.5" aria-hidden="true" />

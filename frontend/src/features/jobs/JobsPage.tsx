@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
+import { ContextDrawer } from '../../components/ContextDrawer';
 import { PageHeader } from '../../components/layout/PageHeader';
 import { getApiErrorMessage } from '../../lib/api/client';
 import { listServers } from '../inventory/api/serversApi';
@@ -51,6 +52,7 @@ export function JobsPage() {
   const [actionForm, setActionForm] = useState<ActionFormState>(initialActionForm);
   const [editingActionId, setEditingActionId] = useState<string | null>(null);
   const [isSavingAction, setIsSavingAction] = useState(false);
+  const [isActionBuilderOpen, setIsActionBuilderOpen] = useState(false);
 
   const selectedJob = useMemo(
     () => jobs.find((job) => job.id === selectedJobId) ?? jobs[0] ?? null,
@@ -154,6 +156,7 @@ export function JobsPage() {
     if (action.is_builtin) {
       return;
     }
+    setIsActionBuilderOpen(true);
     setEditingActionId(action.id);
     setActionForm({
       id: action.id,
@@ -169,6 +172,7 @@ export function JobsPage() {
   function resetActionForm() {
     setEditingActionId(null);
     setActionForm(initialActionForm);
+    setIsActionBuilderOpen(false);
   }
 
   async function saveAction() {
@@ -187,7 +191,9 @@ export function JobsPage() {
           command: actionForm.command,
           destructive: actionForm.destructive,
         });
-        setActions((current) => current.map((action) => (action.id === updated.id ? updated : action)));
+        setActions((current) =>
+          current.map((action) => (action.id === updated.id ? updated : action)),
+        );
         setSelectedActionId(updated.id);
       } else {
         const created = await createOperationalAction(actionForm);
@@ -215,7 +221,9 @@ export function JobsPage() {
       await deleteOperationalAction(action.id);
       const nextActions = actions.filter((candidate) => candidate.id !== action.id);
       setActions(nextActions);
-      setSelectedActionId((current) => (current === action.id ? nextActions[0]?.id ?? '' : current));
+      setSelectedActionId((current) =>
+        current === action.id ? (nextActions[0]?.id ?? '') : current,
+      );
       if (editingActionId === action.id) {
         resetActionForm();
       }
@@ -249,14 +257,32 @@ export function JobsPage() {
         onSelectedServerChange={setSelectedServerId}
       />
 
-      <CustomActionBuilder
-        editingActionId={editingActionId}
-        form={actionForm}
-        isSaving={isSavingAction}
-        onCancel={resetActionForm}
-        onFieldChange={updateActionField}
-        onSave={saveAction}
-      />
+      <div className="flex justify-end">
+        <button
+          className="rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm font-semibold text-zinc-700 shadow-sm hover:bg-zinc-50"
+          type="button"
+          onClick={() => setIsActionBuilderOpen(true)}
+        >
+          Create custom action
+        </button>
+      </div>
+
+      <ContextDrawer
+        description="Save reusable command sequences and scripts that execute through Jobs."
+        isOpen={isActionBuilderOpen}
+        title={editingActionId ? 'Edit Custom Action' : 'Create Custom Action'}
+        width="xl"
+        onClose={resetActionForm}
+      >
+        <CustomActionBuilder
+          editingActionId={editingActionId}
+          form={actionForm}
+          isSaving={isSavingAction}
+          onCancel={resetActionForm}
+          onFieldChange={updateActionField}
+          onSave={saveAction}
+        />
+      </ContextDrawer>
 
       <RunCommandPanel
         command={command}
@@ -272,7 +298,9 @@ export function JobsPage() {
         onSelectedServersChange={setSelectedServerIds}
         onSubmit={handleExecute}
       />
-      {bulkResult ? <p className="rounded-md bg-zinc-100 px-3 py-2 text-sm text-zinc-700">{bulkResult}</p> : null}
+      {bulkResult ? (
+        <p className="rounded-md bg-zinc-100 px-3 py-2 text-sm text-zinc-700">{bulkResult}</p>
+      ) : null}
 
       <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(480px,1fr)]">
         <JobsTable
@@ -308,11 +336,19 @@ function CustomActionBuilder({
     <section className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h2 className="text-base font-semibold text-zinc-950">{editingActionId ? 'Edit custom action' : 'Create custom action'}</h2>
-          <p className="mt-1 text-sm text-zinc-500">Save reusable command sequences and scripts that execute through Jobs.</p>
+          <h2 className="text-base font-semibold text-zinc-950">
+            {editingActionId ? 'Edit custom action' : 'Create custom action'}
+          </h2>
+          <p className="mt-1 text-sm text-zinc-500">
+            Save reusable command sequences and scripts that execute through Jobs.
+          </p>
         </div>
         {editingActionId ? (
-          <button className="rounded-md border border-zinc-300 px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50" type="button" onClick={onCancel}>
+          <button
+            className="rounded-md border border-zinc-300 px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
+            type="button"
+            onClick={onCancel}
+          >
             Cancel edit
           </button>
         ) : null}
@@ -330,19 +366,35 @@ function CustomActionBuilder({
         </label>
         <label className="block text-sm font-medium text-zinc-700">
           Name
-          <input className="mt-1 h-10 w-full rounded-md border border-zinc-300 px-3 text-sm" value={form.name} onChange={(event) => onFieldChange('name', event.target.value)} />
+          <input
+            className="mt-1 h-10 w-full rounded-md border border-zinc-300 px-3 text-sm"
+            value={form.name}
+            onChange={(event) => onFieldChange('name', event.target.value)}
+          />
         </label>
         <label className="block text-sm font-medium text-zinc-700">
           Category
-          <input className="mt-1 h-10 w-full rounded-md border border-zinc-300 px-3 text-sm" value={form.category} onChange={(event) => onFieldChange('category', event.target.value)} />
+          <input
+            className="mt-1 h-10 w-full rounded-md border border-zinc-300 px-3 text-sm"
+            value={form.category}
+            onChange={(event) => onFieldChange('category', event.target.value)}
+          />
         </label>
         <label className="flex items-end gap-2 pb-2 text-sm font-medium text-zinc-700">
-          <input checked={form.destructive} type="checkbox" onChange={(event) => onFieldChange('destructive', event.target.checked)} />
+          <input
+            checked={form.destructive}
+            type="checkbox"
+            onChange={(event) => onFieldChange('destructive', event.target.checked)}
+          />
           Changes host
         </label>
         <label className="block text-sm font-medium text-zinc-700 md:col-span-2 xl:col-span-4">
           Description
-          <input className="mt-1 h-10 w-full rounded-md border border-zinc-300 px-3 text-sm" value={form.description} onChange={(event) => onFieldChange('description', event.target.value)} />
+          <input
+            className="mt-1 h-10 w-full rounded-md border border-zinc-300 px-3 text-sm"
+            value={form.description}
+            onChange={(event) => onFieldChange('description', event.target.value)}
+          />
         </label>
         <label className="block text-sm font-medium text-zinc-700 md:col-span-2 xl:col-span-4">
           Command or script
@@ -355,7 +407,12 @@ function CustomActionBuilder({
         </label>
       </div>
       <div className="mt-4 flex justify-end">
-        <button className="rounded-md bg-zinc-950 px-4 py-2 text-sm font-semibold text-white disabled:bg-zinc-300" disabled={isSaving} type="button" onClick={onSave}>
+        <button
+          className="rounded-md bg-zinc-950 px-4 py-2 text-sm font-semibold text-white disabled:bg-zinc-300"
+          disabled={isSaving}
+          type="button"
+          onClick={onSave}
+        >
           {isSaving ? 'Saving' : editingActionId ? 'Save action' : 'Create action'}
         </button>
       </div>

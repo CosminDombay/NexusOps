@@ -1,11 +1,14 @@
-import { Database, Network, ServerIcon } from 'lucide-react';
+import { useState } from 'react';
+import { Database, Network, Plus, ServerIcon } from 'lucide-react';
 
+import { ContextDrawer } from '../../../components/ContextDrawer';
 import { PageHeader } from '../../../components/layout/PageHeader';
 import { CreateServerForm } from '../components/CreateServerForm';
 import { ServerList } from '../components/ServerList';
 import { useServers } from '../hooks/useServers';
 
 export function InventoryDashboardPage() {
+  const [isCreateOpen, setIsCreateOpen] = useState(false);
   const {
     servers,
     isLoading,
@@ -42,12 +45,37 @@ export function InventoryDashboardPage() {
         <MetricCard icon={Database} label="Production" value={productionServers.toString()} />
       </div>
 
-      <CreateServerForm
-        apiError={createError}
-        isSubmitting={isCreating}
-        onFieldChange={clearCreateError}
-        onSubmit={addServer}
-      />
+      <div className="flex justify-end">
+        <button
+          className="inline-flex items-center gap-2 rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm font-semibold text-zinc-700 shadow-sm hover:bg-zinc-50"
+          type="button"
+          onClick={() => setIsCreateOpen(true)}
+        >
+          <Plus className="h-4 w-4" aria-hidden="true" />
+          Import existing host
+        </button>
+      </div>
+
+      <ContextDrawer
+        description="Manual import is for bare-metal nodes, unmanaged servers, and externally provisioned systems."
+        isOpen={isCreateOpen}
+        title="Import Existing Host"
+        width="lg"
+        onClose={() => setIsCreateOpen(false)}
+      >
+        <CreateServerForm
+          apiError={createError}
+          isSubmitting={isCreating}
+          onFieldChange={clearCreateError}
+          onSubmit={async (payload) => {
+            const created = await addServer(payload);
+            if (created) {
+              setIsCreateOpen(false);
+            }
+            return created;
+          }}
+        />
+      </ContextDrawer>
 
       <ServerList
         error={error}

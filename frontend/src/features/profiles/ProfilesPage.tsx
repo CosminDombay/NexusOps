@@ -2,8 +2,12 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { DragEvent } from 'react';
 import { ArrowDown, ArrowUp, Package, Play, Plus, Trash2, Terminal } from 'lucide-react';
 
+import { ContextDrawer } from '../../components/ContextDrawer';
 import { PageHeader } from '../../components/layout/PageHeader';
-import { ExecutionVariablesModal, type ExecutionVariableValues } from '../../components/ExecutionVariablesModal';
+import {
+  ExecutionVariablesModal,
+  type ExecutionVariableValues,
+} from '../../components/ExecutionVariablesModal';
 import { VariableDefinitionEditor } from '../../components/VariableDefinitionEditor';
 import { getApiErrorMessage } from '../../lib/api/client';
 import { listCredentials } from '../credentials/api/credentialsApi';
@@ -19,7 +23,16 @@ import { JobStatusBadge } from '../jobs/components/JobStatusBadge';
 import type { OperationalAction } from '../jobs/types/job';
 import { listPackageDefinitions } from '../packages/api/packagesApi';
 import type { PackageDefinition } from '../packages/types/package';
-import { applyProfile, applyProfileBulk, cloneProfile, createProfile, deleteProfile, listProfiles, resetProfile, updateProfile } from './api/profilesApi';
+import {
+  applyProfile,
+  applyProfileBulk,
+  cloneProfile,
+  createProfile,
+  deleteProfile,
+  listProfiles,
+  resetProfile,
+  updateProfile,
+} from './api/profilesApi';
 import type {
   ApplyProfileBulkResult,
   ApplyProfileResult,
@@ -41,8 +54,24 @@ const initialProfileFormState: ProfileFormState = {
   description: '',
   tags_text: '',
   steps: [
-    { id: 'package-docker-engine-1', kind: 'package', type: 'package', reference_id: 'docker-engine', target: 'docker-engine', name: 'Install Docker Engine', enabled: true },
-    { id: 'action-docker-status-2', kind: 'action', type: 'action', reference_id: 'docker-status', target: 'docker-status', name: 'Check Docker Service', enabled: true },
+    {
+      id: 'package-docker-engine-1',
+      kind: 'package',
+      type: 'package',
+      reference_id: 'docker-engine',
+      target: 'docker-engine',
+      name: 'Install Docker Engine',
+      enabled: true,
+    },
+    {
+      id: 'action-docker-status-2',
+      kind: 'action',
+      type: 'action',
+      reference_id: 'docker-status',
+      target: 'docker-status',
+      name: 'Check Docker Service',
+      enabled: true,
+    },
   ],
   variables: [],
 };
@@ -67,6 +96,7 @@ export function ProfilesPage() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [editingProfileId, setEditingProfileId] = useState<string | null>(null);
+  const [isBuilderOpen, setIsBuilderOpen] = useState(false);
   const targetSelector = useTargetSelection('single');
 
   const selectedProfile = useMemo(
@@ -79,7 +109,14 @@ export function ProfilesPage() {
     setError(null);
 
     try {
-      const [nextProfiles, nextServers, nextPackages, nextActions, nextCredentials, nextDeployments] = await Promise.all([
+      const [
+        nextProfiles,
+        nextServers,
+        nextPackages,
+        nextActions,
+        nextCredentials,
+        nextDeployments,
+      ] = await Promise.all([
         listProfiles(),
         listServers(),
         listPackageDefinitions(),
@@ -109,6 +146,7 @@ export function ProfilesPage() {
   }
 
   function startEdit(profile: InfrastructureProfile) {
+    setIsBuilderOpen(true);
     setEditingProfileId(profile.id);
     setFormState({
       id: profile.id,
@@ -126,6 +164,7 @@ export function ProfilesPage() {
   function resetEditor() {
     setEditingProfileId(null);
     setFormState(initialProfileFormState);
+    setIsBuilderOpen(false);
   }
 
   async function handleCreateProfile() {
@@ -151,15 +190,19 @@ export function ProfilesPage() {
         description: formState.description.trim() || 'Custom infrastructure profile.',
         tags: splitCsv(formState.tags_text),
         steps,
-        variables: formState.variables.filter((variable) => variable.name.trim()).map((variable) => ({
-          ...variable,
-          name: variable.name.trim(),
-          description: variable.description.trim(),
-        })),
+        variables: formState.variables
+          .filter((variable) => variable.name.trim())
+          .map((variable) => ({
+            ...variable,
+            name: variable.name.trim(),
+            description: variable.description.trim(),
+          })),
       };
       if (editingProfileId) {
         const updated = await updateProfile(editingProfileId, payload);
-        setProfiles((current) => current.map((profile) => (profile.id === updated.id ? updated : profile)));
+        setProfiles((current) =>
+          current.map((profile) => (profile.id === updated.id ? updated : profile)),
+        );
         setSelectedProfileId(updated.id);
         setSuccess(`Updated profile ${updated.name}.`);
       } else {
@@ -170,7 +213,11 @@ export function ProfilesPage() {
       }
       resetEditor();
     } catch (caughtError) {
-      setError(caughtError instanceof SyntaxError ? 'Variables must be valid JSON.' : getApiErrorMessage(caughtError));
+      setError(
+        caughtError instanceof SyntaxError
+          ? 'Variables must be valid JSON.'
+          : getApiErrorMessage(caughtError),
+      );
     } finally {
       setIsCreating(false);
     }
@@ -182,7 +229,10 @@ export function ProfilesPage() {
       return;
     }
     try {
-      const cloned = await cloneProfile(profile.id, { id: id.trim(), name: `${profile.name} Copy` });
+      const cloned = await cloneProfile(profile.id, {
+        id: id.trim(),
+        name: `${profile.name} Copy`,
+      });
       setProfiles((current) => [...current, cloned]);
       setSelectedProfileId(cloned.id);
       setSuccess(`Cloned profile ${cloned.name}.`);
@@ -192,7 +242,9 @@ export function ProfilesPage() {
   }
 
   async function handleResetProfile(profile: InfrastructureProfile) {
-    const confirmed = window.confirm(`Restore ${profile.name} to the built-in default? Current edits will be discarded.`);
+    const confirmed = window.confirm(
+      `Restore ${profile.name} to the built-in default? Current edits will be discarded.`,
+    );
     if (!confirmed) {
       return;
     }
@@ -280,8 +332,16 @@ export function ProfilesPage() {
         description="Reusable infrastructure standards that apply ordered package and action workflows."
       />
 
-      {error ? <p className="rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">{error}</p> : null}
-      {success ? <p className="rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-700">{success}</p> : null}
+      {error ? (
+        <p className="rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">
+          {error}
+        </p>
+      ) : null}
+      {success ? (
+        <p className="rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-700">
+          {success}
+        </p>
+      ) : null}
       {isLoading ? <LoadingGrid /> : null}
 
       {!isLoading && !error ? (
@@ -305,18 +365,30 @@ export function ProfilesPage() {
 
               <button
                 className="inline-flex h-10 items-center justify-center rounded-md bg-zinc-950 px-4 text-sm font-semibold text-white transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:bg-zinc-300"
-                disabled={!selectedProfile || (!selectedServerId && selectedServerIds.length === 0) || isApplying}
+                disabled={
+                  !selectedProfile ||
+                  (!selectedServerId && selectedServerIds.length === 0) ||
+                  isApplying
+                }
                 type="button"
                 onClick={handleApplyProfile}
               >
-                {isApplying ? 'Applying' : selectedServerIds.length > 0 ? `Apply to ${selectedServerIds.length}` : 'Apply profile'}
+                {isApplying
+                  ? 'Applying'
+                  : selectedServerIds.length > 0
+                    ? `Apply to ${selectedServerIds.length}`
+                    : 'Apply profile'}
               </button>
             </div>
 
             <div className="mt-4">
               <TargetSelector
                 servers={servers}
-                selection={{ mode: targetSelector.selection.mode, selectedId: selectedServerId, selectedIds: selectedServerIds }}
+                selection={{
+                  mode: targetSelector.selection.mode,
+                  selectedId: selectedServerId,
+                  selectedIds: selectedServerIds,
+                }}
                 filters={targetSelector.filters}
                 title="Profile targets"
                 description="Apply this profile to one host or a filtered group of inventory hosts."
@@ -330,20 +402,40 @@ export function ProfilesPage() {
             </div>
           </section>
 
-          <ProfileBuilder
-            actions={actions}
-            formState={formState}
-            credentials={credentials}
-            deployments={deployments}
-            editingProfileId={editingProfileId}
-            isCreating={isCreating}
-            packages={packages}
-            onCreate={handleCreateProfile}
-            onCancel={resetEditor}
-            onFieldChange={updateField}
-            onStepsChange={(steps) => setFormState((current) => ({ ...current, steps }))}
-            onVariablesChange={(variables) => setFormState((current) => ({ ...current, variables }))}
-          />
+          <div className="flex justify-end">
+            <button
+              className="rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm font-semibold text-zinc-700 shadow-sm hover:bg-zinc-50"
+              type="button"
+              onClick={() => setIsBuilderOpen(true)}
+            >
+              Create profile
+            </button>
+          </div>
+
+          <ContextDrawer
+            description="Profiles are orchestration blueprints: ordered package, deployment, action, and command standards."
+            isOpen={isBuilderOpen}
+            title={editingProfileId ? 'Edit Profile' : 'Create Profile'}
+            width="xl"
+            onClose={resetEditor}
+          >
+            <ProfileBuilder
+              actions={actions}
+              formState={formState}
+              credentials={credentials}
+              deployments={deployments}
+              editingProfileId={editingProfileId}
+              isCreating={isCreating}
+              packages={packages}
+              onCreate={handleCreateProfile}
+              onCancel={resetEditor}
+              onFieldChange={updateField}
+              onStepsChange={(steps) => setFormState((current) => ({ ...current, steps }))}
+              onVariablesChange={(variables) =>
+                setFormState((current) => ({ ...current, variables }))
+              }
+            />
+          </ContextDrawer>
 
           <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(360px,0.8fr)]">
             <div className="grid gap-4">
@@ -400,16 +492,24 @@ function BulkProfileResult({ result }: { result: ApplyProfileBulkResult | null }
       <div className="mt-4 divide-y divide-zinc-100 rounded-md border border-zinc-200">
         {result.results.map((item) => (
           <div key={item.target_server_id} className="px-3 py-2 text-sm">
-            <span className={item.success ? 'font-semibold text-emerald-700' : 'font-semibold text-rose-700'}>
+            <span
+              className={
+                item.success ? 'font-semibold text-emerald-700' : 'font-semibold text-rose-700'
+              }
+            >
               {item.success ? 'Success' : 'Failed'}
             </span>
-            <span className="ml-2 text-zinc-700">{item.target_hostname ?? item.target_server_id}</span>
+            <span className="ml-2 text-zinc-700">
+              {item.target_hostname ?? item.target_server_id}
+            </span>
             {item.result ? (
               <p className="mt-1 text-xs text-zinc-500">
                 {item.result.jobs.length} job(s), status {item.result.status}
               </p>
             ) : null}
-            {item.error ? <p className="mt-1 font-mono text-xs text-zinc-500">{item.error}</p> : null}
+            {item.error ? (
+              <p className="mt-1 font-mono text-xs text-zinc-500">{item.error}</p>
+            ) : null}
           </div>
         ))}
       </div>
@@ -435,7 +535,9 @@ function ProfileCard({
   onSelect: () => void;
 }) {
   return (
-    <article className={`rounded-lg border bg-white p-5 shadow-sm transition hover:border-zinc-300 hover:shadow-md ${isSelected ? 'border-zinc-950 ring-1 ring-zinc-950' : 'border-zinc-200'}`}>
+    <article
+      className={`rounded-lg border bg-white p-5 shadow-sm transition hover:border-zinc-300 hover:shadow-md ${isSelected ? 'border-zinc-950 ring-1 ring-zinc-950' : 'border-zinc-200'}`}
+    >
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0">
           <h3 className="text-lg font-semibold text-zinc-950">{profile.name}</h3>
@@ -455,7 +557,10 @@ function ProfileCard({
 
       <ol className="mt-5 space-y-2 rounded-md border border-zinc-200 bg-zinc-50 p-3">
         {profile.steps.map((step, index) => (
-          <li key={step.id} className="flex items-center gap-3 rounded-md bg-white px-2 py-2 text-sm text-zinc-700 ring-1 ring-zinc-100">
+          <li
+            key={step.id}
+            className="flex items-center gap-3 rounded-md bg-white px-2 py-2 text-sm text-zinc-700 ring-1 ring-zinc-100"
+          >
             <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-zinc-950 text-xs font-semibold text-white">
               {index + 1}
             </span>
@@ -463,28 +568,47 @@ function ProfileCard({
             <span className="rounded-full bg-zinc-50 px-2 py-0.5 text-xs text-zinc-500 ring-1 ring-zinc-200">
               {step.kind}
             </span>
-            {step.kind === 'command' ? <span className="truncate font-mono text-xs text-zinc-500">{step.command}</span> : null}
+            {step.kind === 'command' ? (
+              <span className="truncate font-mono text-xs text-zinc-500">{step.command}</span>
+            ) : null}
           </li>
         ))}
       </ol>
       {profile.variables.length ? (
         <div className="mt-4 flex flex-wrap gap-2">
           {profile.variables.map((variable) => (
-            <span key={variable.name} className="rounded bg-zinc-100 px-2 py-1 font-mono text-xs text-zinc-700">
-              {variable.name}{variable.required ? ' *' : ''}{variable.sensitive ? ' sensitive' : ''}
+            <span
+              key={variable.name}
+              className="rounded bg-zinc-100 px-2 py-1 font-mono text-xs text-zinc-700"
+            >
+              {variable.name}
+              {variable.required ? ' *' : ''}
+              {variable.sensitive ? ' sensitive' : ''}
             </span>
           ))}
         </div>
       ) : null}
       <div className="mt-5 flex flex-wrap justify-end gap-2">
-        <button className="rounded-md border border-zinc-300 px-3 py-2 text-sm font-semibold text-zinc-700 transition hover:bg-zinc-50" type="button" onClick={() => onClone(profile)}>
+        <button
+          className="rounded-md border border-zinc-300 px-3 py-2 text-sm font-semibold text-zinc-700 transition hover:bg-zinc-50"
+          type="button"
+          onClick={() => onClone(profile)}
+        >
           Clone
         </button>
-        <button className="rounded-md border border-zinc-300 px-3 py-2 text-sm font-semibold text-zinc-700 transition hover:bg-zinc-50" type="button" onClick={() => onEdit(profile)}>
+        <button
+          className="rounded-md border border-zinc-300 px-3 py-2 text-sm font-semibold text-zinc-700 transition hover:bg-zinc-50"
+          type="button"
+          onClick={() => onEdit(profile)}
+        >
           Edit
         </button>
         {profile.is_builtin && profile.is_modified ? (
-          <button className="rounded-md border border-amber-300 px-3 py-2 text-sm font-semibold text-amber-700 transition hover:bg-amber-50" type="button" onClick={() => onReset(profile)}>
+          <button
+            className="rounded-md border border-amber-300 px-3 py-2 text-sm font-semibold text-amber-700 transition hover:bg-amber-50"
+            type="button"
+            onClick={() => onReset(profile)}
+          >
             Restore default
           </button>
         ) : null}
@@ -587,17 +711,53 @@ function ProfileBuilder({
 
   return (
     <section className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm">
-      <h3 className="text-base font-semibold text-zinc-950">{editingProfileId ? 'Edit profile' : 'Build profile'}</h3>
+      <h3 className="text-base font-semibold text-zinc-950">
+        {editingProfileId ? 'Edit profile' : 'Build profile'}
+      </h3>
       <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-        <TextInput label="ID" name="id" placeholder="custom-profile" value={formState.id} onChange={onFieldChange} />
-        <TextInput label="Name" name="name" placeholder="Custom Profile" value={formState.name} onChange={onFieldChange} />
-        <TextInput label="Category" name="category" placeholder="Baseline" value={formState.category} onChange={onFieldChange} />
-        <TextInput label="Tags" name="tags_text" placeholder="baseline,linux" value={formState.tags_text} onChange={onFieldChange} />
-        <TextInput label="Description" name="description" placeholder="Reusable host standard" value={formState.description} onChange={onFieldChange} />
+        <TextInput
+          label="ID"
+          name="id"
+          placeholder="custom-profile"
+          value={formState.id}
+          onChange={onFieldChange}
+        />
+        <TextInput
+          label="Name"
+          name="name"
+          placeholder="Custom Profile"
+          value={formState.name}
+          onChange={onFieldChange}
+        />
+        <TextInput
+          label="Category"
+          name="category"
+          placeholder="Baseline"
+          value={formState.category}
+          onChange={onFieldChange}
+        />
+        <TextInput
+          label="Tags"
+          name="tags_text"
+          placeholder="baseline,linux"
+          value={formState.tags_text}
+          onChange={onFieldChange}
+        />
+        <TextInput
+          label="Description"
+          name="description"
+          placeholder="Reusable host standard"
+          value={formState.description}
+          onChange={onFieldChange}
+        />
         <div className="xl:col-span-3">
           <div className="flex items-center justify-between gap-3">
             <p className="text-xs font-semibold uppercase text-zinc-500">Execution steps</p>
-            <button className="inline-flex items-center gap-2 rounded-md border border-zinc-300 px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50" type="button" onClick={addStep}>
+            <button
+              className="inline-flex items-center gap-2 rounded-md border border-zinc-300 px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
+              type="button"
+              onClick={addStep}
+            >
               <Plus className="h-4 w-4" aria-hidden="true" />
               Add step
             </button>
@@ -623,13 +783,23 @@ function ProfileBuilder({
         <VariableDefinitionEditor variables={formState.variables} onChange={onVariablesChange} />
       </div>
       <div className="mt-4 grid gap-4 text-xs text-zinc-500 lg:grid-cols-2">
-        <ReferenceList label="Package refs" values={packages.map((packageDefinition) => packageDefinition.id)} />
+        <ReferenceList
+          label="Package refs"
+          values={packages.map((packageDefinition) => packageDefinition.id)}
+        />
         <ReferenceList label="Action refs" values={actions.map((action) => action.id)} />
-        <ReferenceList label="Deployment refs" values={deployments.map((deployment) => deployment.id)} />
+        <ReferenceList
+          label="Deployment refs"
+          values={deployments.map((deployment) => deployment.id)}
+        />
       </div>
       <div className="mt-4 flex justify-end gap-2">
         {editingProfileId ? (
-          <button className="rounded-md border border-zinc-300 px-4 py-2 text-sm font-semibold text-zinc-700 transition hover:bg-zinc-50" type="button" onClick={onCancel}>
+          <button
+            className="rounded-md border border-zinc-300 px-4 py-2 text-sm font-semibold text-zinc-700 transition hover:bg-zinc-50"
+            type="button"
+            onClick={onCancel}
+          >
             Cancel
           </button>
         ) : null}
@@ -685,19 +855,21 @@ function ProfileStepCard({
   onUpdate: (patch: Partial<ProfileStep>) => void;
 }) {
   const stepType = step.kind === 'command' ? 'script' : step.kind;
-  const options = stepType === 'action' ? actions : stepType === 'deployment' ? deployments : packages;
+  const options =
+    stepType === 'action' ? actions : stepType === 'deployment' ? deployments : packages;
   const Icon = stepType === 'package' ? Package : stepType === 'action' ? Play : Terminal;
 
   function handleTypeChange(value: string) {
     const nextKind = value === 'script' ? 'command' : (value as ProfileStep['kind']);
-    const nextOptions = value === 'action' ? actions : value === 'deployment' ? deployments : packages;
+    const nextOptions =
+      value === 'action' ? actions : value === 'deployment' ? deployments : packages;
     const first = nextOptions[0];
     onUpdate({
       kind: nextKind,
       type: value as ProfileStep['type'],
-      reference_id: value === 'script' ? step.id : first?.id ?? '',
-      target: value === 'script' ? step.id : first?.id ?? '',
-      name: value === 'script' ? 'Script step' : first?.name ?? '',
+      reference_id: value === 'script' ? step.id : (first?.id ?? ''),
+      target: value === 'script' ? step.id : (first?.id ?? ''),
+      name: value === 'script' ? 'Script step' : (first?.name ?? ''),
       command: value === 'script' ? (step.command ?? '') : null,
     });
   }
@@ -711,7 +883,9 @@ function ProfileStepCard({
     <li
       className={`rounded-md border bg-white p-4 ${step.enabled === false ? 'border-zinc-200 opacity-60' : 'border-zinc-300'}`}
       draggable
-      onDragStart={(event: DragEvent<HTMLLIElement>) => event.dataTransfer.setData('text/plain', String(index))}
+      onDragStart={(event: DragEvent<HTMLLIElement>) =>
+        event.dataTransfer.setData('text/plain', String(index))
+      }
       onDragOver={(event) => event.preventDefault()}
       onDrop={(event) => {
         event.preventDefault();
@@ -732,7 +906,11 @@ function ProfileStepCard({
         <div className="grid flex-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
           <label className="text-xs font-medium text-zinc-700">
             Type
-            <select className="mt-1 w-full rounded-md border border-zinc-300 bg-white px-2 py-2 text-sm" value={stepType} onChange={(event) => handleTypeChange(event.target.value)}>
+            <select
+              className="mt-1 w-full rounded-md border border-zinc-300 bg-white px-2 py-2 text-sm"
+              value={stepType}
+              onChange={(event) => handleTypeChange(event.target.value)}
+            >
               <option value="package">Package</option>
               <option value="action">Action</option>
               <option value="deployment">Deployment</option>
@@ -743,38 +921,79 @@ function ProfileStepCard({
           {stepType === 'script' ? (
             <label className="text-xs font-medium text-zinc-700 md:col-span-2">
               Command
-              <input className="mt-1 w-full rounded-md border border-zinc-300 bg-white px-2 py-2 font-mono text-sm" value={step.command ?? ''} onChange={(event) => onUpdate({ command: event.target.value, name: 'Script step' })} />
+              <input
+                className="mt-1 w-full rounded-md border border-zinc-300 bg-white px-2 py-2 font-mono text-sm"
+                value={step.command ?? ''}
+                onChange={(event) => onUpdate({ command: event.target.value, name: 'Script step' })}
+              />
             </label>
           ) : (
             <label className="text-xs font-medium text-zinc-700 md:col-span-2">
               Target
-              <select className="mt-1 w-full rounded-md border border-zinc-300 bg-white px-2 py-2 text-sm" value={step.reference_id} onChange={(event) => handleTargetChange(event.target.value)}>
-                {options.map((option) => <option key={option.id} value={option.id}>{option.name}</option>)}
+              <select
+                className="mt-1 w-full rounded-md border border-zinc-300 bg-white px-2 py-2 text-sm"
+                value={step.reference_id}
+                onChange={(event) => handleTargetChange(event.target.value)}
+              >
+                {options.map((option) => (
+                  <option key={option.id} value={option.id}>
+                    {option.name}
+                  </option>
+                ))}
               </select>
             </label>
           )}
 
           <label className="text-xs font-medium text-zinc-700">
             Credential
-            <select className="mt-1 w-full rounded-md border border-zinc-300 bg-white px-2 py-2 text-sm" value={step.credential_ref ?? ''} onChange={(event) => onUpdate({ credential_ref: event.target.value || null })}>
+            <select
+              className="mt-1 w-full rounded-md border border-zinc-300 bg-white px-2 py-2 text-sm"
+              value={step.credential_ref ?? ''}
+              onChange={(event) => onUpdate({ credential_ref: event.target.value || null })}
+            >
               <option value="">None</option>
-              {credentials.map((credential) => <option key={credential.id} value={credential.id}>{credential.name}</option>)}
+              {credentials.map((credential) => (
+                <option key={credential.id} value={credential.id}>
+                  {credential.name}
+                </option>
+              ))}
             </select>
           </label>
         </div>
 
         <div className="flex flex-wrap justify-end gap-2">
           <label className="inline-flex h-9 items-center gap-2 rounded-md border border-zinc-300 px-3 text-sm font-medium text-zinc-700">
-            <input checked={step.enabled !== false} type="checkbox" onChange={(event) => onUpdate({ enabled: event.target.checked })} />
+            <input
+              checked={step.enabled !== false}
+              type="checkbox"
+              onChange={(event) => onUpdate({ enabled: event.target.checked })}
+            />
             Enabled
           </label>
-          <button className="rounded-md border border-zinc-300 p-2 text-zinc-700 disabled:opacity-40" disabled={index === 0} type="button" onClick={() => onMove(index, index - 1)} title="Move up">
+          <button
+            className="rounded-md border border-zinc-300 p-2 text-zinc-700 disabled:opacity-40"
+            disabled={index === 0}
+            type="button"
+            onClick={() => onMove(index, index - 1)}
+            title="Move up"
+          >
             <ArrowUp className="h-4 w-4" aria-hidden="true" />
           </button>
-          <button className="rounded-md border border-zinc-300 p-2 text-zinc-700 disabled:opacity-40" disabled={index === total - 1} type="button" onClick={() => onMove(index, index + 1)} title="Move down">
+          <button
+            className="rounded-md border border-zinc-300 p-2 text-zinc-700 disabled:opacity-40"
+            disabled={index === total - 1}
+            type="button"
+            onClick={() => onMove(index, index + 1)}
+            title="Move down"
+          >
             <ArrowDown className="h-4 w-4" aria-hidden="true" />
           </button>
-          <button className="rounded-md border border-rose-300 p-2 text-rose-700 hover:bg-rose-50" type="button" onClick={onRemove} title="Remove step">
+          <button
+            className="rounded-md border border-rose-300 p-2 text-rose-700 hover:bg-rose-50"
+            type="button"
+            onClick={onRemove}
+            title="Remove step"
+          >
             <Trash2 className="h-4 w-4" aria-hidden="true" />
           </button>
         </div>
@@ -822,7 +1041,9 @@ function ProfileResult({ result }: { result: ApplyProfileResult | null }) {
     return (
       <section className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm">
         <h3 className="text-base font-semibold text-zinc-950">Execution sequence</h3>
-        <p className="mt-2 text-sm text-zinc-500">Apply a profile to see generated jobs and results.</p>
+        <p className="mt-2 text-sm text-zinc-500">
+          Apply a profile to see generated jobs and results.
+        </p>
       </section>
     );
   }

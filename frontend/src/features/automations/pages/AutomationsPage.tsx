@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Pencil, Play, Trash2, X } from 'lucide-react';
+import { Pencil, Play, Plus, Trash2 } from 'lucide-react';
 
+import { ContextDrawer } from '../../../components/ContextDrawer';
 import { PageHeader } from '../../../components/layout/PageHeader';
 import { getApiErrorMessage } from '../../../lib/api/client';
 import { listServers } from '../../inventory/api/serversApi';
@@ -56,11 +57,14 @@ export function AutomationsPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isWorking, setIsWorking] = useState(false);
   const [editingAutomationId, setEditingAutomationId] = useState<string | null>(null);
+  const [isFormOpen, setIsFormOpen] = useState(false);
   const targetSelector = useTargetSelection('bulk');
 
   const operationOptions = useMemo(() => {
-    if (form.operation_type === 'profile') return profiles.map((profile) => ({ value: profile.id, label: profile.name }));
-    if (form.operation_type === 'package') return packages.map((pkg) => ({ value: pkg.id, label: pkg.name }));
+    if (form.operation_type === 'profile')
+      return profiles.map((profile) => ({ value: profile.id, label: profile.name }));
+    if (form.operation_type === 'package')
+      return packages.map((pkg) => ({ value: pkg.id, label: pkg.name }));
     return actions.map((action) => ({ value: action.id, label: action.name }));
   }, [actions, form.operation_type, packages, profiles]);
 
@@ -68,13 +72,14 @@ export function AutomationsPage() {
     setIsLoading(true);
     setError(null);
     try {
-      const [nextAutomations, nextServers, nextActions, nextProfiles, nextPackages] = await Promise.all([
-        listAutomations(),
-        listServers(),
-        listOperationalActions(),
-        listProfiles(),
-        listPackageDefinitions(),
-      ]);
+      const [nextAutomations, nextServers, nextActions, nextProfiles, nextPackages] =
+        await Promise.all([
+          listAutomations(),
+          listServers(),
+          listOperationalActions(),
+          listProfiles(),
+          listPackageDefinitions(),
+        ]);
       setAutomations(nextAutomations);
       setServers(nextServers);
       setActions(nextActions);
@@ -82,7 +87,11 @@ export function AutomationsPage() {
       setPackages(nextPackages);
       setForm((current) => ({
         ...current,
-        target_server_ids: current.target_server_ids.length ? current.target_server_ids : nextServers[0] ? [nextServers[0].id] : [],
+        target_server_ids: current.target_server_ids.length
+          ? current.target_server_ids
+          : nextServers[0]
+            ? [nextServers[0].id]
+            : [],
         reference_id: current.reference_id || nextActions[0]?.id || '',
       }));
     } catch (caughtError) {
@@ -104,13 +113,16 @@ export function AutomationsPage() {
     try {
       if (editingAutomationId) {
         const updated = await updateAutomation(editingAutomationId, payload);
-        setAutomations((current) => current.map((automation) => (automation.id === updated.id ? updated : automation)));
+        setAutomations((current) =>
+          current.map((automation) => (automation.id === updated.id ? updated : automation)),
+        );
         setSuccess(`Updated automation ${updated.name}.`);
         resetForm();
       } else {
         const created = await createAutomation(payload);
         setAutomations((current) => [created, ...current]);
         setSuccess(`Created automation ${created.name}.`);
+        setIsFormOpen(false);
       }
     } catch (caughtError) {
       setError(getApiErrorMessage(caughtError));
@@ -120,6 +132,7 @@ export function AutomationsPage() {
   }
 
   function startEdit(automation: Automation) {
+    setIsFormOpen(true);
     setEditingAutomationId(automation.id);
     setForm({
       name: automation.name,
@@ -127,7 +140,10 @@ export function AutomationsPage() {
       interval_seconds: String(automation.interval_seconds ?? 3600),
       cron_expression: automation.cron_expression ?? '0 2 * * *',
       target_server_ids: automation.target_server_ids,
-      operation_type: automation.operation_type === 'profile' || automation.operation_type === 'package' ? automation.operation_type : 'action',
+      operation_type:
+        automation.operation_type === 'profile' || automation.operation_type === 'package'
+          ? automation.operation_type
+          : 'action',
       reference_id: automation.reference_id ?? '',
     });
     targetSelector.setMode(automation.target_server_ids.length > 1 ? 'bulk' : 'single');
@@ -139,6 +155,7 @@ export function AutomationsPage() {
 
   function resetForm() {
     setEditingAutomationId(null);
+    setIsFormOpen(false);
     setForm({
       ...initialForm,
       target_server_ids: servers[0] ? [servers[0].id] : [],
@@ -150,7 +167,9 @@ export function AutomationsPage() {
   }
 
   async function handleDelete(automation: Automation) {
-    const confirmed = window.confirm(`Delete automation ${automation.name}? Scheduled runs will stop, but existing workflow/job history remains.`);
+    const confirmed = window.confirm(
+      `Delete automation ${automation.name}? Scheduled runs will stop, but existing workflow/job history remains.`,
+    );
     if (!confirmed) {
       return;
     }
@@ -174,7 +193,9 @@ export function AutomationsPage() {
   async function toggle(automation: Automation) {
     setIsWorking(true);
     try {
-      const updated = automation.enabled ? await disableAutomation(automation.id) : await enableAutomation(automation.id);
+      const updated = automation.enabled
+        ? await disableAutomation(automation.id)
+        : await enableAutomation(automation.id);
       setAutomations((current) => current.map((item) => (item.id === updated.id ? updated : item)));
     } catch (caughtError) {
       setError(getApiErrorMessage(caughtError));
@@ -203,33 +224,69 @@ export function AutomationsPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader title="Automations" description="Recurring operational checks and package/profile compliance runs backed by persistent workflows." />
-      {error ? <p className="rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</p> : null}
-      {success ? <p className="rounded-md bg-emerald-50 px-3 py-2 text-sm text-emerald-700">{success}</p> : null}
+      <PageHeader
+        title="Automations"
+        description="Recurring operational checks and package/profile compliance runs backed by persistent workflows."
+      />
+      {error ? (
+        <p className="rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</p>
+      ) : null}
+      {success ? (
+        <p className="rounded-md bg-emerald-50 px-3 py-2 text-sm text-emerald-700">{success}</p>
+      ) : null}
 
-      <section className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm">
-        <div className="flex items-center justify-between gap-3">
-          <h3 className="text-base font-semibold text-zinc-950">{editingAutomationId ? 'Edit automation' : 'Create automation'}</h3>
-          {editingAutomationId ? (
-            <button className="inline-flex items-center gap-2 rounded-md border border-zinc-300 px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50" type="button" onClick={resetForm}>
-              <X className="h-4 w-4" aria-hidden="true" />
-              Cancel edit
-            </button>
-          ) : null}
-        </div>
+      <div className="flex justify-end">
+        <button
+          className="inline-flex items-center gap-2 rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm font-semibold text-zinc-700 shadow-sm hover:bg-zinc-50"
+          type="button"
+          onClick={() => setIsFormOpen(true)}
+        >
+          <Plus className="h-4 w-4" aria-hidden="true" />
+          Create automation
+        </button>
+      </div>
+
+      <ContextDrawer
+        description="Schedule actions, packages, or profiles while preserving the automation list context."
+        isOpen={isFormOpen}
+        title={editingAutomationId ? 'Edit Automation' : 'Create Automation'}
+        width="xl"
+        onClose={resetForm}
+      >
         <div className="mt-4 grid gap-4 lg:grid-cols-3">
-          <TextInput label="Name" value={form.name} onChange={(value) => setForm({ ...form, name: value })} />
+          <TextInput
+            label="Name"
+            value={form.name}
+            onChange={(value) => setForm({ ...form, name: value })}
+          />
           <label className="text-sm font-medium text-zinc-700">
             Schedule
-            <select className="mt-1 h-10 w-full rounded-md border border-zinc-300 px-3 text-sm" value={form.schedule_type} onChange={(event) => setForm({ ...form, schedule_type: event.target.value as FormState['schedule_type'] })}>
+            <select
+              className="mt-1 h-10 w-full rounded-md border border-zinc-300 px-3 text-sm"
+              value={form.schedule_type}
+              onChange={(event) =>
+                setForm({
+                  ...form,
+                  schedule_type: event.target.value as FormState['schedule_type'],
+                })
+              }
+            >
               <option value="interval">Interval</option>
               <option value="cron">Cron</option>
             </select>
           </label>
           {form.schedule_type === 'interval' ? (
-            <TextInput label="Every seconds" value={form.interval_seconds} onChange={(value) => setForm({ ...form, interval_seconds: value })} />
+            <TextInput
+              label="Every seconds"
+              value={form.interval_seconds}
+              onChange={(value) => setForm({ ...form, interval_seconds: value })}
+            />
           ) : (
-            <TextInput label="Cron expression" value={form.cron_expression} onChange={(value) => setForm({ ...form, cron_expression: value })} />
+            <TextInput
+              label="Cron expression"
+              value={form.cron_expression}
+              onChange={(value) => setForm({ ...form, cron_expression: value })}
+            />
           )}
           <label className="text-sm font-medium text-zinc-700">
             Operation
@@ -248,9 +305,17 @@ export function AutomationsPage() {
           </label>
           <label className="text-sm font-medium text-zinc-700">
             Reference
-            <select className="mt-1 h-10 w-full rounded-md border border-zinc-300 px-3 text-sm" value={form.reference_id} onChange={(event) => setForm({ ...form, reference_id: event.target.value })}>
+            <select
+              className="mt-1 h-10 w-full rounded-md border border-zinc-300 px-3 text-sm"
+              value={form.reference_id}
+              onChange={(event) => setForm({ ...form, reference_id: event.target.value })}
+            >
               <option value="">Select operation</option>
-              {operationOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+              {operationOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
             </select>
           </label>
           <div className="lg:col-span-3">
@@ -267,18 +332,28 @@ export function AutomationsPage() {
                 targetSelector.setSelectedIds(selection.selectedIds);
                 setForm({
                   ...form,
-                  target_server_ids: selection.mode === 'bulk' ? selection.selectedIds : selection.selectedId ? [selection.selectedId] : [],
+                  target_server_ids:
+                    selection.mode === 'bulk'
+                      ? selection.selectedIds
+                      : selection.selectedId
+                        ? [selection.selectedId]
+                        : [],
                 });
               }}
             />
           </div>
         </div>
         <div className="mt-4 flex justify-end">
-          <button className="rounded-md bg-zinc-950 px-4 py-2 text-sm font-semibold text-white disabled:bg-zinc-300" disabled={isWorking} type="button" onClick={() => void handleSave()}>
+          <button
+            className="rounded-md bg-zinc-950 px-4 py-2 text-sm font-semibold text-white disabled:bg-zinc-300"
+            disabled={isWorking}
+            type="button"
+            onClick={() => void handleSave()}
+          >
             {editingAutomationId ? 'Save automation' : 'Create automation'}
           </button>
         </div>
-      </section>
+      </ContextDrawer>
 
       <section className="rounded-lg border border-zinc-200 bg-white shadow-sm">
         <div className="border-b border-zinc-200 px-5 py-4">
@@ -289,37 +364,74 @@ export function AutomationsPage() {
         {!isLoading ? (
           <div className="divide-y divide-zinc-100">
             {automations.map((automation) => (
-              <article key={automation.id} className="flex flex-col gap-3 p-5 lg:flex-row lg:items-center lg:justify-between">
+              <article
+                key={automation.id}
+                className="flex flex-col gap-3 p-5 lg:flex-row lg:items-center lg:justify-between"
+              >
                 <div>
                   <div className="flex flex-wrap items-center gap-2">
                     <h4 className="font-semibold text-zinc-950">{automation.name}</h4>
-                    <span className="rounded-full bg-zinc-100 px-2 py-1 text-xs font-semibold text-zinc-700">{automation.enabled ? 'enabled' : 'disabled'}</span>
-                    {automation.last_status ? <span className="rounded-full bg-zinc-100 px-2 py-1 text-xs font-semibold text-zinc-700">last {automation.last_status}</span> : null}
+                    <span className="rounded-full bg-zinc-100 px-2 py-1 text-xs font-semibold text-zinc-700">
+                      {automation.enabled ? 'enabled' : 'disabled'}
+                    </span>
+                    {automation.last_status ? (
+                      <span className="rounded-full bg-zinc-100 px-2 py-1 text-xs font-semibold text-zinc-700">
+                        last {automation.last_status}
+                      </span>
+                    ) : null}
                   </div>
                   <p className="mt-1 text-sm text-zinc-500">
-                    {automation.schedule_type === 'interval' ? `Every ${automation.interval_seconds}s` : automation.cron_expression} - {automation.operation_type} {automation.reference_id}
+                    {automation.schedule_type === 'interval'
+                      ? `Every ${automation.interval_seconds}s`
+                      : automation.cron_expression}{' '}
+                    - {automation.operation_type} {automation.reference_id}
+                  </p>
+                  <p className="mt-1 text-sm text-zinc-500">
+                    Targets: {formatAutomationTargets(automation, servers)}
                   </p>
                 </div>
                 <div className="flex flex-wrap gap-2">
-                  <button className="rounded-md border border-zinc-300 px-3 py-2 text-sm font-semibold text-zinc-700" disabled={isWorking} type="button" onClick={() => void toggle(automation)}>
+                  <button
+                    className="rounded-md border border-zinc-300 px-3 py-2 text-sm font-semibold text-zinc-700"
+                    disabled={isWorking}
+                    type="button"
+                    onClick={() => void toggle(automation)}
+                  >
                     {automation.enabled ? 'Disable' : 'Enable'}
                   </button>
-                  <button className="inline-flex items-center gap-2 rounded-md border border-zinc-300 px-3 py-2 text-sm font-semibold text-zinc-700" disabled={isWorking} type="button" onClick={() => startEdit(automation)}>
+                  <button
+                    className="inline-flex items-center gap-2 rounded-md border border-zinc-300 px-3 py-2 text-sm font-semibold text-zinc-700"
+                    disabled={isWorking}
+                    type="button"
+                    onClick={() => startEdit(automation)}
+                  >
                     <Pencil className="h-4 w-4" aria-hidden="true" />
                     Edit
                   </button>
-                  <button className="inline-flex items-center gap-2 rounded-md bg-zinc-950 px-3 py-2 text-sm font-semibold text-white disabled:bg-zinc-300" disabled={isWorking} type="button" onClick={() => void runNow(automation)}>
+                  <button
+                    className="inline-flex items-center gap-2 rounded-md bg-zinc-950 px-3 py-2 text-sm font-semibold text-white disabled:bg-zinc-300"
+                    disabled={isWorking}
+                    type="button"
+                    onClick={() => void runNow(automation)}
+                  >
                     <Play className="h-4 w-4" aria-hidden="true" />
                     Run now
                   </button>
-                  <button className="inline-flex items-center gap-2 rounded-md border border-rose-300 px-3 py-2 text-sm font-semibold text-rose-700" disabled={isWorking} type="button" onClick={() => void handleDelete(automation)}>
+                  <button
+                    className="inline-flex items-center gap-2 rounded-md border border-rose-300 px-3 py-2 text-sm font-semibold text-rose-700"
+                    disabled={isWorking}
+                    type="button"
+                    onClick={() => void handleDelete(automation)}
+                  >
                     <Trash2 className="h-4 w-4" aria-hidden="true" />
                     Delete
                   </button>
                 </div>
               </article>
             ))}
-            {automations.length === 0 ? <p className="p-5 text-sm text-zinc-500">No scheduled automations yet.</p> : null}
+            {automations.length === 0 ? (
+              <p className="p-5 text-sm text-zinc-500">No scheduled automations yet.</p>
+            ) : null}
           </div>
         ) : null}
       </section>
@@ -327,13 +439,35 @@ export function AutomationsPage() {
   );
 }
 
-function TextInput({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
+function TextInput({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+}) {
   return (
     <label className="text-sm font-medium text-zinc-700">
       {label}
-      <input className="mt-1 h-10 w-full rounded-md border border-zinc-300 px-3 text-sm" value={value} onChange={(event) => onChange(event.target.value)} />
+      <input
+        className="mt-1 h-10 w-full rounded-md border border-zinc-300 px-3 text-sm"
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+      />
     </label>
   );
+}
+
+function formatAutomationTargets(automation: Automation, servers: Server[]): string {
+  const names = automation.target_server_ids.map((serverId) => {
+    const server = servers.find((candidate) => candidate.id === serverId);
+    return server?.hostname ?? serverId;
+  });
+  if (names.length === 0) return 'No hosts selected';
+  if (names.length <= 3) return names.join(', ');
+  return `${names.slice(0, 3).join(', ')} +${names.length - 3} more`;
 }
 
 function toPayload(form: FormState): AutomationPayload | null {

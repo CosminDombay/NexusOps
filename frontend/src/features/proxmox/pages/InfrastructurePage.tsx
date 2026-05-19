@@ -70,7 +70,7 @@ export function InfrastructurePage() {
     <div className="space-y-6">
       <PageHeader
         title="Infrastructure"
-        description="Read-only Proxmox cluster visibility for nodes, guests, and current resource state."
+        description="Proxmox cluster visibility for nodes, guests, and provider state. Import discovered guests into Inventory before managing them."
       />
 
       {isLoading ? <LoadingState /> : null}
@@ -85,14 +85,18 @@ export function InfrastructurePage() {
             />
           ) : null}
           {allowActions ? (
-            <div className="flex justify-end">
+            <div className="flex flex-col gap-3 rounded-lg border border-zinc-200 bg-white p-4 shadow-sm sm:flex-row sm:items-center sm:justify-between">
+              <p className="text-sm text-zinc-500">
+                Provider discovery is read-only here. Use Inventory for lifecycle actions after a VM
+                or CT is imported.
+              </p>
               <button
                 className="inline-flex items-center gap-2 rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm font-semibold text-zinc-700 transition hover:bg-zinc-50"
                 type="button"
                 onClick={() => void reconcileInventory()}
               >
                 <GitCompareArrows className="h-4 w-4" aria-hidden="true" />
-                Reconcile Inventory
+                Sync discovered guests
               </button>
             </div>
           ) : null}
@@ -127,9 +131,15 @@ function Notification({
       : 'border-rose-200 bg-rose-50 text-rose-800';
 
   return (
-    <div className={`flex items-center justify-between gap-4 rounded-lg border px-4 py-3 ${className}`}>
+    <div
+      className={`flex items-center justify-between gap-4 rounded-lg border px-4 py-3 ${className}`}
+    >
       <p className="text-sm font-medium">{message}</p>
-      <button className="text-sm font-semibold underline-offset-2 hover:underline" type="button" onClick={onDismiss}>
+      <button
+        className="text-sm font-semibold underline-offset-2 hover:underline"
+        type="button"
+        onClick={onDismiss}
+      >
         Dismiss
       </button>
     </div>
