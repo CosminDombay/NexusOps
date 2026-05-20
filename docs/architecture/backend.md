@@ -440,6 +440,8 @@ Frontend Monitoring page
 
 Monitoring intentionally avoids Grafana dashboard lifecycle ownership. Grafana is an optional deep-analysis provider, not a required dashboard-per-node dependency. Operational health is derived from lifecycle state, SSH/readiness metadata, metrics availability, logs availability, exporter detection, stale telemetry, and provider health.
 
+Monitoring target resolution checks more than the Inventory primary IP. NexusOps builds a candidate set from the Inventory IP, hostname, provider metadata such as Tailscale and detected IPs, and Prometheus `node_uname_info` matches by nodename. This prevents false degraded states when a node is scraped through a Tailscale address or another telemetry-specific endpoint.
+
 ## Current Backend Boundaries
 
 The backend mutates NexusOps-owned inventory/job/runtime data, requests controlled Proxmox guest lifecycle actions, reconciles Proxmox hypervisor hosts into managed Inventory records, and executes SSH commands against inventory-managed hosts. Raw Proxmox objects are provider records; operational execution still converges through managed nodes and Jobs.

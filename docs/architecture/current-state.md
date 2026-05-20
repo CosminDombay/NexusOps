@@ -207,6 +207,7 @@ The implemented system is focused on foundations, visibility, narrowly scoped pr
 - Monitoring readiness:
   - Prometheus HTTP API health check
   - basic per-server CPU, memory, disk, and uptime query support
+  - monitoring target matching across Inventory IP, hostname, provider metadata, Tailscale/detected IPs, and Prometheus nodename discovery
   - Prometheus scrape target, exporter, stale-metric, and missing-telemetry checks
   - Loki reachability and log-stream availability checks where provider data is available
   - optional Grafana deep links only when configured

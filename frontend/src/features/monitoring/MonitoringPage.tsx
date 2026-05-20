@@ -133,6 +133,11 @@ function ObservabilityRow({ server }: { server: ServerMetrics }) {
       <td className="px-5 py-4">
         <div className="font-medium text-zinc-950">{server.hostname}</div>
         <div className="font-mono text-xs text-zinc-500">{server.ip_address}</div>
+        {server.monitoring_targets.length > 1 ? (
+          <div className="mt-1 max-w-52 truncate font-mono text-[11px] text-zinc-400" title={server.monitoring_targets.join(', ')}>
+            targets: {server.monitoring_targets.slice(0, 3).join(', ')}
+          </div>
+        ) : null}
       </td>
       <td className="px-5 py-4"><RuntimeBadge value={server.monitoring_state} /></td>
       <td className="px-5 py-4">

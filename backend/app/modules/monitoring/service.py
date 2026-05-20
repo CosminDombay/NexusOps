@@ -1,4 +1,5 @@
 from datetime import UTC, datetime
+import re
 from typing import Any
 from uuid import UUID
 
@@ -8,6 +9,7 @@ from backend.app.common.constants import InventoryHealthStatus
 from backend.app.core.config import settings
 from backend.app.modules.integrations.models import IntegrationProviderType
 from backend.app.modules.integrations.service import IntegrationService, ProviderConnectionConfig
+from backend.app.modules.inventory.models import Server
 from backend.app.modules.inventory.repository import ServerRepository
 from backend.app.modules.inventory.service import ServerNotFoundError
 from backend.app.modules.monitoring.schemas import (
@@ -50,10 +52,11 @@ class MonitoringService:
             raise ServerNotFoundError("Server not found")
         configs = await self._provider_configs()
         prometheus_config = configs.get(IntegrationProviderType.PROMETHEUS)
-        metrics, metrics_error = await self._fetch_metrics(server.ip_address, prometheus_config)
+        monitoring_targets = await self._monitoring_targets(server, prometheus_config)
+        metrics, metrics_error = await self._fetch_metrics(monitoring_targets, prometheus_config)
         readiness = await self._node_observability_readiness(
             server.hostname,
-            server.ip_address,
+            monitoring_targets,
             metrics,
             metrics_error,
             configs,
@@ -62,13 +65,14 @@ class MonitoringService:
             server_id=server.id,
             hostname=server.hostname,
             ip_address=server.ip_address,
+            monitoring_targets=monitoring_targets,
             online=server.last_health_status == InventoryHealthStatus.ONLINE,
             cpu_usage_percent=metrics.get("cpu"),
             memory_usage_percent=metrics.get("memory"),
             disk_usage_percent=metrics.get("disk"),
             uptime_seconds=metrics.get("uptime"),
             grafana_url=self._grafana_url(configs.get(IntegrationProviderType.GRAFANA)),
-            prometheus_url=self._prometheus_url(prometheus_config, server.ip_address),
+            prometheus_url=self._prometheus_url(prometheus_config, monitoring_targets),
             loki_url=self._loki_url(configs.get(IntegrationProviderType.LOKI)),
             advanced_metrics_url=self._grafana_url(configs.get(IntegrationProviderType.GRAFANA)),
             advanced_logs_url=self._grafana_url(configs.get(IntegrationProviderType.GRAFANA)),
@@ -84,13 +88,17 @@ class MonitoringService:
         server_metrics = []
         for server in servers:
             try:
+                monitoring_targets = await self._monitoring_targets(
+                    server,
+                    configs.get(IntegrationProviderType.PROMETHEUS),
+                )
                 metrics, metrics_error = await self._fetch_metrics(
-                    server.ip_address,
+                    monitoring_targets,
                     configs.get(IntegrationProviderType.PROMETHEUS),
                 )
                 readiness = await self._node_observability_readiness(
                     server.hostname,
-                    server.ip_address,
+                    monitoring_targets,
                     metrics,
                     metrics_error,
                     configs,
@@ -100,13 +108,14 @@ class MonitoringService:
                         server_id=server.id,
                         hostname=server.hostname,
                         ip_address=server.ip_address,
+                        monitoring_targets=monitoring_targets,
                         online=server.last_health_status == InventoryHealthStatus.ONLINE,
                         cpu_usage_percent=metrics.get("cpu"),
                         memory_usage_percent=metrics.get("memory"),
                         disk_usage_percent=metrics.get("disk"),
                         uptime_seconds=metrics.get("uptime"),
                         grafana_url=self._grafana_url(configs.get(IntegrationProviderType.GRAFANA)),
-                        prometheus_url=self._prometheus_url(configs.get(IntegrationProviderType.PROMETHEUS), server.ip_address),
+                        prometheus_url=self._prometheus_url(configs.get(IntegrationProviderType.PROMETHEUS), monitoring_targets),
                         loki_url=self._loki_url(configs.get(IntegrationProviderType.LOKI)),
                         advanced_metrics_url=self._grafana_url(configs.get(IntegrationProviderType.GRAFANA)),
                         advanced_logs_url=self._grafana_url(configs.get(IntegrationProviderType.GRAFANA)),
@@ -121,9 +130,10 @@ class MonitoringService:
                         server_id=server.id,
                         hostname=server.hostname,
                         ip_address=server.ip_address,
+                        monitoring_targets=self._static_monitoring_targets(server),
                         online=False,
                         grafana_url=self._grafana_url(configs.get(IntegrationProviderType.GRAFANA)),
-                        prometheus_url=self._prometheus_url(configs.get(IntegrationProviderType.PROMETHEUS), server.ip_address),
+                        prometheus_url=self._prometheus_url(configs.get(IntegrationProviderType.PROMETHEUS), self._static_monitoring_targets(server)),
                         loki_url=self._loki_url(configs.get(IntegrationProviderType.LOKI)),
                         advanced_metrics_url=self._grafana_url(configs.get(IntegrationProviderType.GRAFANA)),
                         advanced_logs_url=self._grafana_url(configs.get(IntegrationProviderType.GRAFANA)),
@@ -210,18 +220,19 @@ class MonitoringService:
 
     async def _fetch_metrics(
         self,
-        ip_address: str,
+        monitoring_targets: list[str],
         prometheus_config: ProviderConnectionConfig | None,
     ) -> tuple[dict[str, float | None], str | None]:
         empty = {"cpu": None, "memory": None, "disk": None, "uptime": None}
         if prometheus_config is None:
             return empty, "Prometheus integration is not configured or is disabled"
 
+        instance_selector = self._instance_selector(monitoring_targets)
         queries = {
-            "cpu": f'100 - (avg by(instance) (rate(node_cpu_seconds_total{{mode="idle",instance=~"{ip_address}.*"}}[5m])) * 100)',
-            "memory": f'(1 - (node_memory_MemAvailable_bytes{{instance=~"{ip_address}.*"}} / node_memory_MemTotal_bytes{{instance=~"{ip_address}.*"}})) * 100',
-            "disk": f'100 - ((node_filesystem_avail_bytes{{mountpoint="/",instance=~"{ip_address}.*"}} * 100) / node_filesystem_size_bytes{{mountpoint="/",instance=~"{ip_address}.*"}})',
-            "uptime": f'time() - node_boot_time_seconds{{instance=~"{ip_address}.*"}}',
+            "cpu": f'100 - (avg by(instance) (rate(node_cpu_seconds_total{{mode="idle",instance=~"{instance_selector}"}}[5m])) * 100)',
+            "memory": f'(1 - (node_memory_MemAvailable_bytes{{instance=~"{instance_selector}"}} / node_memory_MemTotal_bytes{{instance=~"{instance_selector}"}})) * 100',
+            "disk": f'100 - ((node_filesystem_avail_bytes{{mountpoint="/",instance=~"{instance_selector}"}} * 100) / node_filesystem_size_bytes{{mountpoint="/",instance=~"{instance_selector}"}})',
+            "uptime": f'time() - node_boot_time_seconds{{instance=~"{instance_selector}"}}',
         }
         metrics: dict[str, float | None] = {}
         errors: list[str] = []
@@ -246,23 +257,24 @@ class MonitoringService:
     async def _node_observability_readiness(
         self,
         hostname: str,
-        ip_address: str,
+        monitoring_targets: list[str],
         metrics: dict[str, float | None],
         metrics_error: str | None,
         configs: dict[IntegrationProviderType, ProviderConnectionConfig | None],
     ) -> dict[str, object]:
         prometheus_config = configs.get(IntegrationProviderType.PROMETHEUS)
         loki_config = configs.get(IntegrationProviderType.LOKI)
+        instance_selector = self._instance_selector(monitoring_targets)
         metrics_available = any(value is not None for value in metrics.values())
-        scrape_health = await self._prometheus_target_health(ip_address, prometheus_config)
+        scrape_health = await self._prometheus_target_health(monitoring_targets, prometheus_config)
         node_exporter_detected = scrape_health in {"up", "unknown"} and metrics_available
         cadvisor_detected = await self._prometheus_has_series(
             prometheus_config,
-            f'container_last_seen{{instance=~"{ip_address}.*"}}',
+            f'container_last_seen{{instance=~"{instance_selector}"}}',
         )
-        logs_available, logs_error = await self._loki_stream_present(hostname, ip_address, loki_config)
+        logs_available, logs_error = await self._loki_stream_present(hostname, monitoring_targets, loki_config)
         promtail_detected = logs_available
-        stale_metrics = await self._prometheus_has_stale_metrics(ip_address, prometheus_config)
+        stale_metrics = await self._prometheus_has_stale_metrics(monitoring_targets, prometheus_config)
 
         reasons: list[str] = []
         if metrics_error:
@@ -304,16 +316,17 @@ class MonitoringService:
 
     async def _prometheus_target_health(
         self,
-        ip_address: str,
+        monitoring_targets: list[str],
         config: ProviderConnectionConfig | None,
     ) -> str:
         if config is None:
             return "unconfigured"
+        instance_selector = self._instance_selector(monitoring_targets)
         try:
             async with httpx.AsyncClient(timeout=config.timeout_seconds, verify=config.verify_ssl) as client:
                 response = await client.get(
                     f"{config.base_url}/api/v1/query",
-                    params={"query": f'up{{instance=~"{ip_address}.*"}}'},
+                    params={"query": f'up{{instance=~"{instance_selector}"}}'},
                     headers=config.headers,
                 )
                 response.raise_for_status()
@@ -347,16 +360,17 @@ class MonitoringService:
 
     async def _prometheus_has_stale_metrics(
         self,
-        ip_address: str,
+        monitoring_targets: list[str],
         config: ProviderConnectionConfig | None,
     ) -> bool:
         if config is None:
             return False
+        instance_selector = self._instance_selector(monitoring_targets)
         try:
             async with httpx.AsyncClient(timeout=config.timeout_seconds, verify=config.verify_ssl) as client:
                 response = await client.get(
                     f"{config.base_url}/api/v1/query",
-                    params={"query": f'node_boot_time_seconds{{instance=~"{ip_address}.*"}}'},
+                    params={"query": f'node_boot_time_seconds{{instance=~"{instance_selector}"}}'},
                     headers=config.headers,
                 )
                 response.raise_for_status()
@@ -370,12 +384,13 @@ class MonitoringService:
     async def _loki_stream_present(
         self,
         hostname: str,
-        ip_address: str,
+        monitoring_targets: list[str],
         config: ProviderConnectionConfig | None,
     ) -> tuple[bool, str | None]:
         if config is None:
             return False, "loki_not_configured"
-        queries = [f'{{host="{hostname}"}}', f'{{hostname="{hostname}"}}', f'{{instance=~"{ip_address}.*"}}']
+        instance_selector = self._instance_selector(monitoring_targets)
+        queries = [f'{{host="{hostname}"}}', f'{{hostname="{hostname}"}}', f'{{instance=~"{instance_selector}"}}']
         try:
             async with httpx.AsyncClient(timeout=config.timeout_seconds, verify=config.verify_ssl) as client:
                 for query in queries:
@@ -390,6 +405,93 @@ class MonitoringService:
         except Exception as exc:
             return False, f"loki_unavailable: {exc}"
         return False, "log_stream_missing"
+
+    async def _monitoring_targets(
+        self,
+        server: Server,
+        prometheus_config: ProviderConnectionConfig | None,
+    ) -> list[str]:
+        targets = self._static_monitoring_targets(server)
+        targets.extend(await self._prometheus_instances_for_hostname(server.hostname, prometheus_config))
+        return list(dict.fromkeys(target for target in targets if target))
+
+    def _static_monitoring_targets(self, server: Server) -> list[str]:
+        metadata = server.provider_metadata if isinstance(server.provider_metadata, dict) else {}
+        targets: list[str] = [server.ip_address, server.hostname]
+        for key in (
+            "tailscale_ip",
+            "tailscale_ipv4",
+            "tailscale_ipv6",
+            "management_ip",
+            "detected_ip_address",
+            "lan_ip",
+        ):
+            self._append_target(targets, metadata.get(key))
+        for key in ("tailscale_ips", "ip_addresses", "detected_ip_addresses", "management_ips"):
+            self._append_target(targets, metadata.get(key))
+        return list(dict.fromkeys(target for target in targets if target))
+
+    async def _prometheus_instances_for_hostname(
+        self,
+        hostname: str,
+        config: ProviderConnectionConfig | None,
+    ) -> list[str]:
+        if config is None or not hostname:
+            return []
+        safe_hostname = hostname.replace("\\", "\\\\").replace('"', '\\"')
+        queries = [
+            f'node_uname_info{{nodename="{safe_hostname}"}}',
+            f'node_uname_info{{instance=~"{re.escape(hostname)}(:[0-9]+)?$"}}',
+        ]
+        instances: list[str] = []
+        try:
+            async with httpx.AsyncClient(timeout=config.timeout_seconds, verify=config.verify_ssl) as client:
+                for query in queries:
+                    response = await client.get(
+                        f"{config.base_url}/api/v1/query",
+                        params={"query": query},
+                        headers=config.headers,
+                    )
+                    response.raise_for_status()
+                    for result in response.json().get("data", {}).get("result", []):
+                        metric = result.get("metric", {})
+                        instance = metric.get("instance") if isinstance(metric, dict) else None
+                        if isinstance(instance, str) and instance.strip():
+                            instances.append(instance.strip())
+        except Exception:
+            return []
+        return list(dict.fromkeys(instances))
+
+    @staticmethod
+    def _append_target(targets: list[str], value: object) -> None:
+        if isinstance(value, str):
+            if value.strip():
+                targets.append(value.strip())
+            return
+        if isinstance(value, list):
+            for item in value:
+                if isinstance(item, str) and item.strip():
+                    targets.append(item.strip())
+                elif isinstance(item, dict):
+                    for key in ("ip", "address", "ip_address", "addr"):
+                        nested = item.get(key)
+                        if isinstance(nested, str) and nested.strip():
+                            targets.append(nested.strip())
+
+    @staticmethod
+    def _instance_selector(monitoring_targets: list[str]) -> str:
+        targets = [target for target in monitoring_targets if target]
+        if not targets:
+            return "$^"
+        patterns: list[str] = []
+        for target in targets:
+            escaped = re.escape(target)
+            if ":" in target:
+                patterns.append(escaped)
+            else:
+                patterns.append(f"{escaped}(:[0-9]+)?")
+                patterns.append(f"{escaped}.*")
+        return "|".join(dict.fromkeys(patterns))
 
     @staticmethod
     def _first_value(payload: dict[str, Any]) -> float | None:
@@ -424,10 +526,11 @@ class MonitoringService:
         return config.base_url
 
     @staticmethod
-    def _prometheus_url(config: ProviderConnectionConfig | None, ip_address: str) -> str | None:
+    def _prometheus_url(config: ProviderConnectionConfig | None, monitoring_targets: list[str]) -> str | None:
         if config is None:
             return None
-        return f"{config.base_url}/graph?g0.expr=up%7Binstance%3D~%22{ip_address}.*%22%7D"
+        selector = MonitoringService._instance_selector(monitoring_targets)
+        return f"{config.base_url}/graph?g0.expr=up%7Binstance%3D~%22{selector}%22%7D"
 
     @staticmethod
     def _loki_url(config: ProviderConnectionConfig | None) -> str | None:

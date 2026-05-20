@@ -12,6 +12,7 @@ export type ServerMetrics = {
   server_id: string;
   hostname: string;
   ip_address: string;
+  monitoring_targets: string[];
   online: boolean;
   cpu_usage_percent: number | null;
   memory_usage_percent: number | null;

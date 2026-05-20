@@ -24,6 +24,7 @@ class ServerMetricsRead(BaseModel):
     server_id: UUID
     hostname: str
     ip_address: str
+    monitoring_targets: list[str] = Field(default_factory=list)
     online: bool
     cpu_usage_percent: float | None = None
     memory_usage_percent: float | None = None
