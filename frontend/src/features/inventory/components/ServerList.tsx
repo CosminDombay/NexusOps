@@ -246,7 +246,7 @@ export function ServerList({
                   />
                 </td>
                 <td className="px-5 py-4">
-                  <Link className="font-medium text-zinc-950 hover:text-zinc-700" to={`/inventory/${server.id}`}>
+                  <Link className="font-medium text-zinc-950 hover:text-zinc-700" to={`/nodes/${server.id}`}>
                     {server.hostname}
                   </Link>
                   <div className="mt-1 text-xs text-zinc-500">{server.operating_system}</div>
@@ -258,7 +258,12 @@ export function ServerList({
                 <td className="px-5 py-4">
                   <EnvironmentBadge environment={server.environment} />
                 </td>
-                <td className="px-5 py-4 text-sm text-zinc-700">{formatLabel(server.provider)}</td>
+                <td className="px-5 py-4 text-sm text-zinc-700">
+                  <div className="font-medium">{formatLabel(server.provider)}</div>
+                  <div className="mt-1 font-mono text-xs text-zinc-500">
+                    {providerRelationship(server)}
+                  </div>
+                </td>
                 <td className="px-5 py-4">
                   <LifecycleBadge state={server.lifecycle_state} />
                 </td>
@@ -313,7 +318,7 @@ export function ServerList({
                   }}
                 />
                 <div>
-                  <Link className="font-semibold text-zinc-950 hover:text-zinc-700" to={`/inventory/${server.id}`}>
+                  <Link className="font-semibold text-zinc-950 hover:text-zinc-700" to={`/nodes/${server.id}`}>
                     {server.hostname}
                   </Link>
                   <p className="mt-1 font-mono text-sm text-zinc-600">{server.ip_address}</p>
@@ -493,7 +498,7 @@ function ServerActions({
   }
 
   async function deleteServer() {
-    if (window.confirm(`Delete inventory record ${server.hostname}? This will not destroy the Proxmox VM.`)) {
+    if (window.confirm(`Delete inventory record ${server.hostname}? This will not destroy the underlying ${server.node_type === 'hypervisor' ? 'Proxmox host' : 'Proxmox guest'}.`)) {
       await onDelete(server.id);
     }
   }
@@ -564,4 +569,14 @@ function ServerActions({
       </button>
     </div>
   );
+}
+
+function providerRelationship(server: Server): string {
+  if (server.node_type === 'hypervisor') {
+    return server.external_id ? `node:${server.external_id}` : 'hypervisor node';
+  }
+  if (server.provider_node && (server.vmid || server.external_id)) {
+    return `${server.provider_node}/${server.provider_type ?? 'guest'}:${server.vmid ?? server.external_id}`;
+  }
+  return server.external_id ?? server.provider_type ?? 'manual';
 }

@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useState } from 'react';
 
 import { getApiErrorMessage } from '../../../lib/api/client';
-import { importProxmoxVm, reconcileProxmoxInventory } from '../../inventory/api/serversApi';
+import { decommissionServer, deleteServer, importProxmoxVm, reconcileProxmoxInventory, restoreServer } from '../../inventory/api/serversApi';
 import type { ImportProxmoxVmPayload } from '../../inventory/types/server';
-import { getProxmoxDashboard, runVmAction } from '../api/proxmoxApi';
+import { getProxmoxDashboard, runVmAction, syncProxmoxGuests, syncProxmoxHosts } from '../api/proxmoxApi';
 import type { ProxmoxDashboard, ProxmoxVmAction } from '../types/proxmox';
 
 type ProxmoxNotification = {
@@ -21,6 +21,11 @@ type UseProxmoxDashboardResult = {
   runAction: (vmId: number, action: ProxmoxVmAction) => Promise<void>;
   importVm: (payload: ImportProxmoxVmPayload) => Promise<void>;
   reconcileInventory: () => Promise<void>;
+  syncHosts: () => Promise<void>;
+  syncGuests: () => Promise<void>;
+  decommissionHost: (serverId: string) => Promise<void>;
+  restoreHost: (serverId: string) => Promise<void>;
+  removeHostRecord: (serverId: string) => Promise<void>;
   clearNotification: () => void;
 };
 
@@ -97,6 +102,78 @@ export function useProxmoxDashboard(): UseProxmoxDashboardResult {
     }
   }, [refreshDashboard]);
 
+  const syncHosts = useCallback(async () => {
+    setNotification(null);
+
+    try {
+      const result = await syncProxmoxHosts();
+      setNotification({
+        tone: 'success',
+        message: `${result.imported_count} Proxmox host(s) imported, ${result.updated_count} updated, ${result.skipped_count} skipped.`,
+      });
+      await refreshDashboard();
+    } catch (caughtError) {
+      setNotification({ tone: 'error', message: getApiErrorMessage(caughtError) });
+    }
+  }, [refreshDashboard]);
+
+  const syncGuests = useCallback(async () => {
+    setNotification(null);
+
+    try {
+      const result = await syncProxmoxGuests();
+      setNotification({
+        tone: 'success',
+        message: `${result.imported_count} Proxmox guest(s) imported, ${result.updated_count} updated, ${result.skipped_count} skipped.`,
+      });
+      await refreshDashboard();
+    } catch (caughtError) {
+      setNotification({ tone: 'error', message: getApiErrorMessage(caughtError) });
+    }
+  }, [refreshDashboard]);
+
+  const decommissionHost = useCallback(
+    async (serverId: string) => {
+      setNotification(null);
+      try {
+        const server = await decommissionServer(serverId);
+        setNotification({ tone: 'success', message: `${server.hostname} disconnected from active NexusOps orchestration.` });
+        await refreshDashboard();
+      } catch (caughtError) {
+        setNotification({ tone: 'error', message: getApiErrorMessage(caughtError) });
+      }
+    },
+    [refreshDashboard],
+  );
+
+  const restoreHost = useCallback(
+    async (serverId: string) => {
+      setNotification(null);
+      try {
+        const server = await restoreServer(serverId);
+        setNotification({ tone: 'success', message: `${server.hostname} reconnected to active NexusOps orchestration.` });
+        await refreshDashboard();
+      } catch (caughtError) {
+        setNotification({ tone: 'error', message: getApiErrorMessage(caughtError) });
+      }
+    },
+    [refreshDashboard],
+  );
+
+  const removeHostRecord = useCallback(
+    async (serverId: string) => {
+      setNotification(null);
+      try {
+        await deleteServer(serverId);
+        setNotification({ tone: 'success', message: 'Hypervisor inventory record removed. Sync the integration to rediscover it.' });
+        await refreshDashboard();
+      } catch (caughtError) {
+        setNotification({ tone: 'error', message: getApiErrorMessage(caughtError) });
+      }
+    },
+    [refreshDashboard],
+  );
+
   return {
     dashboard,
     isLoading,
@@ -107,6 +184,11 @@ export function useProxmoxDashboard(): UseProxmoxDashboardResult {
     runAction,
     importVm,
     reconcileInventory,
+    syncHosts,
+    syncGuests,
+    decommissionHost,
+    restoreHost,
+    removeHostRecord,
     clearNotification: () => setNotification(null),
   };
 }

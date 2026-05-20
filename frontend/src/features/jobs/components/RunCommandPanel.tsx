@@ -37,7 +37,7 @@ export function RunCommandPanel({
   const canSubmit = Boolean((selectedServerId || selectedServerIds.length) && command.trim()) && !isExecuting;
 
   return (
-    <section className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm">
+    <section>
       <div className="mb-4">
         <TargetSelector
           servers={servers}

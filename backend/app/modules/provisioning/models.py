@@ -54,8 +54,10 @@ class ProvisioningRequest(Base, UuidPrimaryKeyMixin, TimestampMixin):
     __tablename__ = "provisioning_requests"
 
     vm_name: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    provisioning_type: Mapped[str] = mapped_column(String(20), default="qemu", nullable=False, index=True)
     target_node: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
     template_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    template_ref: Mapped[str | None] = mapped_column(String(500), nullable=True)
     new_vm_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
     cpu_cores: Mapped[int] = mapped_column(Integer, nullable=False)
     memory_mb: Mapped[int] = mapped_column(Integer, nullable=False)

@@ -36,6 +36,8 @@ class FakeSshAdapter(SshAdapter):
         user: str,
         password: str | None = None,
         private_key_path: str | None = None,
+        private_key: str | None = None,
+        passphrase: str | None = None,
     ) -> SshExecutionResult:
         self.calls.append(
             {
@@ -45,6 +47,8 @@ class FakeSshAdapter(SshAdapter):
                 "user": user,
                 "password": password,
                 "private_key_path": private_key_path,
+                "private_key": private_key,
+                "passphrase": passphrase,
             }
         )
         if self.fail_connect:
@@ -108,6 +112,8 @@ async def test_job_service_executes_command_and_persists_success(client) -> None
                 "user": "ubuntu",
                 "password": None,
                 "private_key_path": None,
+                "private_key": None,
+                "passphrase": None,
             }
         ]
 

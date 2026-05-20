@@ -1,7 +1,8 @@
 from enum import StrEnum
+from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import Enum, ForeignKey, Integer, JSON, String, Text
+from sqlalchemy import DateTime, Enum, ForeignKey, Integer, JSON, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from backend.app.db.base import Base, TimestampMixin, UuidPrimaryKeyMixin
@@ -9,10 +10,15 @@ from backend.app.db.base import Base, TimestampMixin, UuidPrimaryKeyMixin
 
 class DeploymentStatus(StrEnum):
     DRAFT = "draft"
+    QUEUED = "queued"
     DEPLOYING = "deploying"
     RUNNING = "running"
+    SUCCESS = "success"
+    PARTIAL_SUCCESS = "partial_success"
+    DEGRADED = "degraded"
     STOPPED = "stopped"
     FAILED = "failed"
+    CANCELLED = "cancelled"
 
 
 class Deployment(Base, UuidPrimaryKeyMixin, TimestampMixin):
@@ -76,3 +82,51 @@ class DeploymentRevision(Base, UuidPrimaryKeyMixin, TimestampMixin):
     )
     stdout: Mapped[str | None] = mapped_column(Text, nullable=True)
     stderr: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class DeploymentExecution(Base, UuidPrimaryKeyMixin, TimestampMixin):
+    __tablename__ = "deployment_executions"
+
+    deployment_id: Mapped[UUID] = mapped_column(ForeignKey("deployments.id"), index=True)
+    operation: Mapped[str] = mapped_column(String(50), index=True)
+    status: Mapped[DeploymentStatus] = mapped_column(
+        Enum(
+            DeploymentStatus,
+            name="deployment_status",
+            values_callable=lambda enum: [member.value for member in enum],
+        ),
+        default=DeploymentStatus.QUEUED,
+        nullable=False,
+        index=True,
+    )
+    trigger_source: Mapped[str] = mapped_column(String(100), default="manual", nullable=False, index=True)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    result_summary: Mapped[dict[str, object]] = mapped_column(JSON, default=dict, nullable=False)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class DeploymentTargetExecution(Base, UuidPrimaryKeyMixin, TimestampMixin):
+    __tablename__ = "deployment_target_executions"
+
+    execution_id: Mapped[UUID] = mapped_column(ForeignKey("deployment_executions.id"), index=True)
+    deployment_id: Mapped[UUID] = mapped_column(ForeignKey("deployments.id"), index=True)
+    target_id: Mapped[UUID] = mapped_column(ForeignKey("deployment_targets.id"), index=True)
+    server_id: Mapped[UUID] = mapped_column(ForeignKey("servers.id"), index=True)
+    status: Mapped[DeploymentStatus] = mapped_column(
+        Enum(
+            DeploymentStatus,
+            name="deployment_status",
+            values_callable=lambda enum: [member.value for member in enum],
+        ),
+        default=DeploymentStatus.QUEUED,
+        nullable=False,
+        index=True,
+    )
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    job_id: Mapped[UUID | None] = mapped_column(ForeignKey("jobs.id"), nullable=True)
+    revision_id: Mapped[UUID | None] = mapped_column(ForeignKey("deployment_revisions.id"), nullable=True)
+    stdout: Mapped[str | None] = mapped_column(Text, nullable=True)
+    stderr: Mapped[str | None] = mapped_column(Text, nullable=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)

@@ -51,6 +51,13 @@ class MonitoringService:
         configs = await self._provider_configs()
         prometheus_config = configs.get(IntegrationProviderType.PROMETHEUS)
         metrics, metrics_error = await self._fetch_metrics(server.ip_address, prometheus_config)
+        readiness = await self._node_observability_readiness(
+            server.hostname,
+            server.ip_address,
+            metrics,
+            metrics_error,
+            configs,
+        )
         return ServerMetricsRead(
             server_id=server.id,
             hostname=server.hostname,
@@ -60,10 +67,13 @@ class MonitoringService:
             memory_usage_percent=metrics.get("memory"),
             disk_usage_percent=metrics.get("disk"),
             uptime_seconds=metrics.get("uptime"),
-            grafana_url=self._grafana_url(configs.get(IntegrationProviderType.GRAFANA), server.hostname),
+            grafana_url=self._grafana_url(configs.get(IntegrationProviderType.GRAFANA)),
             prometheus_url=self._prometheus_url(prometheus_config, server.ip_address),
-            loki_url=self._loki_url(configs.get(IntegrationProviderType.LOKI), server.hostname),
+            loki_url=self._loki_url(configs.get(IntegrationProviderType.LOKI)),
+            advanced_metrics_url=self._grafana_url(configs.get(IntegrationProviderType.GRAFANA)),
+            advanced_logs_url=self._grafana_url(configs.get(IntegrationProviderType.GRAFANA)),
             metrics_error=metrics_error,
+            **readiness,
             collected_at=datetime.now(UTC),
         )
 
@@ -78,6 +88,13 @@ class MonitoringService:
                     server.ip_address,
                     configs.get(IntegrationProviderType.PROMETHEUS),
                 )
+                readiness = await self._node_observability_readiness(
+                    server.hostname,
+                    server.ip_address,
+                    metrics,
+                    metrics_error,
+                    configs,
+                )
                 server_metrics.append(
                     ServerMetricsRead(
                         server_id=server.id,
@@ -88,10 +105,13 @@ class MonitoringService:
                         memory_usage_percent=metrics.get("memory"),
                         disk_usage_percent=metrics.get("disk"),
                         uptime_seconds=metrics.get("uptime"),
-                        grafana_url=self._grafana_url(configs.get(IntegrationProviderType.GRAFANA), server.hostname),
+                        grafana_url=self._grafana_url(configs.get(IntegrationProviderType.GRAFANA)),
                         prometheus_url=self._prometheus_url(configs.get(IntegrationProviderType.PROMETHEUS), server.ip_address),
-                        loki_url=self._loki_url(configs.get(IntegrationProviderType.LOKI), server.hostname),
+                        loki_url=self._loki_url(configs.get(IntegrationProviderType.LOKI)),
+                        advanced_metrics_url=self._grafana_url(configs.get(IntegrationProviderType.GRAFANA)),
+                        advanced_logs_url=self._grafana_url(configs.get(IntegrationProviderType.GRAFANA)),
                         metrics_error=metrics_error,
+                        **readiness,
                         collected_at=datetime.now(UTC),
                     )
                 )
@@ -102,10 +122,14 @@ class MonitoringService:
                         hostname=server.hostname,
                         ip_address=server.ip_address,
                         online=False,
-                        grafana_url=self._grafana_url(configs.get(IntegrationProviderType.GRAFANA), server.hostname),
+                        grafana_url=self._grafana_url(configs.get(IntegrationProviderType.GRAFANA)),
                         prometheus_url=self._prometheus_url(configs.get(IntegrationProviderType.PROMETHEUS), server.ip_address),
-                        loki_url=self._loki_url(configs.get(IntegrationProviderType.LOKI), server.hostname),
+                        loki_url=self._loki_url(configs.get(IntegrationProviderType.LOKI)),
+                        advanced_metrics_url=self._grafana_url(configs.get(IntegrationProviderType.GRAFANA)),
+                        advanced_logs_url=self._grafana_url(configs.get(IntegrationProviderType.GRAFANA)),
                         metrics_error=str(exc),
+                        monitoring_state="monitoring_unavailable",
+                        readiness_reasons=[str(exc)],
                         collected_at=datetime.now(UTC),
                     )
                 )
@@ -114,6 +138,11 @@ class MonitoringService:
             total_servers=len(server_metrics),
             online_servers=online_count,
             offline_servers=len(server_metrics) - online_count,
+            observable_servers=sum(1 for server in server_metrics if server.monitoring_state == "monitoring_ready"),
+            degraded_servers=sum(1 for server in server_metrics if server.monitoring_state in {"monitoring_partial", "stale_metrics"}),
+            metrics_missing_servers=sum(1 for server in server_metrics if not server.metrics_available),
+            logs_missing_servers=sum(1 for server in server_metrics if not server.logs_available),
+            stale_metrics_servers=sum(1 for server in server_metrics if server.stale_metrics),
             providers=providers,
             servers=server_metrics,
         )
@@ -214,6 +243,154 @@ class MonitoringService:
                     errors.append(f"{key}: {exc}")
         return metrics, "; ".join(errors) if errors else None
 
+    async def _node_observability_readiness(
+        self,
+        hostname: str,
+        ip_address: str,
+        metrics: dict[str, float | None],
+        metrics_error: str | None,
+        configs: dict[IntegrationProviderType, ProviderConnectionConfig | None],
+    ) -> dict[str, object]:
+        prometheus_config = configs.get(IntegrationProviderType.PROMETHEUS)
+        loki_config = configs.get(IntegrationProviderType.LOKI)
+        metrics_available = any(value is not None for value in metrics.values())
+        scrape_health = await self._prometheus_target_health(ip_address, prometheus_config)
+        node_exporter_detected = scrape_health in {"up", "unknown"} and metrics_available
+        cadvisor_detected = await self._prometheus_has_series(
+            prometheus_config,
+            f'container_last_seen{{instance=~"{ip_address}.*"}}',
+        )
+        logs_available, logs_error = await self._loki_stream_present(hostname, ip_address, loki_config)
+        promtail_detected = logs_available
+        stale_metrics = await self._prometheus_has_stale_metrics(ip_address, prometheus_config)
+
+        reasons: list[str] = []
+        if metrics_error:
+            reasons.append(metrics_error)
+        if not metrics_available:
+            reasons.append("metrics_missing")
+        if not node_exporter_detected:
+            reasons.append("node_exporter_missing")
+        if scrape_health not in {"up", "unknown"}:
+            reasons.append(f"scrape_{scrape_health}")
+        if stale_metrics:
+            reasons.append("stale_metrics")
+        if logs_error:
+            reasons.append(logs_error)
+        if not logs_available:
+            reasons.append("logs_missing")
+
+        if metrics_available and logs_available and not stale_metrics:
+            state = "monitoring_ready"
+        elif stale_metrics:
+            state = "stale_metrics"
+        elif metrics_available or logs_available:
+            state = "monitoring_partial"
+        else:
+            state = "monitoring_missing"
+
+        return {
+            "metrics_available": metrics_available,
+            "logs_available": logs_available,
+            "node_exporter_detected": node_exporter_detected,
+            "cadvisor_detected": cadvisor_detected,
+            "promtail_detected": promtail_detected,
+            "scrape_target_health": scrape_health,
+            "stale_metrics": stale_metrics,
+            "logs_error": logs_error,
+            "monitoring_state": state,
+            "readiness_reasons": list(dict.fromkeys(reasons)),
+        }
+
+    async def _prometheus_target_health(
+        self,
+        ip_address: str,
+        config: ProviderConnectionConfig | None,
+    ) -> str:
+        if config is None:
+            return "unconfigured"
+        try:
+            async with httpx.AsyncClient(timeout=config.timeout_seconds, verify=config.verify_ssl) as client:
+                response = await client.get(
+                    f"{config.base_url}/api/v1/query",
+                    params={"query": f'up{{instance=~"{ip_address}.*"}}'},
+                    headers=config.headers,
+                )
+                response.raise_for_status()
+                value = self._first_value(response.json())
+                if value == 1:
+                    return "up"
+                if value == 0:
+                    return "down"
+        except Exception:
+            return "unavailable"
+        return "missing"
+
+    async def _prometheus_has_series(
+        self,
+        config: ProviderConnectionConfig | None,
+        query: str,
+    ) -> bool:
+        if config is None:
+            return False
+        try:
+            async with httpx.AsyncClient(timeout=config.timeout_seconds, verify=config.verify_ssl) as client:
+                response = await client.get(
+                    f"{config.base_url}/api/v1/query",
+                    params={"query": query},
+                    headers=config.headers,
+                )
+                response.raise_for_status()
+                return bool(response.json().get("data", {}).get("result", []))
+        except Exception:
+            return False
+
+    async def _prometheus_has_stale_metrics(
+        self,
+        ip_address: str,
+        config: ProviderConnectionConfig | None,
+    ) -> bool:
+        if config is None:
+            return False
+        try:
+            async with httpx.AsyncClient(timeout=config.timeout_seconds, verify=config.verify_ssl) as client:
+                response = await client.get(
+                    f"{config.base_url}/api/v1/query",
+                    params={"query": f'node_boot_time_seconds{{instance=~"{ip_address}.*"}}'},
+                    headers=config.headers,
+                )
+                response.raise_for_status()
+                sample_time = self._first_timestamp(response.json())
+                if sample_time is None:
+                    return False
+                return (datetime.now(UTC).timestamp() - sample_time) > 900
+        except Exception:
+            return False
+
+    async def _loki_stream_present(
+        self,
+        hostname: str,
+        ip_address: str,
+        config: ProviderConnectionConfig | None,
+    ) -> tuple[bool, str | None]:
+        if config is None:
+            return False, "loki_not_configured"
+        queries = [f'{{host="{hostname}"}}', f'{{hostname="{hostname}"}}', f'{{instance=~"{ip_address}.*"}}']
+        try:
+            async with httpx.AsyncClient(timeout=config.timeout_seconds, verify=config.verify_ssl) as client:
+                for query in queries:
+                    response = await client.get(
+                        f"{config.base_url}/loki/api/v1/query",
+                        params={"query": query},
+                        headers=config.headers,
+                    )
+                    response.raise_for_status()
+                    if response.json().get("data", {}).get("result", []):
+                        return True, None
+        except Exception as exc:
+            return False, f"loki_unavailable: {exc}"
+        return False, "log_stream_missing"
+
     @staticmethod
     def _first_value(payload: dict[str, Any]) -> float | None:
         result = payload.get("data", {}).get("result", [])
@@ -228,10 +405,23 @@ class MonitoringService:
             return None
 
     @staticmethod
-    def _grafana_url(config: ProviderConnectionConfig | None, hostname: str) -> str | None:
+    def _first_timestamp(payload: dict[str, Any]) -> float | None:
+        result = payload.get("data", {}).get("result", [])
+        if not result:
+            return None
+        value = result[0].get("value", [])
+        if not value:
+            return None
+        try:
+            return float(value[0])
+        except (TypeError, ValueError):
+            return None
+
+    @staticmethod
+    def _grafana_url(config: ProviderConnectionConfig | None) -> str | None:
         if config is None:
             return None
-        return f"{config.base_url}/d/node-exporter?var-node={hostname}"
+        return config.base_url
 
     @staticmethod
     def _prometheus_url(config: ProviderConnectionConfig | None, ip_address: str) -> str | None:
@@ -240,10 +430,10 @@ class MonitoringService:
         return f"{config.base_url}/graph?g0.expr=up%7Binstance%3D~%22{ip_address}.*%22%7D"
 
     @staticmethod
-    def _loki_url(config: ProviderConnectionConfig | None, hostname: str) -> str | None:
+    def _loki_url(config: ProviderConnectionConfig | None) -> str | None:
         if config is None:
             return None
-        return f"{config.base_url}/explore?query=%7Bhost%3D%22{hostname}%22%7D"
+        return config.base_url
 
 
 def _provider_status(

@@ -10,6 +10,8 @@ from backend.app.adapters.ssh import SshAdapter
 from backend.app.common.constants import (
     InventoryLifecycleState,
     InventorySyncStatus,
+    ManagedNodeType,
+    ManagementState,
     ServerEnvironment,
     ServerSshAuthMethod,
     ServerStatus,
@@ -133,13 +135,18 @@ class ProvisioningService:
         return await self._batch_read(batch)
 
     async def list_templates(self) -> list[ProxmoxTemplateRead]:
-        templates = await self.proxmox_adapter.list_vm_templates()
+        templates = [
+            *(await self.proxmox_adapter.list_vm_templates()),
+            *(await self.proxmox_adapter.list_lxc_templates()),
+        ]
         return [
             ProxmoxTemplateRead(
                 template_id=int(template.get("vmid")),
                 name=str(template.get("name") or template.get("id") or template.get("vmid")),
                 node=str(template.get("node")),
                 type=str(template.get("type", "qemu")),
+                template_ref=str(template.get("template_ref")) if template.get("template_ref") else None,
+                storage=str(template.get("storage")) if template.get("storage") else None,
             )
             for template in templates
             if template.get("vmid") and template.get("node")
@@ -200,8 +207,10 @@ class ProvisioningService:
         static_ip = str(ip_interface(payload.static_ip_cidr).ip)
         request = ProvisioningRequest(
             vm_name=payload.vm_name,
+            provisioning_type=payload.provisioning_type,
             target_node=payload.target_node,
             template_id=payload.template_id,
+            template_ref=payload.template_ref,
             new_vm_id=payload.new_vm_id,
             cpu_cores=payload.cpu_cores,
             memory_mb=payload.memory_mb,
@@ -248,66 +257,88 @@ class ProvisioningService:
             if await self.server_repository.get_by_ip_address(static_ip) and archived_inventory is None:
                 raise ProvisioningValidationError("Requested static IP already exists in inventory")
 
-            await self._set_status(request, ProvisioningStatus.CLONING)
-            clone_task = await self.proxmox_adapter.clone_vm_template(
-                node=payload.target_node,
-                template_id=payload.template_id,
-                new_vm_id=payload.new_vm_id,
-                name=payload.vm_name,
-                description=payload.description,
-            )
-            self._append_task(request, clone_task.get("task_id"))
-            await self._wait_for_proxmox_task(payload.target_node, clone_task.get("task_id"))
+            if payload.provisioning_type == "lxc":
+                await self._set_status(request, ProvisioningStatus.CLONING)
+                create_task = await self.proxmox_adapter.create_lxc_container(
+                    node=payload.target_node,
+                    ct_id=payload.new_vm_id,
+                    hostname=payload.cloud_init_hostname,
+                    ostemplate=payload.template_ref or "",
+                    storage=self._primary_storage(payload),
+                    disk_size_gb=payload.disk_gb,
+                    cpu_cores=payload.cpu_cores,
+                    memory_mb=payload.memory_mb,
+                    network_bridge=payload.network_bridge,
+                    ip_cidr=payload.static_ip_cidr,
+                    gateway=payload.gateway,
+                    password=payload.cloud_init_password,
+                    ssh_public_key=payload.ssh_public_key,
+                    start_on_boot=payload.start_on_boot,
+                    description=payload.description,
+                )
+                self._append_task(request, create_task.get("task_id"))
+                await self._wait_for_proxmox_task(payload.target_node, create_task.get("task_id"))
+            else:
+                await self._set_status(request, ProvisioningStatus.CLONING)
+                clone_task = await self.proxmox_adapter.clone_vm_template(
+                    node=payload.target_node,
+                    template_id=payload.template_id,
+                    new_vm_id=payload.new_vm_id,
+                    name=payload.vm_name,
+                    description=payload.description,
+                )
+                self._append_task(request, clone_task.get("task_id"))
+                await self._wait_for_proxmox_task(payload.target_node, clone_task.get("task_id"))
 
-            await self._set_status(request, ProvisioningStatus.CONFIGURING)
-            config_task = await self.proxmox_adapter.configure_cloud_init(
-                node=payload.target_node,
-                vm_id=payload.new_vm_id,
-                cpu_cores=payload.cpu_cores,
-                memory_mb=payload.memory_mb,
-                network_bridge=payload.network_bridge,
-                username=payload.cloud_init_username,
-                password=payload.cloud_init_password,
-                ssh_public_key=payload.ssh_public_key,
-                ip_cidr=payload.static_ip_cidr,
-                gateway=payload.gateway,
-                dns_servers=payload.dns_servers,
-                start_on_boot=payload.start_on_boot,
-                description=payload.description,
-            )
-            self._append_task(request, config_task.get("task_id"))
-            await self._wait_for_proxmox_task(payload.target_node, config_task.get("task_id"))
-            resize_task = await self.proxmox_adapter.resize_vm_disk(
-                node=payload.target_node,
-                vm_id=payload.new_vm_id,
-                disk_size_gb=payload.disk_gb,
-            )
-            self._append_task(request, resize_task.get("task_id"))
-            await self._wait_for_proxmox_task(payload.target_node, resize_task.get("task_id"))
-            for disk_index, disk in enumerate(payload.additional_disks, start=1):
-                add_disk_task = await self.proxmox_adapter.add_vm_disk(
+                await self._set_status(request, ProvisioningStatus.CONFIGURING)
+                config_task = await self.proxmox_adapter.configure_cloud_init(
                     node=payload.target_node,
                     vm_id=payload.new_vm_id,
-                    disk=f"{disk.bus}{disk_index}",
-                    storage=disk.storage,
-                    size_gb=disk.size_gb,
+                    cpu_cores=payload.cpu_cores,
+                    memory_mb=payload.memory_mb,
+                    network_bridge=payload.network_bridge,
+                    username=payload.cloud_init_username,
+                    password=payload.cloud_init_password,
+                    ssh_public_key=payload.ssh_public_key,
+                    ip_cidr=payload.static_ip_cidr,
+                    gateway=payload.gateway,
+                    dns_servers=payload.dns_servers,
+                    start_on_boot=payload.start_on_boot,
+                    description=payload.description,
                 )
-                self._append_task(request, add_disk_task.get("task_id"))
-                await self._wait_for_proxmox_task(payload.target_node, add_disk_task.get("task_id"))
+                self._append_task(request, config_task.get("task_id"))
+                await self._wait_for_proxmox_task(payload.target_node, config_task.get("task_id"))
+                resize_task = await self.proxmox_adapter.resize_vm_disk(
+                    node=payload.target_node,
+                    vm_id=payload.new_vm_id,
+                    disk_size_gb=payload.disk_gb,
+                )
+                self._append_task(request, resize_task.get("task_id"))
+                await self._wait_for_proxmox_task(payload.target_node, resize_task.get("task_id"))
+                for disk_index, disk in enumerate(payload.additional_disks, start=1):
+                    add_disk_task = await self.proxmox_adapter.add_vm_disk(
+                        node=payload.target_node,
+                        vm_id=payload.new_vm_id,
+                        disk=f"{disk.bus}{disk_index}",
+                        storage=disk.storage,
+                        size_gb=disk.size_gb,
+                    )
+                    self._append_task(request, add_disk_task.get("task_id"))
+                    await self._wait_for_proxmox_task(payload.target_node, add_disk_task.get("task_id"))
             await self.repository.session.commit()
 
             await self._set_status(request, ProvisioningStatus.STARTING)
             start_task = await self.proxmox_adapter.start_vm(
                 node=payload.target_node,
                 vm_id=payload.new_vm_id,
-                vm_type="qemu",
+                vm_type=payload.provisioning_type,
             )
             self._append_task(request, start_task.get("task_id"))
             await self._wait_for_proxmox_task(payload.target_node, start_task.get("task_id"))
             await self.repository.session.commit()
 
             await self._set_status(request, ProvisioningStatus.WAITING_FOR_SSH)
-            await self._wait_for_ssh(
+            ssh_ready, ssh_error = await self._wait_for_ssh(
                 host=static_ip,
                 port=22,
                 username=payload.cloud_init_username,
@@ -333,14 +364,21 @@ class ProvisioningService:
                 external_id=str(payload.new_vm_id),
                 source="provisioned",
                 managed=True,
+                node_type=ManagedNodeType.LXC if payload.provisioning_type == "lxc" else ManagedNodeType.VM,
+                management_state=ManagementState.MANAGED,
                 lifecycle_state=InventoryLifecycleState.PROVISIONED,
                 sync_status=InventorySyncStatus.SYNCED,
                 provider_node=payload.target_node,
-                provider_type="qemu",
+                provider_type=payload.provisioning_type,
                 provider_metadata={
                     "template_id": payload.template_id,
+                    "template_ref": payload.template_ref,
                     "vm_name": payload.vm_name,
+                    "provisioning_type": payload.provisioning_type,
                     "additional_disks": [disk.model_dump() for disk in payload.additional_disks],
+                    "operational_readiness": "partially_managed" if ssh_ready else "ssh_unreachable",
+                    "ssh_ready": ssh_ready,
+                    "ssh_error": ssh_error,
                 },
             )
             server = (
@@ -351,7 +389,7 @@ class ProvisioningService:
             request.server_id = server.id
             await self.repository.session.commit()
 
-            if payload.bootstrap_profile_ids or payload.bootstrap_package_ids:
+            if ssh_ready and (payload.bootstrap_profile_ids or payload.bootstrap_package_ids):
                 await self._set_status(request, ProvisioningStatus.BOOTSTRAP_RUNNING)
                 await self._run_bootstrap(request)
 
@@ -526,7 +564,7 @@ class ProvisioningService:
         port: int,
         username: str,
         password: str | None,
-    ) -> None:
+    ) -> tuple[bool, str | None]:
         last_error: Exception | None = None
         for _ in range(6):
             try:
@@ -537,11 +575,11 @@ class ProvisioningService:
                     password=password,
                     command="true",
                 )
-                return
+                return True, None
             except Exception as exc:
                 last_error = exc
                 await asyncio.sleep(5)
-        raise ProvisioningValidationError(f"SSH did not become ready: {last_error}")
+        return False, f"SSH did not become ready: {last_error}"
 
     async def _wait_for_proxmox_task(self, node: str, task_id: object) -> None:
         if not task_id:
@@ -617,3 +655,11 @@ class ProvisioningService:
     @staticmethod
     def _render_batch_pattern(pattern: str, number: int) -> str:
         return pattern.replace("{index}", f"{number:03d}").replace("{number}", str(number))
+
+    @staticmethod
+    def _primary_storage(payload: ProvisioningCreate) -> str:
+        if payload.additional_disks:
+            return payload.additional_disks[0].storage
+        if payload.template_ref and ":" in payload.template_ref:
+            return payload.template_ref.split(":", 1)[0]
+        return "local-lvm"

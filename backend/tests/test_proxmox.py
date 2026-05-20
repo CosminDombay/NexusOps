@@ -3,6 +3,8 @@ from typing import Any
 import pytest
 
 from backend.app.adapters.proxmox.base import ProxmoxAdapter
+from backend.app.modules.inventory.models import InventoryLifecycleState, ManagedNodeType, ManagementState
+from backend.app.modules.inventory.repository import ServerRepository
 from backend.app.modules.proxmox.service import ProxmoxService, ProxmoxVmActionNotAllowedError
 
 
@@ -20,6 +22,7 @@ class FakeProxmoxAdapter(ProxmoxAdapter):
                 "mem": 2_147_483_648,
                 "maxmem": 8_589_934_592,
                 "uptime": 90_000,
+                "ip": "10.0.0.10",
             }
         ]
 
@@ -42,6 +45,19 @@ class FakeProxmoxAdapter(ProxmoxAdapter):
                 "node": "pve-01",
                 "type": "qemu",
                 "status": "stopped",
+            },
+            {
+                "vmid": 201,
+                "name": "ct-01",
+                "node": "pve-01",
+                "type": "lxc",
+                "status": "running",
+                "ip": "10.0.0.201",
+                "mem": 268_435_456,
+                "maxmem": 536_870_912,
+                "disk": 1_073_741_824,
+                "maxdisk": 8_589_934_592,
+                "uptime": 900,
             },
         ]
 
@@ -108,17 +124,21 @@ class FakeProxmoxAdapter(ProxmoxAdapter):
     async def resize_vm_disk(self, *, node: str, vm_id: int, disk_size_gb: int) -> dict[str, Any]:
         return {"task_id": f"UPID:{node}:resize:{vm_id}"}
 
+    async def delete_vm(self, *, node: str, vm_id: int, vm_type: str) -> dict[str, Any]:
+        return {"task_id": f"UPID:{node}:{vm_type}:{vm_id}:delete"}
+
 
 @pytest.mark.asyncio
 async def test_proxmox_dashboard_normalizes_cluster_state() -> None:
     dashboard = await ProxmoxService(FakeProxmoxAdapter()).get_dashboard()
 
     assert dashboard.summary.node_count == 1
-    assert dashboard.summary.vm_count == 2
-    assert dashboard.summary.running_vm_count == 1
+    assert dashboard.summary.vm_count == 3
+    assert dashboard.summary.running_vm_count == 2
     assert dashboard.summary.stopped_vm_count == 1
     assert dashboard.nodes[0].name == "pve-01"
     assert dashboard.nodes[0].vm_count == 2
+    assert dashboard.nodes[0].lxc_count == 1
     assert dashboard.vms[0].vm_id == 101
 
 
@@ -136,3 +156,71 @@ async def test_proxmox_start_action_resolves_stopped_vm() -> None:
 async def test_proxmox_reboot_requires_running_vm() -> None:
     with pytest.raises(ProxmoxVmActionNotAllowedError):
         await ProxmoxService(FakeProxmoxAdapter()).reboot_vm(102)
+
+
+@pytest.mark.asyncio
+async def test_proxmox_host_sync_imports_hypervisor_inventory(client) -> None:
+    session = next(iter(client.app.dependency_overrides.values()))
+    async for db_session in session():
+        result = await ProxmoxService(
+            FakeProxmoxAdapter(),
+            server_repository=ServerRepository(db_session),
+            integration_id="11111111-1111-1111-1111-111111111111",
+        ).sync_hosts()
+
+        servers = await ServerRepository(db_session).list_by_provider("proxmox")
+
+        assert result.discovered_count == 1
+        assert result.imported_count == 1
+        assert result.skipped_count == 0
+        assert len(servers) == 1
+        assert servers[0].hostname == "pve-01"
+        assert servers[0].ip_address == "10.0.0.10"
+        assert servers[0].node_type == ManagedNodeType.HYPERVISOR
+        assert servers[0].provider_type == "node"
+        assert servers[0].provider_metadata["running_vm_count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_proxmox_guest_sync_imports_lxc_inventory(client) -> None:
+    session = next(iter(client.app.dependency_overrides.values()))
+    async for db_session in session():
+        result = await ProxmoxService(
+            FakeProxmoxAdapter(),
+            server_repository=ServerRepository(db_session),
+        ).sync_guests()
+
+        servers = await ServerRepository(db_session).list_by_provider("proxmox")
+        lxc = next(server for server in servers if server.provider_type == "lxc")
+
+        assert result.discovered_count == 3
+        assert result.imported_count == 3
+        assert lxc.hostname == "ct-01"
+        assert lxc.node_type == ManagedNodeType.LXC
+        assert lxc.provider_metadata["operational_readiness"] == "booted"
+
+
+@pytest.mark.asyncio
+async def test_proxmox_host_sync_reconnects_decommissioned_hypervisor(client) -> None:
+    session = next(iter(client.app.dependency_overrides.values()))
+    async for db_session in session():
+        service = ProxmoxService(
+            FakeProxmoxAdapter(),
+            server_repository=ServerRepository(db_session),
+            integration_id="22222222-2222-2222-2222-222222222222",
+        )
+        await service.sync_hosts()
+        repository = ServerRepository(db_session)
+        server = (await repository.list_by_provider("proxmox"))[0]
+        server.managed = False
+        server.management_state = ManagementState.RETIRED
+        server.lifecycle_state = InventoryLifecycleState.DECOMMISSIONED
+        await db_session.commit()
+
+        result = await service.sync_hosts()
+        reconnected = (await repository.list_by_provider("proxmox"))[0]
+
+        assert result.updated_count == 1
+        assert reconnected.managed is True
+        assert reconnected.management_state == ManagementState.MANAGED
+        assert reconnected.lifecycle_state == InventoryLifecycleState.MANAGED

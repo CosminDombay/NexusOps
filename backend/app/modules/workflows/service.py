@@ -180,7 +180,25 @@ class WorkflowService:
         data = WorkflowRunRead.model_validate(workflow)
         hostname = await self._hostname(workflow.target_server_id)
         steps = [await self._step_to_read(step) for step in workflow.steps]
-        return data.model_copy(update={"target_hostname": hostname, "steps": steps})
+        target_nodes = [item for item in {hostname, *[step.target_hostname for step in steps]} if item]
+        linked_job_ids: list[str] = []
+        for step in steps:
+            raw_job_ids = step.metadata_json.get("job_ids") if step.metadata_json else None
+            if isinstance(raw_job_ids, list):
+                linked_job_ids.extend(str(job_id) for job_id in raw_job_ids)
+        current_step = next((step.name for step in steps if step.status == WorkflowStepStatus.RUNNING), None)
+        return data.model_copy(
+            update={
+                "target_hostname": hostname,
+                "steps": steps,
+                "current_step": current_step,
+                "completed_steps": sum(1 for step in steps if step.status == WorkflowStepStatus.SUCCESS),
+                "failed_steps": sum(1 for step in steps if step.status == WorkflowStepStatus.FAILED),
+                "duration_seconds": self._duration_seconds(workflow.started_at, workflow.finished_at),
+                "target_nodes": target_nodes,
+                "linked_job_ids": sorted(set(linked_job_ids)),
+            }
+        )
 
     async def _step_to_read(self, step: WorkflowStep) -> WorkflowStepRead:
         data = WorkflowStepRead.model_validate(step)
@@ -197,3 +215,13 @@ class WorkflowService:
             return None
         server = await self.server_repository.get_by_id(server_uuid)
         return server.hostname if server else None
+
+    @staticmethod
+    def _duration_seconds(started_at: datetime | None, finished_at: datetime | None) -> int | None:
+        if started_at is None:
+            return None
+        start = started_at if started_at.tzinfo else started_at.replace(tzinfo=UTC)
+        end = finished_at or datetime.now(UTC)
+        if end.tzinfo is None:
+            end = end.replace(tzinfo=UTC)
+        return max(0, int((end - start).total_seconds()))

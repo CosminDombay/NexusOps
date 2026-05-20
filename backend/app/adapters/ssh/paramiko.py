@@ -1,4 +1,5 @@
 import asyncio
+import io
 from pathlib import Path
 
 import paramiko
@@ -30,6 +31,8 @@ class ParamikoSshAdapter(SshAdapter):
         user: str,
         password: str | None = None,
         private_key_path: str | None = None,
+        private_key: str | None = None,
+        passphrase: str | None = None,
     ) -> SshExecutionResult:
         return await asyncio.to_thread(
             self._run_command_sync,
@@ -39,6 +42,8 @@ class ParamikoSshAdapter(SshAdapter):
             user=user,
             password=password,
             private_key_path=private_key_path,
+            private_key=private_key,
+            passphrase=passphrase,
         )
 
     async def upload_file(self, host: str, local_path: str, remote_path: str, user: str) -> None:
@@ -53,11 +58,14 @@ class ParamikoSshAdapter(SshAdapter):
         user: str,
         password: str | None,
         private_key_path: str | None,
+        private_key: str | None,
+        passphrase: str | None,
     ) -> SshExecutionResult:
         client = paramiko.SSHClient()
         client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
         key_filename = self._key_filename(private_key_path)
         use_password = password is not None
+        use_inline_key = private_key is not None
 
         try:
             client.connect(
@@ -65,10 +73,11 @@ class ParamikoSshAdapter(SshAdapter):
                 port=port,
                 username=user,
                 password=password,
+                pkey=self._pkey(private_key, passphrase),
                 key_filename=key_filename,
                 timeout=settings.ssh_connect_timeout_seconds,
-                look_for_keys=not use_password,
-                allow_agent=not use_password,
+                look_for_keys=not use_password and not use_inline_key,
+                allow_agent=not use_password and not use_inline_key,
             )
             _, stdout_stream, stderr_stream = client.exec_command(
                 command,
@@ -99,3 +108,22 @@ class ParamikoSshAdapter(SshAdapter):
         if not selected_path:
             return None
         return str(Path(selected_path).expanduser())
+
+    @staticmethod
+    def _pkey(private_key: str | None, passphrase: str | None) -> paramiko.PKey | None:
+        if not private_key:
+            return None
+        key_stream = io.StringIO(private_key)
+        loaders = (
+            paramiko.RSAKey.from_private_key,
+            paramiko.Ed25519Key.from_private_key,
+            paramiko.ECDSAKey.from_private_key,
+            paramiko.DSSKey.from_private_key,
+        )
+        for loader in loaders:
+            key_stream.seek(0)
+            try:
+                return loader(key_stream, password=passphrase)
+            except paramiko.SSHException:
+                continue
+        raise SshConnectionError("Unsupported SSH private key format")

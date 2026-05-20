@@ -17,6 +17,8 @@ from backend.app.modules.auth.security.dependencies import require_operator
 from backend.app.modules.proxmox.schemas import (
     ProxmoxClusterSummaryRead,
     ProxmoxDashboardRead,
+    ProxmoxGuestSyncRead,
+    ProxmoxHostSyncRead,
     ProxmoxNodeRead,
     ProxmoxNodeDetailRead,
     ProxmoxStorageRead,
@@ -136,6 +138,42 @@ async def get_dashboard(
 
 
 @router.post(
+    "/hosts/sync",
+    response_model=ProxmoxHostSyncRead,
+    dependencies=[Depends(require_operator)],
+)
+async def sync_proxmox_hosts(
+    service: Annotated[ProxmoxService, Depends(get_proxmox_service)],
+) -> ProxmoxHostSyncRead:
+    try:
+        return await service.sync_hosts()
+    except (
+        ProxmoxConfigurationError,
+        ProxmoxConnectionError,
+        ProxmoxVmActionNotAllowedError,
+    ) as exc:
+        raise _map_proxmox_error(exc) from exc
+
+
+@router.post(
+    "/guests/sync",
+    response_model=ProxmoxGuestSyncRead,
+    dependencies=[Depends(require_operator)],
+)
+async def sync_proxmox_guests(
+    service: Annotated[ProxmoxService, Depends(get_proxmox_service)],
+) -> ProxmoxGuestSyncRead:
+    try:
+        return await service.sync_guests()
+    except (
+        ProxmoxConfigurationError,
+        ProxmoxConnectionError,
+        ProxmoxVmActionNotAllowedError,
+    ) as exc:
+        raise _map_proxmox_error(exc) from exc
+
+
+@router.post(
     "/vms/{vm_id}/start",
     response_model=ProxmoxVmActionRead,
     dependencies=[Depends(require_operator)],
@@ -206,6 +244,26 @@ async def shutdown_vm(
 ) -> ProxmoxVmActionRead:
     try:
         return await service.shutdown_vm(vm_id)
+    except (
+        ProxmoxConfigurationError,
+        ProxmoxConnectionError,
+        ProxmoxVmActionNotAllowedError,
+        ProxmoxVmNotFoundError,
+    ) as exc:
+        raise _map_proxmox_error(exc) from exc
+
+
+@router.post(
+    "/vms/{vm_id}/delete",
+    response_model=ProxmoxVmActionRead,
+    dependencies=[Depends(require_operator)],
+)
+async def delete_vm(
+    vm_id: int,
+    service: Annotated[ProxmoxService, Depends(get_proxmox_service)],
+) -> ProxmoxVmActionRead:
+    try:
+        return await service.delete_vm(vm_id)
     except (
         ProxmoxConfigurationError,
         ProxmoxConnectionError,

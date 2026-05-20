@@ -59,6 +59,12 @@ class WorkflowRunRead(BaseModel):
     result_summary: dict = Field(default_factory=dict)
     error_message: str | None = None
     steps: list[WorkflowStepRead] = Field(default_factory=list)
+    current_step: str | None = None
+    completed_steps: int = 0
+    failed_steps: int = 0
+    duration_seconds: int | None = None
+    target_nodes: list[str] = Field(default_factory=list)
+    linked_job_ids: list[str] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime
 

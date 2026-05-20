@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 
 import { PageHeader } from '../../components/layout/PageHeader';
+import { PageActionButton, RuntimeBadge, CollapsibleSection } from '../../components/operations/OperationalComponents';
 import { getApiErrorMessage } from '../../lib/api/client';
 import { listCredentials } from '../credentials/api/credentialsApi';
 import type { Credential } from '../credentials/types/credential';
@@ -26,6 +27,7 @@ import { TargetSelector } from '../inventory/components/TargetSelector';
 import { useTargetSelection } from '../inventory/hooks/useTargetSelection';
 import type { Server as InventoryServer } from '../inventory/types/server';
 import { selectedTargetIds } from '../inventory/types/targetSelection';
+import type { Job } from '../jobs/types/job';
 import {
   createDeployment,
   deleteDeployment,
@@ -49,6 +51,8 @@ const statusFilters: Array<DeploymentStatus | 'all'> = [
   'all',
   'running',
   'deploying',
+  'partial_success',
+  'degraded',
   'stopped',
   'failed',
   'draft',
@@ -160,9 +164,9 @@ export function DeploymentsPage() {
         credentialId,
       })),
     );
-    targetSelector.setMode('single');
+    targetSelector.setMode((deployment.target_server_ids?.length ?? 0) > 1 ? 'bulk' : 'single');
     targetSelector.setSelectedId(deployment.target_server_id ?? '');
-    targetSelector.setSelectedIds([]);
+    targetSelector.setSelectedIds(deployment.target_server_ids ?? []);
     setTargetServerId(deployment.target_server_id ?? '');
     setDrawerMode('edit');
     setError(null);
@@ -210,7 +214,7 @@ export function DeploymentsPage() {
       setDeployments((current) =>
         current.map((item) => (item.id === result.deployment.id ? result.deployment : item)),
       );
-      setLogs(`${result.job.stdout ?? ''}${result.job.stderr ? `\n${result.job.stderr}` : ''}`);
+      setLogs(formatJobsOutput(result.jobs.length ? result.jobs : result.job ? [result.job] : []));
     } catch (caughtError) {
       setError(getApiErrorMessage(caughtError));
     } finally {
@@ -224,9 +228,7 @@ export function DeploymentsPage() {
     setError(null);
     try {
       const result = await getDeploymentStatus(deployment.id);
-      setInspectOutput(
-        `${result.job.stdout ?? ''}${result.job.stderr ? `\n${result.job.stderr}` : ''}`,
-      );
+      setInspectOutput(formatJobsOutput(result.jobs.length ? result.jobs : result.job ? [result.job] : []));
     } catch (caughtError) {
       setError(getApiErrorMessage(caughtError));
     } finally {
@@ -240,7 +242,7 @@ export function DeploymentsPage() {
     setError(null);
     try {
       const result = await getDeploymentLogs(deployment.id);
-      setLogs(result.logs || result.job.stderr || '');
+      setLogs(result.logs || formatJobsOutput(result.jobs.length ? result.jobs : result.job ? [result.job] : []));
     } catch (caughtError) {
       setError(getApiErrorMessage(caughtError));
     } finally {
@@ -278,6 +280,16 @@ export function DeploymentsPage() {
       <PageHeader
         title="Docker Deployments"
         description="Operational Compose services deployed to inventory-managed Linux hosts."
+        actions={
+          <>
+            <PageActionButton icon={RefreshCw} tone="secondary" onClick={() => void refresh()}>
+              Refresh
+            </PageActionButton>
+            <PageActionButton icon={Plus} onClick={openCreateDrawer}>
+              Create deployment
+            </PageActionButton>
+          </>
+        }
       />
 
       {error ? (
@@ -286,7 +298,7 @@ export function DeploymentsPage() {
         </div>
       ) : null}
 
-      <section className="flex flex-col gap-3 rounded-md border border-zinc-200 bg-white p-4 shadow-sm lg:flex-row lg:items-center lg:justify-between">
+      <section className="rounded-md border border-zinc-200 bg-white p-4 shadow-sm">
         <div className="grid gap-3 sm:grid-cols-4">
           <Metric label="Services" value={deployments.length} />
           <Metric
@@ -301,24 +313,6 @@ export function DeploymentsPage() {
             label="Drift"
             value={deployments.filter((item) => item.sync_status !== 'synced').length}
           />
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <button
-            className="inline-flex h-10 items-center gap-2 rounded-md border border-zinc-300 px-3 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
-            type="button"
-            onClick={() => void refresh()}
-          >
-            <RefreshCw className="h-4 w-4" aria-hidden="true" />
-            Refresh
-          </button>
-          <button
-            className="inline-flex h-10 items-center gap-2 rounded-md bg-zinc-950 px-3 text-sm font-semibold text-white hover:bg-zinc-800"
-            type="button"
-            onClick={openCreateDrawer}
-          >
-            <Plus className="h-4 w-4" aria-hidden="true" />
-            Create
-          </button>
         </div>
       </section>
 
@@ -363,13 +357,18 @@ export function DeploymentsPage() {
         ) : null}
       </section>
 
-      <section className="grid gap-4 xl:grid-cols-2">
+      <CollapsibleSection
+        title="Runtime output"
+        description="Inspect and logs output are available on demand so the deployment list stays scannable."
+      >
+        <section className="grid gap-4 xl:grid-cols-2">
         <OutputPanel
           title="Inspect"
           value={inspectOutput || selectedDeploymentSummary(selectedDeployment)}
         />
         <OutputPanel title="Logs" value={logs || 'No logs loaded.'} />
-      </section>
+        </section>
+      </CollapsibleSection>
 
       {drawerMode ? (
         <DeploymentDrawer
@@ -431,7 +430,9 @@ function DeploymentCard({
             <h2 className="truncate text-base font-semibold text-zinc-950">{deployment.name}</h2>
             <p className="mt-1 flex items-center gap-1 text-sm text-zinc-500">
               <Server className="h-4 w-4" aria-hidden="true" />
-              {deployment.target_server_id ? (
+              {deployment.targets.length > 1 ? (
+                <span className="font-semibold text-zinc-700">{deployment.targets.length} targets</span>
+              ) : deployment.target_server_id ? (
                 <Link
                   className="font-semibold text-zinc-700 hover:text-zinc-950"
                   to={`/inventory/${deployment.target_server_id}`}
@@ -444,7 +445,7 @@ function DeploymentCard({
               )}
             </p>
           </div>
-          <DeploymentStatusBadge status={deployment.status} />
+          <RuntimeBadge value={deployment.status} />
         </div>
         <div className="mt-4 grid gap-2 sm:grid-cols-2">
           <Info
@@ -455,6 +456,8 @@ function DeploymentCard({
           <Info label="Sync" value={deployment.sync_status} />
           <Info label="Uptime" value={formatDuration(deployment.uptime_seconds)} />
         </div>
+        <DeploymentTargets deployment={deployment} />
+        <DeploymentExecutionSummary deployment={deployment} />
         <div className="mt-3 flex flex-wrap gap-1.5">
           <Chip icon={FileText} label={deployment.compose_source} />
           {Object.keys(deployment.credential_refs ?? {}).length ? (
@@ -520,6 +523,82 @@ function DeploymentCard({
         />
       </div>
     </article>
+  );
+}
+
+function DeploymentTargets({ deployment }: { deployment: Deployment }) {
+  const targets = deployment.targets.length
+    ? deployment.targets
+    : deployment.target_server_id
+      ? [
+          {
+            id: deployment.target_server_id,
+            server_id: deployment.target_server_id,
+            hostname: deployment.target_hostname,
+            node_type: null,
+            environment: null,
+            provider: null,
+            readiness: 'unknown',
+            remote_path: deployment.remote_path ?? '',
+            status: deployment.status,
+            last_job_id: null,
+            last_execution: null,
+            created_at: deployment.created_at,
+            updated_at: deployment.updated_at,
+          },
+        ]
+      : [];
+
+  if (!targets.length) {
+    return <p className="mt-3 text-sm text-zinc-500">No deployment targets configured.</p>;
+  }
+
+  return (
+    <div className="mt-4 grid gap-2">
+      {targets.map((target) => (
+        <div key={target.id} className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-zinc-200 bg-zinc-50 px-3 py-2">
+          <div>
+            <Link
+              className="text-sm font-semibold text-zinc-950 hover:text-zinc-700"
+              to={`/inventory/${target.server_id}`}
+              onClick={(event) => event.stopPropagation()}
+            >
+              {target.hostname ?? target.server_id}
+            </Link>
+            <p className="mt-0.5 text-xs text-zinc-500">
+              {formatNodeType(target.node_type)} - {target.environment ?? 'unknown'} - {target.provider ?? 'unknown'} - {formatLabel(target.readiness)}
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <RuntimeBadge value={target.status} />
+            <span className="text-xs text-zinc-500">{formatDuration(target.last_execution?.duration_seconds ?? null)}</span>
+          </div>
+          {target.last_execution?.error_message ? (
+            <p className="basis-full text-xs text-rose-700">{target.last_execution.error_message}</p>
+          ) : null}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function DeploymentExecutionSummary({ deployment }: { deployment: Deployment }) {
+  const execution = deployment.latest_execution;
+  if (!execution) {
+    return <p className="mt-3 text-sm text-zinc-500">No deployment executions yet.</p>;
+  }
+  return (
+    <div className="mt-3 rounded-md border border-zinc-200 px-3 py-2 text-sm">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <span className="font-semibold text-zinc-950">{formatLabel(execution.operation)} execution</span>
+        <RuntimeBadge value={execution.status} />
+      </div>
+      <p className="mt-1 text-xs text-zinc-500">
+        {execution.success_count}/{execution.target_count} succeeded
+        {execution.failed_count ? `, ${execution.failed_count} failed` : ''} - {formatDuration(execution.duration_seconds)}
+      </p>
+      {execution.error_message ? <p className="mt-1 text-xs text-rose-700">{execution.error_message}</p> : null}
+    </div>
   );
 }
 
@@ -773,34 +852,13 @@ function deploymentPathPreview(deployment: Deployment): string {
 
 function statusLabel(status: DeploymentStatus | 'all'): string {
   if (status === 'draft') return 'created';
-  return status;
+  return formatLabel(status);
 }
 
 function normalizeStatus(status: DeploymentStatus): DeploymentStatus {
   if (status === 'created') return 'draft';
   if (status === 'deployed') return 'running';
   return status;
-}
-
-function DeploymentStatusBadge({ status }: { status: DeploymentStatus }) {
-  const normalized = normalizeStatus(status);
-  const className =
-    normalized === 'running'
-      ? 'bg-emerald-50 text-emerald-700 ring-emerald-200'
-      : normalized === 'failed'
-        ? 'bg-rose-50 text-rose-700 ring-rose-200'
-        : normalized === 'stopped'
-          ? 'bg-amber-50 text-amber-700 ring-amber-200'
-          : normalized === 'deploying'
-            ? 'bg-sky-50 text-sky-700 ring-sky-200'
-            : 'bg-zinc-100 text-zinc-700 ring-zinc-200';
-  return (
-    <span
-      className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ring-1 ring-inset ${className}`}
-    >
-      {statusLabel(normalized)}
-    </span>
-  );
 }
 
 function ActionButton({
@@ -836,12 +894,39 @@ function formatDuration(seconds: number | null): string {
   return `${Math.floor(seconds / 86400)}d`;
 }
 
+function formatLabel(value: string): string {
+  return value.replace(/_/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function formatNodeType(value: string | null): string {
+  if (value === 'lxc') return 'LXC';
+  if (value === 'vm') return 'VM';
+  return value ? formatLabel(value) : 'Unknown';
+}
+
+function formatJobsOutput(jobs: Job[]): string {
+  if (!jobs.length) return '';
+  return jobs
+    .map((job) =>
+      [
+        `===== ${job.operation_type} (${job.status}) =====`,
+        job.stdout ?? '',
+        job.stderr ?? '',
+      ]
+        .filter(Boolean)
+        .join('\n'),
+    )
+    .join('\n\n');
+}
+
 function selectedDeploymentSummary(deployment: Deployment | null): string {
   if (!deployment) return 'Select a deployment to inspect runtime state.';
+  const execution = deployment.latest_execution;
   return [
     `name: ${deployment.name}`,
     `status: ${statusLabel(normalizeStatus(deployment.status))}`,
-    `target: ${deployment.target_hostname ?? deployment.target_server_id ?? 'none'}`,
+    `targets: ${deployment.targets.length ? deployment.targets.map((target) => `${target.hostname ?? target.server_id}=${target.status}`).join(', ') : deployment.target_hostname ?? deployment.target_server_id ?? 'none'}`,
+    `latest execution: ${execution ? `${execution.operation} ${execution.status} (${execution.success_count}/${execution.target_count} succeeded)` : 'none'}`,
     `ports: ${deployment.ports.length ? deployment.ports.join(', ') : 'none'}`,
     `compose source: ${deployment.compose_source}`,
     `health: ${deployment.health_state}`,

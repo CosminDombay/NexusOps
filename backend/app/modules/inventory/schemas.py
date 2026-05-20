@@ -205,6 +205,9 @@ class ServerRead(ServerBase):
     updated_at: datetime
     ssh_password: str | None = Field(default=None, exclude=True)
 
+    @model_validator(mode="after")
+    def validate_ssh_auth(self) -> Self:
+        return self
 
     model_config = ConfigDict(from_attributes=True)
 

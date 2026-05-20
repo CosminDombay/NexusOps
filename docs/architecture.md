@@ -43,20 +43,22 @@ The frontend is organized by feature rather than technical layer. Pages for inve
 
 - `Server`: CMDB inventory record, Linux host connection state, provider linkage, lifecycle state, and synchronization status.
 - `VirtualMachine`: VM request and Proxmox provider mapping.
-- `ProvisioningBlueprint`: NexusOps-side provisioning preset around a Proxmox VM template.
+- `ProvisioningBlueprint`: NexusOps-side provisioning preset around a Proxmox VM or LXC template.
+- `DeploymentExecution`: deployment runtime instance for an orchestration run.
+- `DeploymentTargetExecution`: per-node deployment runtime state and output summary.
 - `CommandExecution`: legacy placeholder for command audit concepts.
-- `Deployment`: Docker Compose project definition and state.
+- `Deployment`: Docker Compose project definition and target configuration.
 - `PackageDefinitionRecord`: persisted package template, including custom packages and editable built-in overrides.
 - `InfrastructureProfileRecord`: persisted profile template, including custom profiles and editable built-in overrides.
 - `Integration`: persisted provider/monitoring integration metadata and connection-test configuration.
 - `PackageInstallation`: package automation execution record.
-- `MetricSample`: collected monitoring metric.
+- Monitoring readiness records: derived telemetry availability, stale metrics, exporter detection, and provider health.
 - `StandardizationProfile`: reusable users/groups profile.
 - `Job`: persisted SSH command/action execution state, output, exit code, and timestamps.
 
 ## Infrastructure Adapter Interfaces
 
-- `ProxmoxAdapter`: VM lifecycle boundary.
+- `ProxmoxAdapter`: hypervisor, VM, LXC, provisioning, and controlled lifecycle boundary.
 - `SshAdapter`: remote execution and file transfer boundary.
 - `DockerComposeAdapter`: deployment boundary for managed hosts.
 - `JobExecutor`: background dispatch boundary.
@@ -68,16 +70,16 @@ These contracts keep external system details out of service and API layers, whic
 NexusOps now uses Inventory as the execution abstraction:
 
 ```text
-Inventory -> Jobs / Operational Actions -> SSH adapter -> managed Linux host
+Managed node Inventory -> Jobs / Deployments / Identity / Remote Access / Monitoring -> adapters -> managed infrastructure
 ```
 
-Proxmox remains a provider discovery and lifecycle-control layer. Jobs and operational actions execute only against inventory-managed servers.
+Proxmox remains a provider discovery and lifecycle-control layer. Hypervisors, VMs, LXCs, and future physical hosts become distinct managed nodes before NexusOps operates on them. Jobs and operational actions execute only against inventory-managed records.
 
 Provisioning follows the same authority boundary:
 
 ```text
 Provisioning blueprint
-  -> Proxmox template clone and cloud-init
+  -> Proxmox VM template clone/cloud-init or LXC template create
   -> Inventory registration
   -> optional profile/package bootstrap
   -> Jobs
@@ -85,7 +87,29 @@ Provisioning blueprint
   -> inventory-managed Linux host
 ```
 
-Blueprints are NexusOps UI/API presets; provider-side VM templates still live in Proxmox.
+Blueprints are NexusOps UI/API presets; provider-side VM and LXC templates still live in Proxmox.
+
+Deployments follow the same runtime separation:
+
+```text
+Deployment definition
+  -> DeploymentExecution
+  -> DeploymentTargetExecution per node
+  -> Jobs
+  -> SSH adapter
+  -> inventory-managed Linux host
+```
+
+Monitoring follows the same managed-node convergence:
+
+```text
+Telemetry provider integrations
+  -> Prometheus/Loki/Grafana readiness checks
+  -> per-node observability state
+  -> Monitoring board and managed-node pages
+```
+
+Grafana is optional deep-analysis tooling. NexusOps does not own Grafana dashboard generation or dashboard-per-node lifecycle.
 
 Identity follows the same orchestration boundary:
 
@@ -103,14 +127,14 @@ Identity is not centralized authentication. It is Linux user, group, SSH key, su
 
 ```text
 Proxmox discovery
-  -> managed/unmanaged synchronization status
-  -> optional operator import
+  -> hypervisor/VM/LXC synchronization status
+  -> automatic hypervisor reconciliation and optional guest import
   -> Inventory provider linkage
   -> reconciliation status
-  -> Jobs / Packages / Profiles
+  -> Jobs / Packages / Profiles / Deployments / Monitoring / Identity
 ```
 
-Inventory lifecycle and infrastructure lifecycle are separate concerns. Deleting or archiving an Inventory record does not destroy a Proxmox VM.
+Inventory lifecycle and infrastructure lifecycle are separate concerns. Deleting, archiving, or decommissioning an Inventory record removes it from active NexusOps orchestration by default; provider-side destructive operations must remain explicit and provider-specific.
 
 ## Template Automation Flow
 

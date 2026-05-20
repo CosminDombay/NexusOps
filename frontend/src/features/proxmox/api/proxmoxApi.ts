@@ -1,5 +1,5 @@
 import { apiClient } from '../../../lib/api/client';
-import type { ProxmoxDashboard, ProxmoxNodeDetail, ProxmoxVmAction, ProxmoxVmActionResponse } from '../types/proxmox';
+import type { ProxmoxDashboard, ProxmoxGuestSyncResult, ProxmoxHostSyncResult, ProxmoxNodeDetail, ProxmoxVmAction, ProxmoxVmActionResponse } from '../types/proxmox';
 
 export async function getProxmoxDashboard(): Promise<ProxmoxDashboard> {
   const response = await apiClient.get<ProxmoxDashboard>('/proxmox/dashboard');
@@ -16,5 +16,15 @@ export async function runVmAction(
   action: ProxmoxVmAction,
 ): Promise<ProxmoxVmActionResponse> {
   const response = await apiClient.post<ProxmoxVmActionResponse>(`/proxmox/vms/${vmId}/${action}`);
+  return response.data;
+}
+
+export async function syncProxmoxHosts(): Promise<ProxmoxHostSyncResult> {
+  const response = await apiClient.post<ProxmoxHostSyncResult>('/proxmox/hosts/sync');
+  return response.data;
+}
+
+export async function syncProxmoxGuests(): Promise<ProxmoxGuestSyncResult> {
+  const response = await apiClient.post<ProxmoxGuestSyncResult>('/proxmox/guests/sync');
   return response.data;
 }

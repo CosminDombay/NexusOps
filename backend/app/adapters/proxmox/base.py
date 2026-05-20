@@ -19,6 +19,9 @@ class ProxmoxAdapter(Adapter):
     async def list_vm_templates(self) -> list[dict[str, Any]]:
         raise NotImplementedError
 
+    async def list_lxc_templates(self, *, node: str | None = None) -> list[dict[str, Any]]:
+        return []
+
     async def list_storage(self, *, node: str | None = None) -> list[dict[str, Any]]:
         return []
 
@@ -104,4 +107,28 @@ class ProxmoxAdapter(Adapter):
         storage: str,
         size_gb: int,
     ) -> dict[str, Any]:
+        raise NotImplementedError
+
+    async def create_lxc_container(
+        self,
+        *,
+        node: str,
+        ct_id: int,
+        hostname: str,
+        ostemplate: str,
+        storage: str,
+        disk_size_gb: int,
+        cpu_cores: int,
+        memory_mb: int,
+        network_bridge: str,
+        ip_cidr: str,
+        gateway: str,
+        password: str | None = None,
+        ssh_public_key: str | None = None,
+        start_on_boot: bool = False,
+        description: str | None = None,
+    ) -> dict[str, Any]:
+        raise NotImplementedError
+
+    async def delete_vm(self, *, node: str, vm_id: int, vm_type: str) -> dict[str, Any]:
         raise NotImplementedError

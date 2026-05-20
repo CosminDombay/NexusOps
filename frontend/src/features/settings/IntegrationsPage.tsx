@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { CheckCircle2, Plug, Plus, RefreshCw, TestTube2, Trash2, XCircle } from 'lucide-react';
+import { CheckCircle2, Plug, Plus, RefreshCw, ServerIcon, TestTube2, Trash2, XCircle } from 'lucide-react';
 
 import { ContextDrawer } from '../../components/ContextDrawer';
 import { PageHeader } from '../../components/layout/PageHeader';
@@ -10,6 +10,7 @@ import {
   createIntegration,
   deleteIntegration,
   listIntegrations,
+  syncProxmoxHostsForIntegration,
   testIntegration,
   updateIntegration,
 } from './api/integrationsApi';
@@ -117,6 +118,7 @@ export function IntegrationsPage() {
   const [credentials, setCredentials] = useState<Credential[]>([]);
   const [form, setForm] = useState<FormState>(() => formFromPreset('proxmox'));
   const [tests, setTests] = useState<Record<string, IntegrationTestResult>>({});
+  const [syncMessages, setSyncMessages] = useState<Record<string, string>>({});
   const [actionError, setActionError] = useState<string | null>(null);
   const [integrationLoadError, setIntegrationLoadError] = useState<string | null>(null);
   const [credentialLoadError, setCredentialLoadError] = useState<string | null>(null);
@@ -210,6 +212,18 @@ export function IntegrationsPage() {
     }
   }
 
+  async function runHostSync(integration: Integration) {
+    try {
+      const result = await syncProxmoxHostsForIntegration(integration.id);
+      setSyncMessages((current) => ({
+        ...current,
+        [integration.id]: `${result.imported_count} imported, ${result.updated_count} updated, ${result.skipped_count} skipped from ${result.discovered_count} discovered Proxmox host(s).`,
+      }));
+    } catch (requestError) {
+      setActionError(getApiErrorMessage(requestError));
+    }
+  }
+
   async function remove(integration: Integration) {
     if (
       !window.confirm(
@@ -223,6 +237,11 @@ export function IntegrationsPage() {
       await deleteIntegration(integration.id);
       setIntegrations((current) => current.filter((item) => item.id !== integration.id));
       setTests((current) => {
+        const next = { ...current };
+        delete next[integration.id];
+        return next;
+      });
+      setSyncMessages((current) => {
         const next = { ...current };
         delete next[integration.id];
         return next;
@@ -363,6 +382,11 @@ export function IntegrationsPage() {
                     {tests[integration.id].message}
                   </p>
                 ) : null}
+                {syncMessages[integration.id] ? (
+                  <p className="mt-3 rounded-md bg-cyan-50 px-3 py-2 text-sm text-cyan-800">
+                    {syncMessages[integration.id]}
+                  </p>
+                ) : null}
                 <div className="mt-4 flex flex-wrap gap-2">
                   <button
                     className="rounded-md border border-zinc-300 px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
@@ -379,6 +403,16 @@ export function IntegrationsPage() {
                     <TestTube2 className="h-4 w-4" aria-hidden="true" />
                     Test
                   </button>
+                  {integration.provider_type === 'proxmox' ? (
+                    <button
+                      className="inline-flex items-center gap-2 rounded-md border border-zinc-300 px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
+                      type="button"
+                      onClick={() => void runHostSync(integration)}
+                    >
+                      <ServerIcon className="h-4 w-4" aria-hidden="true" />
+                      Sync hosts
+                    </button>
+                  ) : null}
                   <button
                     className="rounded-md border border-zinc-300 px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
                     type="button"

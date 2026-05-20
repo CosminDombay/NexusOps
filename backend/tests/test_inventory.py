@@ -1,3 +1,67 @@
+from types import SimpleNamespace
+from typing import Any
+from uuid import uuid4
+
+import pytest
+
+from backend.app.adapters.ssh import SshAdapter, SshExecutionResult
+from backend.app.modules.credentials.schemas import ResolvedCredential
+from backend.app.modules.inventory.discovery import HostDiscoveryService
+from backend.app.modules.inventory.models import ServerSshAuthMethod
+
+
+class FakeDiscoverySshAdapter(SshAdapter):
+    def __init__(self) -> None:
+        self.calls: list[dict[str, Any]] = []
+
+    @property
+    def name(self) -> str:
+        return "fake-discovery-ssh"
+
+    async def run_command(
+        self,
+        *,
+        host: str,
+        port: int,
+        command: str,
+        user: str,
+        password: str | None = None,
+        private_key_path: str | None = None,
+        private_key: str | None = None,
+        passphrase: str | None = None,
+    ) -> SshExecutionResult:
+        self.calls.append(
+            {
+                "host": host,
+                "port": port,
+                "user": user,
+                "password": password,
+                "private_key_path": private_key_path,
+                "private_key": private_key,
+                "passphrase": passphrase,
+            }
+        )
+        return SshExecutionResult(
+            exit_code=0,
+            stdout="__NEXUSOPS_SECTION__:hostname\npve-01\n",
+            stderr="",
+        )
+
+    async def upload_file(self, host: str, local_path: str, remote_path: str, user: str) -> None:
+        raise NotImplementedError
+
+
+class FakeCredentialService:
+    async def resolve_credential(self, credential_id):
+        return ResolvedCredential(
+            id=credential_id,
+            name="pve-root-password",
+            credential_type="ssh_password",
+            username="root",
+            secret="proxmox-password",
+        )
+
+
 def server_payload(**overrides):
     payload = {
         "hostname": "app-01",
@@ -157,6 +221,56 @@ def test_inventory_accepts_password_auth_without_echoing_secret(client) -> None:
     payload = response.json()
     assert payload["ssh_auth_method"] == "password"
     assert "ssh_password" not in payload
+
+
+def test_inventory_update_password_auth_response_does_not_require_echoed_secret(client) -> None:
+    response = client.post(
+        "/api/v1/servers",
+        json=server_payload(
+            hostname="password-update-host",
+            ip_address="10.0.0.31",
+            ssh_auth_method="password",
+            ssh_password="secret",
+        ),
+    )
+    assert response.status_code == 201
+    server_id = response.json()["id"]
+
+    update_response = client.put(
+        f"/api/v1/servers/{server_id}",
+        json={"tags": ["edited"]},
+    )
+
+    assert update_response.status_code == 200
+    payload = update_response.json()
+    assert payload["ssh_auth_method"] == "password"
+    assert "ssh_password" not in payload
+
+
+@pytest.mark.asyncio
+async def test_host_discovery_uses_attached_ssh_credential() -> None:
+    credential_id = uuid4()
+    server = SimpleNamespace(
+        hostname="pve-01",
+        ip_address="10.0.0.50",
+        operating_system="Proxmox VE",
+        ssh_port=22,
+        ssh_username="inventory-user",
+        ssh_auth_method=ServerSshAuthMethod.KEY,
+        ssh_password=None,
+        ssh_private_key_path=None,
+        credential_id=credential_id,
+    )
+    adapter = FakeDiscoverySshAdapter()
+    service = HostDiscoveryService(adapter, credential_service=FakeCredentialService())
+
+    result = await service.system(server)
+
+    assert result.hostname == "pve-01"
+    assert adapter.calls[0]["user"] == "root"
+    assert adapter.calls[0]["password"] == "proxmox-password"
+    assert adapter.calls[0]["private_key_path"] is None
+    assert adapter.calls[0]["private_key"] is None
 
 
 def test_inventory_archives_without_deleting_provider_metadata(client) -> None:

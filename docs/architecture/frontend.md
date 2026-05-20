@@ -20,12 +20,12 @@ The frontend currently implements:
 - VM provisioning page with provider template selection, NexusOps blueprints, cloud-init, static networking, disk controls, bootstrap, and history sections
 - host detail and Proxmox node detail pages
 - integrations settings page
-- deployment and monitoring foundation pages
-- deployment operational card dashboard with drawer-based create/edit
-- monitoring quick links for Prometheus, Grafana, and Loki
+- deployment runtime dashboard with drawer-based create/edit and per-target execution state
+- monitoring readiness board for telemetry availability, degraded nodes, exporters, stale metrics, and provider health
 - shared target selection across orchestration pages
 - admin Users & RBAC page
 - shared contextual drawer shell for secondary create/edit/configuration workflows
+- shared operational components for page-level actions, runtime badges, status pills, toolbars, and collapsible action panels
 - unified Host Tools workspace with files/editor and persistent terminal
 - route-level lazy loading/code splitting
 
@@ -97,6 +97,14 @@ It provides consistent:
 
 The deployment dashboard remains the strongest visual and interaction reference for operational cards, runtime controls, and contextual create/edit. Inventory edit modal behavior remains the reference for preserving page context while editing a selected entity.
 
+Shared operational primitives live under `frontend/src/components/operations/` and standardize:
+
+- page-level actions in `PageHeader`
+- runtime and lifecycle badges
+- compact operational toolbars
+- collapsible action sections for large forms
+- consistent status pills for managed nodes, telemetry, and orchestration state
+
 ## API Client
 
 The shared API client is `frontend/src/lib/api/client.ts`.
@@ -167,16 +175,19 @@ The Proxmox UI includes:
 
 - cluster summary cards
 - node cards
-- VM table on desktop
-- VM cards on mobile
+- visually distinct hypervisor, VM, and LXC sections
+- VM/LXC tables on desktop
+- VM/LXC cards on mobile
 - loading state
 - API error state
 - retry action
 - managed/unmanaged synchronization badges
 - import action for unmanaged discovered VMs
+- import/sync handling for discovered LXCs
+- first-class hypervisor host cards and links into managed-node operations
 - experimental inventory synchronization action labeled as discovered-guest synchronization rather than a finished desired-state reconciliation workflow
 
-Discovered Proxmox VMs are not automatically imported. Operators supply Inventory execution metadata, including IP address and SSH username, before a VM becomes a managed target.
+Discovered Proxmox guests are not automatically promoted into active orchestration targets without Inventory metadata. Operators supply execution metadata, including IP address and SSH username when needed, before a VM or LXC becomes a managed target. Hypervisor hosts are reconciled from active Proxmox integrations as `hypervisor` managed nodes and can be archived or decommissioned from active orchestration without erasing history.
 
 ## Jobs Frontend Flow
 
@@ -331,7 +342,9 @@ The Provisioning UI includes:
 - provisioning blueprint selector
 - contextual blueprint action drawer for save, update, clone, and delete
 - contextual batch provisioning drawer
+- collapsible VM and LXC provisioning action panels
 - Proxmox template selector
+- Proxmox LXC template selector
 - VM sizing and network bridge inputs
 - root disk and additional disk controls
 - cloud-init username/password/SSH key inputs
@@ -341,7 +354,7 @@ The Provisioning UI includes:
 
 Blueprints fill the fixed defaults while keeping VM name, VMID, cloud-init hostname, and static IP/CIDR editable for each run.
 
-The VM provisioning wizard remains the primary center workflow. Blueprint maintenance and batch provisioning are secondary workflows exposed through contextual drawers so they do not clutter the run path.
+The VM and LXC provisioning workflows are available as operational actions without permanently occupying the full page. Advanced storage, bootstrap, and batch provisioning settings are collapsed or drawer-based so the page reads as an operational workspace instead of a wall of forms.
 
 ## Deployments Frontend Flow
 
@@ -355,17 +368,18 @@ DeploymentsPage
 The Deployments UI is now an operational service dashboard rather than a permanently visible create form. It includes:
 
 - service-style deployment cards
-- runtime status, health, sync, uptime, target host, ports, compose source, and credential-ref indicators
+- runtime status, health, sync, uptime, target hosts, per-target state, duration, ports, compose source, and credential-ref indicators
 - direct start, stop, restart, redeploy, inspect, logs, edit, and delete actions
 - status filtering
 - inspect and log output panels
 - drawer-based create/edit workflow
 - Docker Compose content, non-secret env content, and credential-backed env variable mappings
 - shared target selection in the drawer
+- execution history and output summaries for deployment runs
 
 Credential-backed env mappings send only credential IDs to the backend; secret values are resolved server-side.
 
-Deployments now pass both `target_server_id` and optional `target_server_ids` in the request shape. The current backend still executes the first target only; the request shape is prepared for future distributed orchestration queueing.
+Deployments now pass both `target_server_id` and optional `target_server_ids` in the request shape. The backend persists all selected targets, executes per-target Jobs sequentially in the MVP, and returns per-target execution state so operators can see succeeded, failed, and partially successful rollouts.
 
 ## Monitoring Frontend Flow
 
@@ -376,19 +390,18 @@ MonitoringPage
   -> FastAPI /api/v1/monitoring
 ```
 
-The Monitoring UI follows the hybrid monitoring model. NexusOps shows quick operational status cards, per-host metrics, and service state summaries, while advanced dashboards and log exploration stay in the external observability stack.
-
-Important current limitation: Monitoring reads Prometheus, Grafana, and Loki locations from environment-backed settings. Persisted Prometheus/Grafana/Loki integration records can be created and tested in Integrations, but they are not yet used by Monitoring as runtime source-of-truth.
+The Monitoring UI is an operational observability readiness board. NexusOps shows telemetry provider health, observable/degraded node counts, missing metrics/logs, stale telemetry, exporter detection, scrape target health, and per-node readiness reasons. Advanced dashboards and log exploration stay in the external observability stack.
 
 The page exposes:
 
 - Prometheus API health
-- Prometheus quick links
-- Grafana dashboard links
-- Loki exploration links
+- Prometheus scrape/exporter readiness
+- Loki reachability and log availability where available
+- optional Grafana deep links when configured
 - per-host CPU, memory, disk, and uptime summaries
+- per-node monitoring state such as `monitoring_ready`, `metrics_missing`, `logs_missing`, `stale_metrics`, `exporter_missing`, and `monitoring_partial`
 
-NexusOps does not attempt to rebuild Grafana or Loki inside the application.
+NexusOps does not generate Grafana dashboards, assume dashboard-per-node URLs, or manage Loki exploration views. Prometheus, Loki, and Grafana are telemetry providers; NexusOps owns operational readiness and infrastructure awareness.
 
 ## Types, Hooks, and Utilities
 
@@ -414,6 +427,8 @@ The UI uses utility classes directly. Shared visual primitives are minimal and f
 Shared UI components now include:
 
 - `ContextDrawer` for reusable contextual create/edit/configure workflows
+- `PageHeader` action slots for consistent page-level actions
+- `OperationalComponents` for runtime badges, status pills, action toolbars, and collapsible action panels
 - `ExecutionVariablesModal` for package/profile execution inputs and credential selection
 - `VariableDefinitionEditor` for visual variable definition editing
 - `TargetSelector` for searchable, filterable single/bulk inventory target selection

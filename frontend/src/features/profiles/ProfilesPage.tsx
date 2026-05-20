@@ -4,6 +4,7 @@ import { ArrowDown, ArrowUp, Package, Play, Plus, Trash2, Terminal } from 'lucid
 
 import { ContextDrawer } from '../../components/ContextDrawer';
 import { PageHeader } from '../../components/layout/PageHeader';
+import { PageActionButton } from '../../components/operations/OperationalComponents';
 import {
   ExecutionVariablesModal,
   type ExecutionVariableValues,
@@ -330,6 +331,11 @@ export function ProfilesPage() {
       <PageHeader
         title="Infrastructure Profiles"
         description="Reusable infrastructure standards that apply ordered package and action workflows."
+        actions={
+          <PageActionButton icon={Plus} tone="secondary" onClick={() => setIsBuilderOpen(true)}>
+            Create profile
+          </PageActionButton>
+        }
       />
 
       {error ? (
@@ -401,16 +407,6 @@ export function ProfilesPage() {
               />
             </div>
           </section>
-
-          <div className="flex justify-end">
-            <button
-              className="rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm font-semibold text-zinc-700 shadow-sm hover:bg-zinc-50"
-              type="button"
-              onClick={() => setIsBuilderOpen(true)}
-            >
-              Create profile
-            </button>
-          </div>
 
           <ContextDrawer
             description="Profiles are orchestration blueprints: ordered package, deployment, action, and command standards."

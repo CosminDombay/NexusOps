@@ -3,6 +3,7 @@ import { FormEvent, useCallback, useEffect, useState } from 'react';
 
 import { ContextDrawer } from '../../components/ContextDrawer';
 import { PageHeader } from '../../components/layout/PageHeader';
+import { PageActionButton } from '../../components/operations/OperationalComponents';
 import { getApiErrorMessage } from '../../lib/api/client';
 import {
   createCredential,
@@ -170,6 +171,11 @@ export function CredentialsPage() {
       <PageHeader
         title="Credentials"
         description="Reusable SSH accounts, tokens, and secrets for server-side orchestration."
+        actions={
+          <PageActionButton icon={Plus} tone="secondary" onClick={openCreateDrawer}>
+            Create credential
+          </PageActionButton>
+        }
       />
 
       {error ? (
@@ -182,17 +188,6 @@ export function CredentialsPage() {
           {success}
         </p>
       ) : null}
-
-      <div className="flex justify-end">
-        <button
-          className="inline-flex items-center gap-2 rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm font-semibold text-zinc-700 shadow-sm hover:bg-zinc-50"
-          type="button"
-          onClick={openCreateDrawer}
-        >
-          <Plus className="h-4 w-4" aria-hidden="true" />
-          Create credential
-        </button>
-      </div>
 
       <ContextDrawer
         description={

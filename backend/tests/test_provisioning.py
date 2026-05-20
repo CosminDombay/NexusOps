@@ -43,6 +43,18 @@ class FakeProxmoxAdapter(ProxmoxAdapter):
     async def list_vm_templates(self) -> list[dict[str, Any]]:
         return [{"vmid": 9000, "name": "ubuntu-template", "node": "hellgate", "type": "qemu", "template": 1}]
 
+    async def list_lxc_templates(self, *, node: str | None = None) -> list[dict[str, Any]]:
+        return [
+            {
+                "vmid": 9010,
+                "name": "debian-12-standard.tar.zst",
+                "node": node or "hellgate",
+                "type": "lxc",
+                "template_ref": "local:vztmpl/debian-12-standard.tar.zst",
+                "storage": "local",
+            }
+        ]
+
     async def list_storage(self, *, node: str | None = None) -> list[dict[str, Any]]:
         return [{"storage": "local-lvm", "node": node or "hellgate", "type": "lvmthin", "content": "images"}]
 
@@ -100,6 +112,10 @@ class FakeProxmoxAdapter(ProxmoxAdapter):
         self.calls.append({"action": "add_disk", "disk": disk, "storage": storage, "size_gb": size_gb})
         return {"task_id": f"UPID:add-{disk}"}
 
+    async def create_lxc_container(self, **kwargs) -> dict[str, Any]:
+        self.calls.append({"action": "create_lxc", **kwargs})
+        return {"task_id": "UPID:create-lxc"}
+
 
 class FakeSshAdapter(SshAdapter):
     @property
@@ -115,6 +131,8 @@ class FakeSshAdapter(SshAdapter):
         user: str,
         password: str | None = None,
         private_key_path: str | None = None,
+        private_key: str | None = None,
+        passphrase: str | None = None,
     ) -> SshExecutionResult:
         return SshExecutionResult(exit_code=0, stdout="ok\n", stderr="")
 
@@ -166,6 +184,7 @@ async def test_provisioning_lists_templates(client) -> None:
         templates = await service(db_session).list_templates()
 
         assert templates[0].template_id == 9000
+        assert any(template.type == "lxc" and template.template_ref for template in templates)
 
 
 @pytest.mark.asyncio
@@ -193,6 +212,39 @@ async def test_provisioning_creates_vm_and_inventory_record(client) -> None:
         servers = await ServerRepository(db_session).list(search="10.3.0.50")
         assert len(servers) == 1
         assert servers[0].provider == "proxmox"
+
+
+@pytest.mark.asyncio
+async def test_provisioning_creates_lxc_and_inventory_record(client) -> None:
+    session = next(iter(client.app.dependency_overrides.values()))
+    async for db_session in session():
+        proxmox = FakeProxmoxAdapter()
+        result = await service(db_session, proxmox).provision(
+            ProvisioningCreate(
+                **payload(
+                    vm_name="test-ct",
+                    cloud_init_hostname="test-ct",
+                    provisioning_type="lxc",
+                    template_id=9010,
+                    template_ref="local:vztmpl/debian-12-standard.tar.zst",
+                    new_vm_id=250,
+                    static_ip_cidr="10.3.0.70/24",
+                    cloud_init_username="root",
+                )
+            )
+        )
+
+        assert result.status == "completed"
+        assert result.provisioning_type == "lxc"
+        assert "UPID:create-lxc" in result.proxmox_task_ids
+        assert proxmox.calls[0]["action"] == "create_lxc"
+        assert proxmox.calls[1]["action"] == "start"
+
+        servers = await ServerRepository(db_session).list(search="10.3.0.70")
+        assert len(servers) == 1
+        assert servers[0].node_type.value == "lxc"
+        assert servers[0].provider_type == "lxc"
+        assert servers[0].provider_metadata["template_ref"] == "local:vztmpl/debian-12-standard.tar.zst"
 
 
 @pytest.mark.asyncio

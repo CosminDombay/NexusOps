@@ -29,22 +29,24 @@ Provider linkage is stored with:
 ## Synchronization Flow
 
 ```text
-Proxmox VM discovery
-  -> match Inventory by provider/external_id, vmid, hostname, or IP when available
+Proxmox discovery
+  -> discover hypervisor nodes, QEMU VMs, and LXC containers
+  -> match Inventory by provider/external_id, provider node, vmid/ctid, hostname, or IP when available
   -> surface status in Infrastructure
-  -> operator imports unmanaged VM when it should be orchestrated
-  -> Inventory stores SSH and provider metadata
-  -> Jobs, Packages, Profiles, and Actions execute only against Inventory
+  -> reconcile active Proxmox nodes as node_type=hypervisor
+  -> operator imports unmanaged guests when they should be orchestrated
+  -> Inventory stores SSH, readiness, lifecycle, and provider metadata
+  -> Jobs, Packages, Profiles, Deployments, Identity, Monitoring, and Actions execute only against Inventory managed nodes
 ```
 
-Proxmox host/node management is the next gap to close. The model now supports `node_type=hypervisor`, but discovery does not yet automatically create or reconcile Inventory records for each Proxmox cluster node. Until that is implemented, Proxmox nodes remain visible through Infrastructure discovery and can only be represented manually in Inventory.
+Proxmox host/node management is now part of the same Inventory authority model. Active integrations reconcile every Proxmox cluster node as a `hypervisor` managed node with provider metadata, guest counts, management IP, lifecycle state, and monitoring readiness. Guest VMs and LXCs remain distinct managed node types so operator workflows do not confuse the physical hypervisor with the workloads running on it.
 
 ## Reconciliation
 
 Initial reconciliation is intentionally lightweight:
 
-- Proxmox VM exists but no Inventory record: `unmanaged`
-- Inventory record links to existing Proxmox VM: `synced`
+- Proxmox guest exists but no Inventory record: `unmanaged`
+- Inventory record links to existing Proxmox host/guest: `synced`
 - Inventory hostname differs from Proxmox name: `mismatch`
 - Inventory Proxmox record cannot be found in discovery: `orphaned`
 - Inventory record has been retired locally: `archived`
@@ -54,7 +56,7 @@ Reconciliation updates NexusOps metadata only. It does not start, stop, delete, 
 
 ## Lifecycle Operations
 
-Operators can edit Inventory metadata, mark a node unmanaged, archive an Inventory record, decommission a node, restore/reactivate an inactive record, or delete it. These actions affect the CMDB and orchestration registry only. Provider destruction remains a non-goal for the current phase.
+Operators can edit Inventory metadata, mark a node unmanaged, archive an Inventory record, decommission a node, restore/reactivate an inactive record, or delete it. These actions affect the CMDB and orchestration registry by default. Provider destruction remains explicit and provider-specific; decommissioning a Proxmox hypervisor disconnects it from active NexusOps orchestration/synchronization without implying power or hardware lifecycle operations.
 
 Archived and decommissioned records are excluded from active operational flows by default. They remain available through historical inventory queries with `include_inactive=true`.
 
@@ -68,3 +70,5 @@ managed=true
 lifecycle_state=provisioned
 sync_status=synced
 ```
+
+LXC provisioning creates Inventory records with `node_type=lxc` and the same provider linkage shape. Shell access readiness is validated separately from provider discovery so an LXC can be visible as `discovered`, `booted`, `ip_missing`, `ssh_unreachable`, `partially_managed`, or `degraded` without blocking Inventory synchronization.

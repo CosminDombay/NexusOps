@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 
 import { ContextDrawer } from '../../components/ContextDrawer';
 import { PageHeader } from '../../components/layout/PageHeader';
+import { PageActionButton } from '../../components/operations/OperationalComponents';
 import {
   ExecutionVariablesModal,
   type ExecutionVariableValues,
@@ -275,6 +276,11 @@ export function PackagesPage() {
       <PageHeader
         title="Package Definitions"
         description="Reusable package standards that profiles can compose into orchestration workflows."
+        actions={
+          <PageActionButton tone="secondary" onClick={() => setIsBuilderOpen(true)}>
+            Create package
+          </PageActionButton>
+        }
       />
 
       <TargetSelector
@@ -294,16 +300,6 @@ export function PackagesPage() {
           setSelectedServerIds(selection.selectedIds);
         }}
       />
-
-      <div className="flex justify-end">
-        <button
-          className="rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm font-semibold text-zinc-700 shadow-sm hover:bg-zinc-50"
-          type="button"
-          onClick={() => setIsBuilderOpen(true)}
-        >
-          Create package
-        </button>
-      </div>
 
       <ContextDrawer
         description="Create or tune package standards without losing the target and package list context."

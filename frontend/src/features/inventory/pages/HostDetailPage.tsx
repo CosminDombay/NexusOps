@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { Activity, Box, ExternalLink, HardDrive, Loader2, Play, Power, RefreshCw, RotateCw, ServerIcon, ShieldCheck, TerminalSquare } from 'lucide-react';
+import { Activity, Box, ExternalLink, HardDrive, Loader2, Play, Power, RefreshCw, RotateCw, ServerIcon, ShieldCheck, TerminalSquare, Trash2 } from 'lucide-react';
 
 import { PageHeader } from '../../../components/layout/PageHeader';
 import { getApiErrorMessage } from '../../../lib/api/client';
+import { listAutomations } from '../../automations/api/automationsApi';
+import type { Automation } from '../../automations/types/automation';
 import { useAuth } from '../../auth/hooks/useAuth';
 import { listDeployments } from '../../deployments/api/deploymentsApi';
 import type { Deployment } from '../../deployments/types/deployment';
@@ -16,6 +18,10 @@ import { getServerMetrics, getPrometheusHealth } from '../../monitoring/api/moni
 import type { PrometheusHealth, ServerMetrics } from '../../monitoring/types/monitoring';
 import { runVmAction } from '../../proxmox/api/proxmoxApi';
 import type { ProxmoxVmAction } from '../../proxmox/types/proxmox';
+import { FileBrowserPanel } from '../../remote-access/components/FileBrowserPanel';
+import { ShellPanel } from '../../remote-access/components/ShellPanel';
+import { listWorkflows } from '../../workflows/api/workflowsApi';
+import type { WorkflowRun } from '../../workflows/types/workflow';
 import {
   getServer,
   getServerDocker,
@@ -34,6 +40,8 @@ type LoadState = {
   prometheus: PrometheusHealth | null;
   deployments: Deployment[];
   jobs: Job[];
+  workflows: WorkflowRun[];
+  automations: Automation[];
   users: LinuxUser[];
   groups: LinuxGroup[];
   sshKeys: SSHKey[];
@@ -50,6 +58,8 @@ const initialState: LoadState = {
   prometheus: null,
   deployments: [],
   jobs: [],
+  workflows: [],
+  automations: [],
   users: [],
   groups: [],
   sshKeys: [],
@@ -80,7 +90,7 @@ export function HostDetailPage() {
       return;
     }
 
-    const [system, network, docker, metrics, prometheus, deployments, jobs, users, groups, sshKeys] =
+    const [system, network, docker, metrics, prometheus, deployments, jobs, workflows, automations, users, groups, sshKeys] =
       await Promise.all([
         settle(() => getServerSystem(id)),
         settle(() => getServerNetwork(id)),
@@ -89,6 +99,8 @@ export function HostDetailPage() {
         settle(() => getPrometheusHealth()),
         settle(() => listDeployments()),
         settle(() => listJobs()),
+        settle(() => listWorkflows()),
+        settle(() => listAutomations()),
         settle(() => listLinuxUsers()),
         settle(() => listLinuxGroups()),
         settle(() => listSSHKeys()),
@@ -101,14 +113,16 @@ export function HostDetailPage() {
       docker: docker.ok ? docker.value : null,
       metrics: metrics.ok ? metrics.value : null,
       prometheus: prometheus.ok ? prometheus.value : null,
-      deployments: deployments.ok ? deployments.value.filter((item) => item.target_server_id === id) : [],
+      deployments: deployments.ok ? deployments.value.filter((item) => deploymentTouchesServer(item, id)) : [],
       jobs: jobs.ok ? jobs.value.filter((job) => job.target_server_id === id).slice(0, 8) : [],
+      workflows: workflows.ok ? workflows.value.filter((workflow) => workflowTouchesServer(workflow, id)).slice(0, 8) : [],
+      automations: automations.ok ? automations.value.filter((automation) => automation.target_server_ids.includes(id)).slice(0, 8) : [],
       users: users.ok ? users.value : [],
       groups: groups.ok ? groups.value : [],
       sshKeys: sshKeys.ok ? sshKeys.value : [],
     });
     setErrors(
-      [system, network, docker, metrics, prometheus, deployments, jobs, users, groups, sshKeys]
+      [system, network, docker, metrics, prometheus, deployments, jobs, workflows, automations, users, groups, sshKeys]
         .filter((result) => !result.ok)
         .map((result) => (result.ok ? '' : result.error)),
     );
@@ -130,7 +144,7 @@ export function HostDetailPage() {
     }
 
     if (action !== 'start') {
-      const confirmed = window.confirm(`${actionLabel(action)} VM ${server.hostname} (${vmId})?`);
+      const confirmed = window.confirm(`${actionLabel(action)} ${server.node_type === 'lxc' ? 'LXC' : 'VM'} ${server.hostname} (${vmId})?`);
       if (!confirmed) {
         return;
       }
@@ -163,7 +177,7 @@ export function HostDetailPage() {
     <div className="space-y-6">
       <PageHeader
         title={server.hostname}
-        description="Inventory, provider, system, network, deployment, identity, and monitoring context for this host."
+        description="Unified operations for this managed node across inventory, provider, monitoring, remote access, jobs, deployments, and identity."
       />
 
       {notice ? <HostNotice message={notice.message} tone={notice.tone} onDismiss={() => setNotice(null)} /> : null}
@@ -174,6 +188,8 @@ export function HostDetailPage() {
           <LifecycleBadge state={server.lifecycle_state} />
           <SyncBadge status={server.sync_status} />
           <HealthBadge status={server.last_health_status} />
+          <ReadinessBadge readiness={nodeReadiness(server, state)} />
+          <NodeTypePill nodeType={server.node_type} />
         </div>
         <button
           className="inline-flex items-center gap-2 rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
@@ -213,6 +229,7 @@ export function HostDetailPage() {
         <HostTabPanel
           activeVmAction={activeVmAction}
           allowManagement={allowManagement}
+          canUseRemoteAccess={allowManagement}
           server={server}
           state={state}
           tab={activeTab}
@@ -226,20 +243,35 @@ export function HostDetailPage() {
         <MetricCard icon={ServerIcon} label="LAN IP" value={state.network?.lan_ip ?? server.ip_address} />
         <MetricCard icon={Activity} label="Uptime" value={formatDuration(state.system?.uptime_seconds ?? state.metrics?.uptime_seconds)} />
         <MetricCard icon={HardDrive} label="Memory" value={formatPercent(bytesPercent(state.system?.memory_used_bytes, state.system?.memory_total_bytes) ?? state.metrics?.memory_usage_percent)} />
-        <MetricCard icon={Box} label="Containers" value={state.docker ? String(state.docker.containers.length) : 'Unknown'} />
+        <MetricCard icon={Box} label="Readiness" value={formatReadiness(nodeReadiness(server, state))} />
       </section>
 
       <section className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_360px]">
         <div className="space-y-6">
           <Panel title="System Overview">
             <dl className="grid gap-3 sm:grid-cols-2">
+              <Info label="Node type" value={formatNodeType(server.node_type)} />
               <Info label="OS" value={state.system?.operating_system ?? server.operating_system} />
               <Info label="Kernel" value={state.system?.kernel ?? 'Unknown'} />
               <Info label="CPU" value={state.system?.cpu_model ?? 'Unknown'} />
               <Info label="Cores" value={state.system?.cpu_cores ? String(state.system.cpu_cores) : 'Unknown'} />
               <Info label="Load" value={state.system?.load_average.join(' / ') || 'Unknown'} />
               <Info label="Provider" value={`${server.provider}${server.provider_node ? ` / ${server.provider_node}` : ''}`} />
+              <Info label="Lifecycle" value={server.lifecycle_state} />
+              <Info label="Operational state" value={nodeReadiness(server, state)} />
+              <Info label="SSH readiness" value={sshReadiness(server, state)} />
+              <Info label="Monitoring state" value={monitoringReadiness(state)} />
             </dl>
+          </Panel>
+
+          <Panel title="Provider Metadata">
+            <div className="grid gap-3 md:grid-cols-2">
+              <Info label="Provider" value={server.provider} />
+              <Info label="Provider type" value={server.provider_type ?? 'Unknown'} />
+              <Info label="Provider node" value={server.provider_node ?? 'Unknown'} />
+              <Info label="External ID" value={server.external_id ?? server.vmid ?? 'Unknown'} />
+            </div>
+            <MetadataBlock metadata={server.provider_metadata} />
           </Panel>
 
           <Panel title="Filesystems">
@@ -330,14 +362,20 @@ export function HostDetailPage() {
         <aside className="space-y-6">
           <Panel title="Monitoring">
             <div className="space-y-2">
+              <Badge tone={state.metrics?.monitoring_state === 'monitoring_ready' ? 'success' : 'warning'}>
+                {formatReadiness(state.metrics?.monitoring_state ?? monitoringReadiness(state))}
+              </Badge>
+              <Badge tone={state.metrics?.metrics_available ? 'success' : 'warning'}>metrics {state.metrics?.metrics_available ? 'available' : 'missing'}</Badge>
+              <Badge tone={state.metrics?.logs_available ? 'success' : 'warning'}>logs {state.metrics?.logs_available ? 'available' : 'missing'}</Badge>
               <Badge tone={state.prometheus?.reachable ? 'success' : 'warning'}>{state.prometheus?.reachable ? 'Prometheus reachable' : 'Prometheus unavailable'}</Badge>
               <Badge tone={exporterState.node ? 'success' : 'muted'}>node_exporter {exporterState.node ? 'detected' : 'not detected'}</Badge>
               <Badge tone={exporterState.promtail ? 'success' : 'muted'}>promtail {exporterState.promtail ? 'detected' : 'not detected'}</Badge>
               <Badge tone={exporterState.cadvisor ? 'success' : 'muted'}>cadvisor {exporterState.cadvisor ? 'detected' : 'not detected'}</Badge>
+              {state.metrics?.stale_metrics ? <Badge tone="warning">stale metrics</Badge> : null}
             </div>
             {state.metrics?.grafana_url ? (
               <a className="mt-4 inline-flex items-center gap-2 text-sm font-semibold text-zinc-800 hover:text-zinc-950" href={state.metrics.grafana_url} target="_blank" rel="noreferrer">
-                Open Grafana <ExternalLink className="h-4 w-4" aria-hidden="true" />
+                Open advanced metrics <ExternalLink className="h-4 w-4" aria-hidden="true" />
               </a>
             ) : null}
           </Panel>
@@ -346,6 +384,8 @@ export function HostDetailPage() {
             <LinkList items={[
               { label: `${state.deployments.length} deployments`, to: '/deployments' },
               { label: `${state.jobs.length} recent jobs`, to: '/jobs' },
+              { label: `${state.workflows.length} recent workflows`, to: '/workflows' },
+              { label: `${state.automations.length} automations targeting node`, to: '/automations' },
               { label: `${state.users.length} users / ${state.groups.length} groups`, to: '/identity' },
               { label: `${state.sshKeys.length} SSH keys`, to: '/identity' },
             ]} />
@@ -353,7 +393,7 @@ export function HostDetailPage() {
 
           <Panel title="Quick Actions">
             <LinkList items={[
-              { label: 'Open host tools', to: `/inventory/${server.id}/tools` },
+              { label: 'Open dedicated host tools', to: `/inventory/${server.id}/tools` },
               { label: 'Run command', to: '/jobs' },
               { label: 'Apply profile', to: '/profiles' },
               { label: 'Deploy compose app', to: '/deployments' },
@@ -392,6 +432,7 @@ const hostTabs: Array<{ id: HostTab; label: string }> = [
 function HostTabPanel({
   activeVmAction,
   allowManagement,
+  canUseRemoteAccess,
   tab,
   server,
   state,
@@ -399,6 +440,7 @@ function HostTabPanel({
 }: {
   activeVmAction: ProxmoxVmAction | null;
   allowManagement: boolean;
+  canUseRemoteAccess: boolean;
   tab: HostTab;
   server: Server;
   state: LoadState;
@@ -425,13 +467,17 @@ function HostTabPanel({
     );
   }
 
-  if (tab === 'terminal' || tab === 'files') {
+  if (tab === 'terminal') {
     return (
-      <Panel title={tab === 'terminal' ? 'Terminal' : 'Files'}>
-        <Link className="inline-flex rounded-md bg-zinc-900 px-3 py-2 text-sm font-semibold text-white" to={`/inventory/${server.id}/tools`}>
-          Open unified host tools
-        </Link>
-      </Panel>
+      <div className="min-h-[520px]">
+        <ShellPanel server={server} canUseShell={canUseRemoteAccess} compact />
+      </div>
+    );
+  }
+
+  if (tab === 'files') {
+    return (
+      <FileBrowserPanel server={server} canUseFiles={canUseRemoteAccess} />
     );
   }
 
@@ -457,6 +503,24 @@ function HostTabPanel({
     );
   }
 
+  if (tab === 'workflows') {
+    return (
+      <Panel title="Recent workflow executions">
+        <LinkList items={[
+          ...state.workflows.map((workflow) => ({
+            label: `${formatReadiness(workflow.workflow_type)} - ${workflow.status} - ${workflowProgress(workflow)}`,
+            to: '/workflows',
+          })),
+          ...state.automations.map((automation) => ({
+            label: `${automation.name} automation - ${automation.runtime_state}`,
+            to: '/automations',
+          })),
+          { label: 'Open workflow history', to: '/workflows' },
+        ]} />
+      </Panel>
+    );
+  }
+
   if (tab === 'metrics') {
     return (
       <Panel title="Metrics">
@@ -473,8 +537,7 @@ function HostTabPanel({
     return null;
   }
 
-  const links: Record<'workflows' | 'packages' | 'profiles' | 'identity', Array<{ label: string; to: string }>> = {
-    workflows: [{ label: 'Open workflows for host context', to: '/workflows' }],
+  const links: Record<'packages' | 'profiles' | 'identity', Array<{ label: string; to: string }>> = {
     packages: [{ label: 'Run package against this host', to: '/packages' }],
     profiles: [{ label: 'Apply profile to this host', to: '/profiles' }],
     identity: [{ label: `${state.users.length} users / ${state.groups.length} groups`, to: '/identity' }],
@@ -507,6 +570,50 @@ function HostNotice({
         Dismiss
       </button>
     </div>
+  );
+}
+
+function ReadinessBadge({ readiness }: { readiness: string }) {
+  const tone =
+    readiness === 'healthy' || readiness === 'booted'
+      ? 'success'
+      : readiness === 'degraded' ||
+          readiness === 'ssh_unreachable' ||
+          readiness === 'network_missing' ||
+          readiness === 'monitoring_missing' ||
+          readiness === 'partially_managed'
+        ? 'warning'
+        : 'muted';
+  return <Badge tone={tone}>{formatReadiness(readiness)}</Badge>;
+}
+
+function NodeTypePill({ nodeType }: { nodeType: Server['node_type'] }) {
+  const className =
+    nodeType === 'hypervisor'
+      ? 'bg-violet-50 text-violet-700 ring-violet-200'
+      : nodeType === 'lxc'
+        ? 'bg-cyan-50 text-cyan-700 ring-cyan-200'
+        : nodeType === 'vm'
+          ? 'bg-indigo-50 text-indigo-700 ring-indigo-200'
+          : 'bg-zinc-100 text-zinc-700 ring-zinc-200';
+  return (
+    <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ring-1 ring-inset ${className}`}>
+      {formatNodeType(nodeType)}
+    </span>
+  );
+}
+
+function MetadataBlock({ metadata }: { metadata: Record<string, unknown> }) {
+  const entries = Object.entries(metadata).filter(([, value]) => value !== null && value !== undefined && value !== '');
+  if (!entries.length) {
+    return <EmptyText text="No provider metadata recorded." />;
+  }
+  return (
+    <dl className="mt-4 grid gap-3 md:grid-cols-2">
+      {entries.slice(0, 12).map(([key, value]) => (
+        <Info key={key} label={key.replace(/_/g, ' ')} value={metadataValue(value)} />
+      ))}
+    </dl>
   );
 }
 
@@ -562,6 +669,15 @@ function VmLifecycleActions({
         label="Stop"
         tone="danger"
         onClick={() => onAction('stop')}
+      />
+      <LifecycleButton
+        action="delete"
+        disabled={commonDisabled || isOnline}
+        icon={Trash2}
+        isLoading={activeAction === 'delete'}
+        label="Delete"
+        tone="danger"
+        onClick={() => onAction('delete')}
       />
     </div>
   );
@@ -621,6 +737,25 @@ async function settle<T>(fn: () => Promise<T>): Promise<{ ok: true; value: T } |
   } catch (error) {
     return { ok: false, error: getApiErrorMessage(error) };
   }
+}
+
+function workflowTouchesServer(workflow: WorkflowRun, serverId: string): boolean {
+  if (workflow.target_server_id === serverId) {
+    return true;
+  }
+  return workflow.steps.some((step) => step.metadata_json.target_server_id === serverId);
+}
+
+function deploymentTouchesServer(deployment: Deployment, serverId: string): boolean {
+  return deployment.target_server_id === serverId || (deployment.target_server_ids ?? []).includes(serverId);
+}
+
+function workflowProgress(workflow: WorkflowRun): string {
+  if (!workflow.steps.length) {
+    return 'no steps';
+  }
+  const failed = workflow.failed_steps ? `, ${workflow.failed_steps} failed` : '';
+  return `${workflow.completed_steps}/${workflow.steps.length} completed${failed}`;
 }
 
 function Panel({ title, children }: { title: string; children: ReactNode }) {
@@ -718,6 +853,79 @@ function bytesPercent(used: number | null | undefined, total: number | null | un
 
 function formatPercent(value: number | null | undefined): string {
   return value == null ? 'Unknown' : `${Math.round(value)}%`;
+}
+
+function nodeReadiness(server: Server, state: LoadState): string {
+  const metadataReadiness = String(server.provider_metadata.operational_readiness ?? '').trim();
+  if (metadataReadiness) {
+    if (!state.prometheus?.reachable && metadataReadiness === 'booted') {
+      return 'monitoring_missing';
+    }
+    return metadataReadiness;
+  }
+  if (server.lifecycle_state === 'archived' || server.lifecycle_state === 'decommissioned') {
+    return server.lifecycle_state;
+  }
+  if (!server.ip_address || server.ip_address.startsWith('0.')) {
+    return 'ip_missing';
+  }
+  if (state.system || state.network) {
+    return state.prometheus?.reachable === false ? 'monitoring_missing' : 'healthy';
+  }
+  if (server.last_health_status === 'unreachable') {
+    return 'ssh_unreachable';
+  }
+  if (server.last_health_status === 'sync_error') {
+    return 'degraded';
+  }
+  return server.managed ? 'partially_managed' : 'discovered';
+}
+
+function sshReadiness(server: Server, state: LoadState): string {
+  if (state.system || state.network) {
+    return 'ready';
+  }
+  if (!server.ip_address || server.ip_address.startsWith('0.')) {
+    return 'ip_missing';
+  }
+  if (server.last_health_status === 'unreachable') {
+    return 'ssh_unreachable';
+  }
+  return server.credential_id || server.ssh_username ? 'not_verified' : 'credential_missing';
+}
+
+function monitoringReadiness(state: LoadState): string {
+  if (!state.prometheus) {
+    return 'unknown';
+  }
+  return state.prometheus.reachable ? 'prometheus_reachable' : 'monitoring_missing';
+}
+
+function formatReadiness(value: string): string {
+  return value
+    .split('_')
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ') || 'Unknown';
+}
+
+function formatNodeType(value: Server['node_type']): string {
+  if (value === 'lxc') return 'LXC';
+  if (value === 'vm') return 'VM';
+  return value.charAt(0).toUpperCase() + value.slice(1);
+}
+
+function metadataValue(value: unknown): string {
+  if (Array.isArray(value)) {
+    return value.length ? value.map((item) => metadataValue(item)).join(', ') : 'None';
+  }
+  if (typeof value === 'object' && value !== null) {
+    return JSON.stringify(value);
+  }
+  if (typeof value === 'boolean') {
+    return value ? 'Yes' : 'No';
+  }
+  return String(value);
 }
 
 function formatDuration(value: number | null | undefined): string {

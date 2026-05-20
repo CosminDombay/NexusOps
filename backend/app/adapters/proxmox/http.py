@@ -1,4 +1,5 @@
 from typing import Any
+import zlib
 from urllib.parse import quote, urljoin
 
 import httpx
@@ -57,6 +58,38 @@ class HttpProxmoxAdapter(ProxmoxAdapter):
     async def list_vm_templates(self) -> list[dict[str, Any]]:
         vms = await self.list_vms()
         return [vm for vm in vms if bool(vm.get("template"))]
+
+    async def list_lxc_templates(self, *, node: str | None = None) -> list[dict[str, Any]]:
+        storages = await self.list_storage(node=node)
+        templates: list[dict[str, Any]] = []
+        for storage in storages:
+            storage_name = storage.get("storage")
+            storage_node = node or storage.get("node")
+            content = str(storage.get("content") or "")
+            if not storage_name or not storage_node or (content and "vztmpl" not in content):
+                continue
+            try:
+                items = await self._get(
+                    f"nodes/{storage_node}/storage/{storage_name}/content",
+                    params={"content": "vztmpl"},
+                )
+            except ProxmoxConnectionError:
+                continue
+            for item in items:
+                volume = str(item.get("volid") or item.get("volume") or "")
+                filename = str(item.get("text") or item.get("filename") or volume.rsplit("/", 1)[-1])
+                template_ref = volume or f"{storage_name}:vztmpl/{filename}"
+                templates.append(
+                    {
+                        "vmid": zlib.crc32(template_ref.encode("utf-8")) % 2_000_000_000 + 1,
+                        "name": filename,
+                        "node": storage_node,
+                        "type": "lxc",
+                        "template_ref": template_ref,
+                        "storage": storage_name,
+                    }
+                )
+        return templates
 
     async def list_storage(self, *, node: str | None = None) -> list[dict[str, Any]]:
         if node:
@@ -191,6 +224,49 @@ class HttpProxmoxAdapter(ProxmoxAdapter):
         )
         return {"task_id": data}
 
+    async def create_lxc_container(
+        self,
+        *,
+        node: str,
+        ct_id: int,
+        hostname: str,
+        ostemplate: str,
+        storage: str,
+        disk_size_gb: int,
+        cpu_cores: int,
+        memory_mb: int,
+        network_bridge: str,
+        ip_cidr: str,
+        gateway: str,
+        password: str | None = None,
+        ssh_public_key: str | None = None,
+        start_on_boot: bool = False,
+        description: str | None = None,
+    ) -> dict[str, Any]:
+        params: dict[str, str] = {
+            "vmid": str(ct_id),
+            "hostname": hostname,
+            "ostemplate": ostemplate,
+            "rootfs": f"{storage}:{disk_size_gb}",
+            "cores": str(cpu_cores),
+            "memory": str(memory_mb),
+            "net0": f"name=eth0,bridge={network_bridge},ip={ip_cidr},gw={gateway}",
+            "onboot": "1" if start_on_boot else "0",
+        }
+        if password:
+            params["password"] = password
+        if ssh_public_key:
+            params["ssh-public-keys"] = ssh_public_key
+        if description:
+            params["description"] = description
+        data = await self._post(f"nodes/{node}/lxc", data=params)
+        return {"task_id": data}
+
+    async def delete_vm(self, *, node: str, vm_id: int, vm_type: str) -> dict[str, Any]:
+        normalized_type = self._normalize_vm_type(vm_type)
+        data = await self._delete(f"nodes/{node}/{normalized_type}/{vm_id}")
+        return {"task_id": data}
+
     async def _get(self, path: str, params: dict[str, str] | None = None) -> Any:
         self._validate_configuration()
         url = urljoin(self.api_url, path.lstrip("/"))
@@ -282,6 +358,40 @@ class HttpProxmoxAdapter(ProxmoxAdapter):
                 verify=self.verify_ssl,
             ) as client:
                 response = await client.put(url, data=data)
+                response.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            logger.warning(
+                "proxmox_request_failed",
+                url=url,
+                status_code=exc.response.status_code,
+                reason="http_status",
+            )
+            raise ProxmoxConnectionError(
+                f"Proxmox API returned status {exc.response.status_code}"
+            ) from exc
+        except httpx.HTTPError as exc:
+            logger.warning("proxmox_request_failed", url=url, reason=exc.__class__.__name__)
+            raise ProxmoxConnectionError("Unable to reach the configured Proxmox API") from exc
+
+        payload = response.json()
+        if not isinstance(payload, dict) or "data" not in payload:
+            logger.warning("proxmox_response_invalid", url=url)
+            raise ProxmoxConnectionError("Proxmox API returned an unexpected response shape")
+
+        logger.info("proxmox_request_succeeded", url=url)
+        return payload["data"]
+
+    async def _delete(self, path: str, data: dict[str, str] | None = None) -> Any:
+        self._validate_configuration()
+        url = urljoin(self.api_url, path.lstrip("/"))
+
+        try:
+            async with httpx.AsyncClient(
+                headers=self._headers(),
+                timeout=self.timeout_seconds,
+                verify=self.verify_ssl,
+            ) as client:
+                response = await client.delete(url, params=data)
                 response.raise_for_status()
         except httpx.HTTPStatusError as exc:
             logger.warning(

@@ -1,4 +1,5 @@
 import { apiClient } from '../../../lib/api/client';
+import type { ProxmoxHostSyncResult } from '../../proxmox/types/proxmox';
 import type { Integration, IntegrationPayload, IntegrationTestResult } from '../types/integration';
 
 export async function listIntegrations(): Promise<Integration[]> {
@@ -22,5 +23,10 @@ export async function deleteIntegration(integrationId: string): Promise<void> {
 
 export async function testIntegration(integrationId: string): Promise<IntegrationTestResult> {
   const response = await apiClient.post<IntegrationTestResult>(`/integrations/${integrationId}/test`);
+  return response.data;
+}
+
+export async function syncProxmoxHostsForIntegration(integrationId: string): Promise<ProxmoxHostSyncResult> {
+  const response = await apiClient.post<ProxmoxHostSyncResult>(`/integrations/${integrationId}/sync/proxmox-hosts`);
   return response.data;
 }

@@ -44,6 +44,7 @@ export const router = createBrowserRouter([
         element: <AppLayout />,
         children: [
           { index: true, element: <LazyPage><InventoryPage /></LazyPage> },
+          { path: 'nodes/:id', element: <LazyPage><HostDetailPage /></LazyPage> },
           { path: 'inventory/:id', element: <LazyPage><HostDetailPage /></LazyPage> },
           { path: 'infrastructure', element: <LazyPage><InfrastructurePage /></LazyPage> },
           { path: 'infrastructure/nodes/:id', element: <LazyPage><InfrastructureNodeDetailPage /></LazyPage> },

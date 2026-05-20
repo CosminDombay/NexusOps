@@ -46,12 +46,33 @@ class DeploymentRead(BaseModel):
     target_server_id: UUID | None = None
     target_server_ids: list[UUID] = Field(default_factory=list)
     target_hostname: str | None = None
+    targets: list["DeploymentTargetRead"] = Field(default_factory=list)
+    latest_execution: "DeploymentExecutionRead | None" = None
+    execution_history: list["DeploymentExecutionRead"] = Field(default_factory=list)
     remote_path: str | None = None
     ports: list[str] = Field(default_factory=list)
     compose_source: str = "inline"
     uptime_seconds: int | None = None
     health_state: str = "unknown"
     sync_status: str = "unknown"
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class DeploymentTargetRead(BaseModel):
+    id: UUID
+    server_id: UUID
+    hostname: str | None = None
+    node_type: str | None = None
+    environment: str | None = None
+    provider: str | None = None
+    readiness: str = "unknown"
+    remote_path: str
+    status: DeploymentStatus
+    last_job_id: UUID | None = None
+    last_execution: "DeploymentTargetExecutionRead | None" = None
     created_at: datetime
     updated_at: datetime
 
@@ -74,20 +95,68 @@ class DeploymentRevisionRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class DeploymentTargetExecutionRead(BaseModel):
+    id: UUID
+    execution_id: UUID
+    deployment_id: UUID
+    target_id: UUID
+    server_id: UUID
+    hostname: str | None = None
+    status: DeploymentStatus
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
+    duration_seconds: int | None = None
+    job_id: UUID | None = None
+    revision_id: UUID | None = None
+    stdout: str | None = None
+    stderr: str | None = None
+    error_message: str | None = None
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class DeploymentExecutionRead(BaseModel):
+    id: UUID
+    deployment_id: UUID
+    operation: str
+    status: DeploymentStatus
+    trigger_source: str
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
+    duration_seconds: int | None = None
+    target_count: int = 0
+    success_count: int = 0
+    failed_count: int = 0
+    result_summary: dict = Field(default_factory=dict)
+    error_message: str | None = None
+    target_executions: list[DeploymentTargetExecutionRead] = Field(default_factory=list)
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 class DeploymentOperationRead(BaseModel):
     deployment: DeploymentRead
-    job: JobRead
-    revision: DeploymentRevisionRead
+    job: JobRead | None = None
+    revision: DeploymentRevisionRead | None = None
+    jobs: list[JobRead] = Field(default_factory=list)
+    revisions: list[DeploymentRevisionRead] = Field(default_factory=list)
+    execution: DeploymentExecutionRead | None = None
 
 
 class DeploymentStatusRead(BaseModel):
     deployment_id: UUID
-    target_server_id: UUID
-    job: JobRead
+    target_server_id: UUID | None = None
+    job: JobRead | None = None
+    jobs: list[JobRead] = Field(default_factory=list)
 
 
 class DeploymentLogsRead(BaseModel):
     deployment_id: UUID
-    target_server_id: UUID
+    target_server_id: UUID | None = None
     logs: str
-    job: JobRead
+    job: JobRead | None = None
+    jobs: list[JobRead] = Field(default_factory=list)

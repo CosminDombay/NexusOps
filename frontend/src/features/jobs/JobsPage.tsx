@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { ContextDrawer } from '../../components/ContextDrawer';
 import { PageHeader } from '../../components/layout/PageHeader';
+import { CollapsibleSection, PageActionButton } from '../../components/operations/OperationalComponents';
 import { getApiErrorMessage } from '../../lib/api/client';
 import { listServers } from '../inventory/api/serversApi';
 import type { Server } from '../inventory/types/server';
@@ -241,31 +242,32 @@ export function JobsPage() {
       <PageHeader
         title="Jobs"
         description="Reusable operational actions, remote command execution, and orchestration history."
+        actions={
+          <PageActionButton tone="secondary" onClick={() => setIsActionBuilderOpen(true)}>
+            Create custom action
+          </PageActionButton>
+        }
       />
 
-      <OperationalActionsPanel
-        actions={actions}
-        error={actionError}
-        isExecuting={isExecutingAction}
-        selectedActionId={selectedActionId}
-        selectedServerId={selectedServerId}
-        servers={servers}
-        onExecute={handleExecuteAction}
-        onDeleteAction={removeAction}
-        onEditAction={startEditAction}
-        onSelectedActionChange={setSelectedActionId}
-        onSelectedServerChange={setSelectedServerId}
-      />
-
-      <div className="flex justify-end">
-        <button
-          className="rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm font-semibold text-zinc-700 shadow-sm hover:bg-zinc-50"
-          type="button"
-          onClick={() => setIsActionBuilderOpen(true)}
-        >
-          Create custom action
-        </button>
-      </div>
+      <CollapsibleSection
+        title="Operational action runner"
+        description="Run a saved action against an inventory-managed node."
+        defaultOpen
+      >
+        <OperationalActionsPanel
+          actions={actions}
+          error={actionError}
+          isExecuting={isExecutingAction}
+          selectedActionId={selectedActionId}
+          selectedServerId={selectedServerId}
+          servers={servers}
+          onExecute={handleExecuteAction}
+          onDeleteAction={removeAction}
+          onEditAction={startEditAction}
+          onSelectedActionChange={setSelectedActionId}
+          onSelectedServerChange={setSelectedServerId}
+        />
+      </CollapsibleSection>
 
       <ContextDrawer
         description="Save reusable command sequences and scripts that execute through Jobs."
@@ -284,20 +286,25 @@ export function JobsPage() {
         />
       </ContextDrawer>
 
-      <RunCommandPanel
-        command={command}
-        error={executeError}
-        isExecuting={isExecuting}
-        operationType={operationType}
-        selectedServerId={selectedServerId}
-        selectedServerIds={selectedServerIds}
-        servers={servers}
-        onCommandChange={setCommand}
-        onOperationTypeChange={setOperationType}
-        onSelectedServerChange={setSelectedServerId}
-        onSelectedServersChange={setSelectedServerIds}
-        onSubmit={handleExecute}
-      />
+      <CollapsibleSection
+        title="Raw command runner"
+        description="Use for direct diagnostics and one-off commands. Saved actions should be preferred for repeatable operations."
+      >
+        <RunCommandPanel
+          command={command}
+          error={executeError}
+          isExecuting={isExecuting}
+          operationType={operationType}
+          selectedServerId={selectedServerId}
+          selectedServerIds={selectedServerIds}
+          servers={servers}
+          onCommandChange={setCommand}
+          onOperationTypeChange={setOperationType}
+          onSelectedServerChange={setSelectedServerId}
+          onSelectedServersChange={setSelectedServerIds}
+          onSubmit={handleExecute}
+        />
+      </CollapsibleSection>
       {bulkResult ? (
         <p className="rounded-md bg-zinc-100 px-3 py-2 text-sm text-zinc-700">{bulkResult}</p>
       ) : null}

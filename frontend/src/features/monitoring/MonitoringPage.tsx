@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
-import { Activity, Cpu, Database, ExternalLink, RefreshCw } from 'lucide-react';
+import { Activity, Database, ExternalLink, RefreshCw, Server, Signal, TriangleAlert } from 'lucide-react';
 
 import { PageHeader } from '../../components/layout/PageHeader';
+import { PageActionButton, RuntimeBadge, StatusPill } from '../../components/operations/OperationalComponents';
 import { getApiErrorMessage } from '../../lib/api/client';
 import { getMonitoringOverview, getPrometheusHealth } from './api/monitoringApi';
-import type { MonitoringOverview, MonitoringProviderStatus, PrometheusHealth } from './types/monitoring';
+import type { MonitoringOverview, MonitoringProviderStatus, PrometheusHealth, ServerMetrics } from './types/monitoring';
 
 export function MonitoringPage() {
   const [overview, setOverview] = useState<MonitoringOverview | null>(null);
@@ -31,122 +32,157 @@ export function MonitoringPage() {
   }, []);
 
   const providers = prometheus?.providers ?? overview?.providers ?? [];
-  const prometheusProvider = providerByType(providers, 'prometheus');
-  const grafanaProvider = providerByType(providers, 'grafana');
-  const lokiProvider = providerByType(providers, 'loki');
+  const degradedNodes = overview?.servers.filter((server) => server.monitoring_state !== 'monitoring_ready') ?? [];
 
   return (
     <div className="space-y-6">
-      <PageHeader title="Monitoring" description="Prometheus-backed host metrics and inventory health signals." />
+      <PageHeader
+        title="Monitoring Readiness"
+        description="Infrastructure observability readiness across telemetry providers, exporters, stale metrics, and log ingestion."
+        actions={
+          <PageActionButton icon={RefreshCw} tone="secondary" disabled={isLoading} onClick={() => void refresh()}>
+            Refresh
+          </PageActionButton>
+        }
+      />
 
       {error ? <div className="rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</div> : null}
 
-      <div className="grid gap-4 md:grid-cols-4">
-        <MetricCard icon={Database} label="Servers" value={overview?.total_servers ?? 0} />
-        <MetricCard icon={Activity} label="Online" value={overview?.online_servers ?? 0} />
-        <MetricCard icon={Activity} label="Offline" value={overview?.offline_servers ?? 0} />
-        <MetricCard icon={Cpu} label="Prometheus" value={prometheusProvider?.reachable ? 'Ready' : 'Unavailable'} />
-      </div>
-
-      {prometheusProvider && !prometheusProvider.reachable ? (
-        <div className="rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-800">
-          {providerMessage(prometheusProvider)}
-        </div>
-      ) : null}
-
-      <section className="grid gap-4 md:grid-cols-3">
-        <IntegrationLinkCard label="Prometheus" href={prometheusProvider?.url ?? null} status={providerStatus(prometheusProvider)} />
-        <IntegrationLinkCard label="Grafana" href={grafanaProvider?.url ?? null} status={providerStatus(grafanaProvider)} />
-        <IntegrationLinkCard label="Loki" href={lokiProvider?.url ?? null} status={providerStatus(lokiProvider)} />
+      <section className="grid gap-4 md:grid-cols-5">
+        <MetricCard icon={Server} label="Nodes" value={overview?.total_servers ?? 0} />
+        <MetricCard icon={Signal} label="Observable" value={overview?.observable_servers ?? 0} />
+        <MetricCard icon={TriangleAlert} label="Degraded" value={overview?.degraded_servers ?? 0} />
+        <MetricCard icon={Activity} label="Metrics missing" value={overview?.metrics_missing_servers ?? 0} />
+        <MetricCard icon={Database} label="Logs missing" value={overview?.logs_missing_servers ?? 0} />
       </section>
 
+      <section className="grid gap-4 md:grid-cols-3">
+        {providers.map((provider) => (
+          <ProviderReadinessCard key={provider.provider_type} provider={provider} />
+        ))}
+      </section>
+
+      {degradedNodes.length ? (
+        <section className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          <strong>{degradedNodes.length} node(s) need observability attention.</strong>{' '}
+          Most common causes are missing exporters, unavailable Loki streams, scrape failures, or stale metrics.
+        </section>
+      ) : null}
+
       <section className="rounded-lg border border-zinc-200 bg-white shadow-sm">
-        <div className="flex items-center justify-between border-b border-zinc-200 px-5 py-4">
-          <h3 className="text-base font-semibold text-zinc-950">Server metrics</h3>
-          <button className="inline-flex h-9 items-center gap-2 rounded-md border border-zinc-300 px-3 text-sm font-semibold text-zinc-700" disabled={isLoading} type="button" onClick={() => void refresh()}>
-            <RefreshCw className="h-4 w-4" aria-hidden="true" />
-            Refresh
-          </button>
+        <div className="border-b border-zinc-200 px-5 py-4">
+          <h3 className="text-base font-semibold text-zinc-950">Infrastructure Observability Board</h3>
+          <p className="mt-1 text-sm text-zinc-500">
+            NexusOps derives readiness from telemetry availability. Grafana is available only as optional advanced tooling.
+          </p>
         </div>
         <div className="overflow-x-auto">
           <table className="min-w-full divide-y divide-zinc-200 text-sm">
             <thead className="bg-zinc-50">
               <tr>
-                {['Host', 'State', 'CPU', 'Memory', 'Disk', 'Uptime', 'Links'].map((heading) => (
+                {['Node', 'Readiness', 'Metrics', 'Logs', 'Exporters', 'Scrape', 'Staleness', 'Signals'].map((heading) => (
                   <th key={heading} className="px-5 py-3 text-left text-xs font-semibold uppercase text-zinc-500">{heading}</th>
                 ))}
               </tr>
             </thead>
             <tbody className="divide-y divide-zinc-100">
               {(overview?.servers ?? []).map((server) => (
-                <tr key={server.server_id}>
-                  <td className="px-5 py-4">
-                    <div className="font-medium text-zinc-950">{server.hostname}</div>
-                    <div className="font-mono text-xs text-zinc-500">{server.ip_address}</div>
-                  </td>
-                  <td className="px-5 py-4">{server.online ? 'Online' : 'Offline'}</td>
-                  <td className="px-5 py-4">{formatPercent(server.cpu_usage_percent)}</td>
-                  <td className="px-5 py-4">{formatPercent(server.memory_usage_percent)}</td>
-                  <td className="px-5 py-4">{formatPercent(server.disk_usage_percent)}</td>
-                  <td className="px-5 py-4">{formatDuration(server.uptime_seconds)}</td>
-                  <td className="px-5 py-4">
-                    <div className="flex flex-wrap gap-2">
-                      <MetricLink label="Grafana" href={server.grafana_url} />
-                      <MetricLink label="Prom" href={server.prometheus_url} />
-                      <MetricLink label="Loki" href={server.loki_url} />
-                    </div>
-                  </td>
-                </tr>
+                <ObservabilityRow key={server.server_id} server={server} />
               ))}
             </tbody>
           </table>
-          {!isLoading && overview?.servers.length === 0 ? <p className="p-5 text-sm text-zinc-500">No inventory servers available.</p> : null}
+          {isLoading ? <p className="p-5 text-sm text-zinc-500">Checking telemetry readiness...</p> : null}
+          {!isLoading && overview?.servers.length === 0 ? <p className="p-5 text-sm text-zinc-500">No inventory nodes available.</p> : null}
         </div>
       </section>
     </div>
   );
 }
 
-function providerByType(providers: MonitoringProviderStatus[], providerType: string): MonitoringProviderStatus | undefined {
-  return providers.find((provider) => provider.provider_type === providerType);
-}
-
-function providerStatus(provider: MonitoringProviderStatus | undefined): string {
-  if (!provider?.configured) return 'Not configured';
-  return provider.reachable ? 'Ready' : 'Unavailable';
-}
-
-function providerMessage(provider: MonitoringProviderStatus): string {
-  if (!provider.configured) return 'Prometheus integration is not configured or is disabled.';
-  return provider.error ?? 'Prometheus integration is configured but not reachable.';
-}
-
-function IntegrationLinkCard({ label, href, status }: { label: string; href: string | null; status: string }) {
+function ProviderReadinessCard({ provider }: { provider: MonitoringProviderStatus }) {
   return (
     <div className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm">
-      <div className="flex items-center justify-between gap-3">
+      <div className="flex items-start justify-between gap-3">
         <div>
-          <p className="text-sm font-medium text-zinc-500">{label}</p>
-          <p className="mt-2 text-lg font-semibold text-zinc-950">{status}</p>
+          <p className="text-sm font-medium capitalize text-zinc-500">{provider.provider_type}</p>
+          <div className="mt-2">
+            <RuntimeBadge value={provider.reachable ? 'ready' : provider.configured ? 'unavailable' : 'not_configured'} />
+          </div>
+          <p className="mt-3 text-sm text-zinc-500">
+            {provider.provider_type === 'grafana'
+              ? 'Optional advanced visualization.'
+              : provider.provider_type === 'loki'
+                ? 'Log ingestion and stream readiness.'
+                : 'Metrics scrape and exporter visibility.'}
+          </p>
+          {provider.error ? <p className="mt-2 text-xs text-rose-700">{provider.error}</p> : null}
         </div>
-        {href ? (
-          <a className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-zinc-300 text-zinc-700 hover:bg-zinc-50" href={href} rel="noreferrer" target="_blank">
+        {provider.url ? (
+          <a className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-zinc-300 text-zinc-700 hover:bg-zinc-50" href={provider.url} rel="noreferrer" target="_blank" title="Open provider">
             <ExternalLink className="h-4 w-4" aria-hidden="true" />
           </a>
-        ) : (
-          <ExternalLink className="h-5 w-5 text-zinc-300" aria-hidden="true" />
-        )}
+        ) : null}
       </div>
     </div>
   );
 }
 
+function ObservabilityRow({ server }: { server: ServerMetrics }) {
+  return (
+    <tr>
+      <td className="px-5 py-4">
+        <div className="font-medium text-zinc-950">{server.hostname}</div>
+        <div className="font-mono text-xs text-zinc-500">{server.ip_address}</div>
+      </td>
+      <td className="px-5 py-4"><RuntimeBadge value={server.monitoring_state} /></td>
+      <td className="px-5 py-4">
+        <StatusPill tone={server.metrics_available ? 'success' : 'danger'}>
+          {server.metrics_available ? 'Available' : 'Missing'}
+        </StatusPill>
+      </td>
+      <td className="px-5 py-4">
+        <StatusPill tone={server.logs_available ? 'success' : 'warning'}>
+          {server.logs_available ? 'Available' : 'Missing'}
+        </StatusPill>
+      </td>
+      <td className="px-5 py-4">
+        <div className="flex flex-wrap gap-1.5">
+          <StatusPill tone={server.node_exporter_detected ? 'success' : 'warning'}>node</StatusPill>
+          <StatusPill tone={server.cadvisor_detected ? 'success' : 'muted'}>cadvisor</StatusPill>
+          <StatusPill tone={server.promtail_detected ? 'success' : 'warning'}>promtail</StatusPill>
+        </div>
+      </td>
+      <td className="px-5 py-4"><RuntimeBadge value={server.scrape_target_health} /></td>
+      <td className="px-5 py-4">
+        <StatusPill tone={server.stale_metrics ? 'warning' : 'success'}>
+          {server.stale_metrics ? 'Stale' : 'Fresh'}
+        </StatusPill>
+      </td>
+      <td className="px-5 py-4">
+        <div className="max-w-md space-y-1">
+          <div className="text-xs text-zinc-500">
+            CPU {formatPercent(server.cpu_usage_percent)} / Mem {formatPercent(server.memory_usage_percent)} / Disk {formatPercent(server.disk_usage_percent)}
+          </div>
+          {server.readiness_reasons.length ? (
+            <div className="text-xs text-amber-700">{server.readiness_reasons.slice(0, 3).join(', ')}</div>
+          ) : null}
+          <div className="flex flex-wrap gap-2">
+            <MetricLink label="Prometheus" href={server.prometheus_url} />
+            <MetricLink label="Advanced metrics" href={server.advanced_metrics_url} />
+            <MetricLink label="Advanced logs" href={server.advanced_logs_url} />
+          </div>
+        </div>
+      </td>
+    </tr>
+  );
+}
+
 function MetricLink({ label, href }: { label: string; href: string | null }) {
   if (!href) {
-    return <span className="text-xs text-zinc-400">{label}</span>;
+    return null;
   }
   return (
-    <a className="text-xs font-semibold text-zinc-950 underline" href={href} rel="noreferrer" target="_blank">
+    <a className="text-xs font-semibold text-zinc-700 underline underline-offset-2 hover:text-zinc-950" href={href} rel="noreferrer" target="_blank">
       {label}
     </a>
   );
@@ -168,12 +204,4 @@ function MetricCard({ icon: Icon, label, value }: { icon: typeof Activity; label
 
 function formatPercent(value: number | null): string {
   return value === null ? 'No data' : `${value.toFixed(1)}%`;
-}
-
-function formatDuration(value: number | null): string {
-  if (value === null) {
-    return 'No data';
-  }
-  const hours = Math.floor(value / 3600);
-  return `${hours}h`;
 }

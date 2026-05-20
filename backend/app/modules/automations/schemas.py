@@ -9,6 +9,17 @@ from backend.app.modules.automations.models import (
     AutomationScheduleType,
     AutomationTargetMode,
 )
+from backend.app.modules.workflows.schemas import WorkflowRunRead
+
+
+class AutomationTargetRead(BaseModel):
+    id: str
+    hostname: str
+    node_type: str
+    environment: str
+    provider: str
+    source: str
+    tags: list[str] = Field(default_factory=list)
 
 
 class AutomationBase(BaseModel):
@@ -115,6 +126,13 @@ class AutomationRead(BaseModel):
     last_run_at: datetime | None = None
     next_run_at: datetime | None = None
     last_status: str | None = None
+    runtime_state: str = "idle"
+    last_success_at: datetime | None = None
+    last_failure_at: datetime | None = None
+    last_duration_seconds: int | None = None
+    execution_count: int = 0
+    target_nodes: list[AutomationTargetRead] = Field(default_factory=list)
+    recent_executions: list[WorkflowRunRead] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime
 

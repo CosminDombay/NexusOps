@@ -39,6 +39,8 @@ class FakeSshAdapter(SshAdapter):
         user: str,
         password: str | None = None,
         private_key_path: str | None = None,
+        private_key: str | None = None,
+        passphrase: str | None = None,
     ) -> SshExecutionResult:
         self.calls.append({"host": host, "command": command, "user": user})
         return SshExecutionResult(exit_code=0, stdout="ok\n", stderr="")

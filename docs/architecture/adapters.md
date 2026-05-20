@@ -40,11 +40,13 @@ Files:
 - `backend/app/adapters/proxmox/base.py`
 - `backend/app/adapters/proxmox/http.py`
 
-The abstract `ProxmoxAdapter` defines visibility methods:
+The abstract `ProxmoxAdapter` defines visibility and lifecycle methods:
 
 - `get_nodes()`
 - `list_vms()`
 - `get_vm_status()`
+- LXC discovery and lifecycle helpers
+- hypervisor/node metadata helpers
 - `get_cluster_summary()`
 
 It also defines controlled lifecycle methods:
@@ -109,7 +111,7 @@ It defines Docker Compose-oriented operations:
 - `stop_compose()`
 - `get_compose_status()`
 
-No Docker deployment execution is implemented yet.
+Docker Compose deployment execution is implemented through the Jobs and SSH pipeline rather than a separate Docker daemon adapter. Deployment services generate remote compose/env operations, execute them on managed nodes through SSH, and persist deployment/runtime state in the deployments module.
 
 ## Service Integration Pattern
 
@@ -124,7 +126,7 @@ FastAPI router -> ProxmoxService -> ProxmoxAdapter -> Proxmox API
 Inventory synchronization keeps provider discovery separate from orchestration authority:
 
 ```text
-ProxmoxAdapter discovers VM -> ProxmoxService normalizes VM -> InventoryService/ServerRepository matches or imports -> Jobs execute only against Inventory records
+ProxmoxAdapter discovers hypervisor/VM/LXC -> ProxmoxService normalizes provider objects -> InventoryService/ServerRepository matches, imports, or reconciles managed nodes -> Jobs execute only against Inventory records
 ```
 
 Current Jobs/SSH flow:
@@ -137,7 +139,7 @@ Operational actions resolve to commands inside the Jobs module before following 
 
 Package definitions and profiles also resolve to commands before entering the same Jobs/SSH flow. They do not introduce separate execution adapters.
 
-Provisioning extends the Proxmox adapter with template listing, template cloning, cloud-init configuration, disk resize, VM start, and task status polling. Bootstrap still uses the SSH adapter only after the VM is registered in Inventory with provider linkage and synchronized lifecycle metadata.
+Provisioning extends the Proxmox adapter with VM template listing, LXC template listing, template cloning, cloud-init configuration, container creation, disk resize, guest start, and task status polling. Bootstrap still uses the SSH adapter only after the VM or LXC is registered in Inventory with provider linkage and synchronized lifecycle metadata. SSH readiness is tracked separately from provider discovery so a node can exist and be partially managed before shell access is available.
 
 The service normalizes provider-specific data into frontend-friendly Pydantic schemas.
 

@@ -32,8 +32,8 @@ Current implemented domain routes include:
 
 - `/api/v1/auth` for local login, JWT refresh, logout hooks, current-user lookup, and admin-only user management
 - `/api/v1/servers` for CMDB inventory, lifecycle operations, Proxmox import, and reconciliation
-- `/api/v1/proxmox` for Proxmox visibility and controlled lifecycle actions
-- `/api/v1/vms` for template-based Proxmox provisioning
+- `/api/v1/proxmox` for Proxmox visibility, hypervisor/LXC/VM discovery, and controlled lifecycle actions
+- `/api/v1/vms` for template-based Proxmox VM and LXC provisioning
 - `/api/v1/vms/blueprints` for NexusOps-side provisioning presets
 - `/api/v1/jobs` for SSH command execution, job history, and operational actions
 - `/api/v1/packages` for reusable package definitions
@@ -41,10 +41,12 @@ Current implemented domain routes include:
 - `/api/v1/credentials` for encrypted reusable credentials and shared accounts
 - `/api/v1/variables` for variable-manager foundations
 - `/api/v1/integrations` for persisted provider and monitoring integration records
-- `/api/v1/workflows` for persistent workflow runs, steps, logs, and execution timelines
-- `/api/v1/automations` for scheduled action/package/profile automations
+- `/api/v1/workflows` for persistent workflow runs, steps, logs, runtime state, targets, and execution timelines
+- `/api/v1/automations` for scheduled action/package/profile automations with runtime visibility
 - `/api/v1/identity` for Linux user, group, SSH key, sudo, permission, and replication workflows
 - `/api/v1/remote-access` for role-aware browser shell and SFTP file access to Inventory-managed hosts
+- `/api/v1/deployments` for deployment definitions, multi-target deployment executions, and per-target runtime state
+- `/api/v1/monitoring` for telemetry provider health and infrastructure observability readiness
 
 Placeholder or foundation modules still exist for future expansion, but deployments, monitoring, integrations, and execution now have varying levels of implemented API surface.
 
@@ -159,6 +161,7 @@ Workflow runs are the persistent orchestration timeline foundation:
 - `workflow_runs` stores the workflow type, trigger source, target host, status, timestamps, context, result summary, and errors.
 - `workflow_steps` stores ordered step status, logs, errors, metadata, and timestamps.
 - Workflow APIs expose list/detail polling for frontend visibility.
+- Workflow reads derive current step, completed/failed step counts, linked jobs, target node summaries, and duration so workflow pages and node detail pages can show runtime progress without duplicating orchestration logic.
 
 Scheduled automations are backed by APScheduler and an in-process async task queue for the MVP. Automations currently support predefined actions, package execution, and profile execution. Automation runs create WorkflowRuns and then execute through existing service pipelines:
 
@@ -167,6 +170,15 @@ Automation -> WorkflowRun -> Job/Profile/Package Service -> Jobs -> SSH Adapter 
 ```
 
 Celery/Redis are intentionally not introduced in this sprint.
+
+Automation reads derive operator-facing runtime state from workflow history and schedule metadata:
+
+- enabled/disabled state
+- idle, queued, running, success, failed, partial_success, or disabled runtime state
+- target node/group summaries
+- last run and next run timestamps
+- last duration and execution count
+- recent execution history with output and failure summaries
 
 ## Async SQLAlchemy
 
@@ -185,7 +197,7 @@ Inventory commits are currently performed in the service layer after repository 
 
 Alembic is configured at the repository root through `alembic.ini` and migration code under `backend/migrations`.
 
-Current migrations create the `servers` and `jobs` tables, inventory SSH authentication metadata, definition tables, provisioning requests, provisioning blueprints, inventory synchronization metadata, integration records, template override/variable metadata, encrypted credentials, credential usages, variables, inventory credential references, deployment credential references, integration credential references, and provisioning additional disk metadata.
+Current migrations create the `servers` and `jobs` tables, inventory SSH authentication metadata, definition tables, provisioning requests, provisioning blueprints, inventory synchronization metadata, integration records, template override/variable metadata, encrypted credentials, credential usages, variables, inventory credential references, deployment credential references, integration credential references, provisioning additional disk metadata, LXC provisioning metadata, and deployment runtime execution tables.
 
 Important migration characteristics:
 
@@ -262,19 +274,21 @@ sequenceDiagram
 ```text
 Frontend Infrastructure page
   -> GET /api/v1/proxmox/dashboard
-  -> ProxmoxService normalizes discovered VMs
+  -> ProxmoxService normalizes discovered hypervisors, VMs, and LXCs
   -> ServerRepository matches provider/external ID, hostname, and IP when available
-  -> VM response includes synced, unmanaged, mismatch, orphaned, or archived status
+  -> provider response includes synced, unmanaged, mismatch, orphaned, or archived status
 
 Operator import
   -> POST /api/v1/servers/sync/proxmox/import
   -> InventoryService creates a managed inventory record
-  -> provider=proxmox, external_id=vmid, source=imported, lifecycle_state=managed
+  -> provider=proxmox, external_id/provider node, node_type=hypervisor|vm|lxc, source=imported, lifecycle_state=managed
 
 Reconciliation
   -> POST /api/v1/servers/sync/proxmox/reconcile
   -> InventoryService updates linked records with provider metadata and sync status
 ```
+
+Hypervisor host synchronization is integration-driven. An enabled Proxmox integration discovers cluster nodes and reconciles each node as an Inventory `hypervisor` with management IP, status, uptime, CPU/RAM/storage usage, running VM/LXC counts, provider metadata, lifecycle state, and monitoring readiness. Decommissioning or archiving a host removes it from active orchestration flows while leaving historical records queryable.
 
 ## Jobs and Actions Backend Flow
 
@@ -379,24 +393,53 @@ Provisioning can also apply NexusOps provisioning blueprints. Blueprints are dat
 
 Provisioning supports one root disk resized as `scsi0` plus optional additional disks created after clone/configuration. Extra disk storage names are currently operator-entered and should later be sourced from Proxmox storage discovery.
 
+LXC provisioning is modeled as the same managed-node lifecycle with a different provider path:
+
+```text
+Frontend Provisioning page
+  -> FastAPI /api/v1/vms/lxc or LXC provisioning action
+  -> ProvisioningService
+  -> ProxmoxAdapter create CT from downloaded template
+  -> optional start and readiness checks
+  -> InventoryService creates managed node_type=lxc server
+  -> optional ProfileService / PackageAutomationService bootstrap when SSH is ready
+```
+
+Infrastructure discovery does not hard-fail when an LXC lacks SSH. Provider existence, running state, networking/IP state, SSH readiness, and shell availability are tracked separately through operational readiness values such as `discovered`, `booted`, `network_missing`, `ip_missing`, `ssh_unreachable`, `partially_managed`, and `degraded`.
+
 ## Deployment Backend Flow
 
 ```text
 Frontend Deployments page
   -> FastAPI /api/v1/deployments
   -> DockerComposeDeploymentService
+  -> create DeploymentExecution
+  -> create DeploymentTargetExecution for each target
   -> resolve deployment credential_refs into .env content
-  -> JobService.execute()
+  -> JobService.execute() per target
   -> SSH adapter
   -> docker compose on inventory-managed host
 ```
 
-Docker Compose deployments persist compose content, optional plaintext env content for non-secret values, credential-backed env references for secrets, deployment target metadata, and deployment revisions. Deploy/redeploy/restart/stop/status/logs reuse Jobs and never create a parallel remote-execution path.
+Docker Compose deployments persist compose content, optional plaintext env content for non-secret values, credential-backed env references for secrets, deployment target metadata, deployment revisions, deployment executions, and per-target execution records. Deploy/redeploy/restart/stop/status/logs reuse Jobs and never create a parallel remote-execution path.
 
 Deployment command history is redacted when credential-backed env values are injected.
 
-Deployment create requests accept both the existing `target_server_id` and a `target_server_ids` list. The service currently validates the list and uses the first target for the existing single-target execution path; distributed deployment fanout is intentionally deferred.
+Deployment create requests accept both the existing `target_server_id` and a `target_server_ids` list. The service persists all selected targets, runs sequential per-target fanout in the MVP, records target-level status/log summaries/failure reasons, and rolls the deployment execution up to `success`, `failed`, or `partial_success`. Distributed worker queueing, cancellation, and retry scheduling remain future work.
+
+## Monitoring Readiness Flow
+
+```text
+Frontend Monitoring page
+  -> FastAPI /api/v1/monitoring
+  -> MonitoringService resolves enabled Prometheus/Loki/Grafana integrations
+  -> Prometheus provider checks API health, scrape targets, exporters, and metric freshness
+  -> Loki provider checks reachability and log-stream presence where possible
+  -> MonitoringService derives per-node observability state
+```
+
+Monitoring intentionally avoids Grafana dashboard lifecycle ownership. Grafana is an optional deep-analysis provider, not a required dashboard-per-node dependency. Operational health is derived from lifecycle state, SSH/readiness metadata, metrics availability, logs availability, exporter detection, stale telemetry, and provider health.
 
 ## Current Backend Boundaries
 
-The backend mutates NexusOps-owned inventory/job data, requests controlled Proxmox VM lifecycle actions, and executes SSH commands against inventory-managed hosts. Proxmox VM objects are not direct execution targets.
+The backend mutates NexusOps-owned inventory/job/runtime data, requests controlled Proxmox guest lifecycle actions, reconciles Proxmox hypervisor hosts into managed Inventory records, and executes SSH commands against inventory-managed hosts. Raw Proxmox objects are provider records; operational execution still converges through managed nodes and Jobs.

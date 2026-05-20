@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 
 import { ContextDrawer } from '../../components/ContextDrawer';
 import { PageHeader } from '../../components/layout/PageHeader';
+import { CollapsibleSection, PageActionButton } from '../../components/operations/OperationalComponents';
 import { getApiErrorMessage } from '../../lib/api/client';
 import { listPackageDefinitions } from '../packages/api/packagesApi';
 import type { PackageDefinition } from '../packages/types/package';
@@ -111,6 +112,7 @@ export function ProvisioningPage() {
   const [requests, setRequests] = useState<ProvisioningRequest[]>([]);
   const [batches, setBatches] = useState<ProvisioningBatch[]>([]);
   const [blueprints, setBlueprints] = useState<ProvisioningBlueprint[]>([]);
+  const [provisioningKind, setProvisioningKind] = useState<'qemu' | 'lxc'>('qemu');
   const [selectedBlueprintId, setSelectedBlueprintId] = useState('');
   const [blueprintName, setBlueprintName] = useState('');
   const [formState, setFormState] = useState<FormState>(initialFormState);
@@ -125,10 +127,16 @@ export function ProvisioningPage() {
   const [isBlueprintOpen, setIsBlueprintOpen] = useState(false);
   const [isBatchOpen, setIsBatchOpen] = useState(false);
 
+  const filteredTemplates = useMemo(
+    () => templates.filter((template) => (provisioningKind === 'lxc' ? template.type === 'lxc' : template.type !== 'lxc')),
+    [provisioningKind, templates],
+  );
+
   const selectedTemplate = useMemo(
     () =>
-      templates.find((template) => String(template.template_id) === formState.template_id) ?? null,
-    [formState.template_id, templates],
+      filteredTemplates.find((template) => String(template.template_id) === formState.template_id) ??
+      null,
+    [filteredTemplates, formState.template_id],
   );
 
   const diskStorageOptions = useMemo(
@@ -181,6 +189,7 @@ export function ProvisioningPage() {
         setBatches(nextBatches);
         const firstTemplate = nextTemplates[0];
         if (firstTemplate) {
+          setProvisioningKind(firstTemplate.type === 'lxc' ? 'lxc' : 'qemu');
           setFormState((current) => ({
             ...current,
             target_node: current.target_node || firstTemplate.node,
@@ -218,6 +227,27 @@ export function ProvisioningPage() {
       additional_disks: current.additional_disks.map((disk, diskIndex) =>
         diskIndex === index ? { ...disk, ...patch } : disk,
       ),
+    }));
+    setError(null);
+    setNotice(null);
+  }
+
+  function selectProvisioningKind(kind: 'qemu' | 'lxc') {
+    setProvisioningKind(kind);
+    const nextTemplate = templates.find((template) =>
+      kind === 'lxc' ? template.type === 'lxc' : template.type !== 'lxc',
+    );
+    setFormState((current) => ({
+      ...current,
+      template_id: nextTemplate ? String(nextTemplate.template_id) : '',
+      target_node: nextTemplate?.node ?? current.target_node,
+      cloud_init_username:
+        kind === 'lxc' && current.cloud_init_username === 'ubuntu'
+          ? 'root'
+          : kind === 'qemu' && current.cloud_init_username === 'root'
+            ? 'ubuntu'
+            : current.cloud_init_username,
+      tags_text: kind === 'lxc' ? ensureCsvValue(current.tags_text, 'lxc') : current.tags_text,
     }));
     setError(null);
     setNotice(null);
@@ -471,6 +501,16 @@ export function ProvisioningPage() {
       <PageHeader
         title="VM Provisioning"
         description="Template-based Proxmox provisioning with cloud-init, static IPs, inventory registration, and bootstrap workflows."
+        actions={
+          <>
+            <PageActionButton tone="secondary" onClick={() => setIsBlueprintOpen(true)}>
+              Blueprint actions
+            </PageActionButton>
+            <PageActionButton tone="secondary" onClick={() => setIsBatchOpen(true)}>
+              Provision batch
+            </PageActionButton>
+          </>
+        }
       />
 
       {error ? (
@@ -480,7 +520,10 @@ export function ProvisioningPage() {
       ) : null}
       {notice ? <Notice tone={notice.tone} message={notice.message} /> : null}
 
-      <section className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm">
+      <CollapsibleSection
+        title="Provisioning blueprint"
+        description="Load and maintain saved defaults without keeping blueprint controls expanded."
+      >
         <div className="flex flex-col gap-4 lg:flex-row lg:items-end">
           <label className="flex-1 text-sm font-medium text-zinc-700">
             Provisioning blueprint
@@ -569,9 +612,12 @@ export function ProvisioningPage() {
           Blueprints keep the fixed provisioning shape: Proxmox template, sizing, disks, network,
           environment, and bootstrap profiles. VMID, hostname, and IP stay per-machine.
         </p>
-      </section>
+      </CollapsibleSection>
 
-      <section className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm">
+      <CollapsibleSection
+        title="Batch provisioning"
+        description="Create multiple VMs from one blueprint using sequential VMIDs and IP addresses."
+      >
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex flex-col gap-1">
             <h3 className="text-base font-semibold text-zinc-950">Batch provisioning</h3>
@@ -677,13 +723,56 @@ export function ProvisioningPage() {
             </button>
           </div>
         </ContextDrawer>
-      </section>
+      </CollapsibleSection>
 
-      <section className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm">
-        <h3 className="text-base font-semibold text-zinc-950">Provision VM</h3>
+      <CollapsibleSection
+        title={`Provision ${provisioningKind === 'lxc' ? 'LXC container' : 'VM'}`}
+        description={
+          provisioningKind === 'lxc'
+            ? 'Create a Proxmox CT from a downloaded container template and register it as an LXC managed node.'
+            : 'Clone a Proxmox VM template and register it as a VM managed node.'
+        }
+        defaultOpen
+      >
+        <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+          <div>
+            <h3 className="text-base font-semibold text-zinc-950">
+              Provision {provisioningKind === 'lxc' ? 'LXC container' : 'VM'}
+            </h3>
+            <p className="mt-1 text-sm text-zinc-500">
+              {provisioningKind === 'lxc'
+                ? 'Create a Proxmox CT from a downloaded container template and register it as an LXC managed node.'
+                : 'Clone a Proxmox VM template and register it as a VM managed node.'}
+            </p>
+          </div>
+          <div className="inline-flex rounded-md border border-zinc-300 bg-zinc-50 p-1">
+            <button
+              className={`rounded px-3 py-1.5 text-sm font-semibold transition ${
+                provisioningKind === 'qemu'
+                  ? 'bg-zinc-950 text-white shadow-sm'
+                  : 'text-zinc-600 hover:text-zinc-950'
+              }`}
+              type="button"
+              onClick={() => selectProvisioningKind('qemu')}
+            >
+              VM
+            </button>
+            <button
+              className={`rounded px-3 py-1.5 text-sm font-semibold transition ${
+                provisioningKind === 'lxc'
+                  ? 'bg-cyan-500 text-zinc-950 shadow-sm'
+                  : 'text-zinc-600 hover:text-zinc-950'
+              }`}
+              type="button"
+              onClick={() => selectProvisioningKind('lxc')}
+            >
+              LXC
+            </button>
+          </div>
+        </div>
         <>
           <WizardSteps
-            steps={['Blueprint', 'VM fields', 'Cloud-init/auth', 'Bootstrap', 'Review', 'Run']}
+            steps={['Blueprint', provisioningKind === 'lxc' ? 'CT fields' : 'VM fields', provisioningKind === 'lxc' ? 'Container auth' : 'Cloud-init/auth', 'Bootstrap', 'Review', 'Run']}
             currentIndex={reviewCompleteness(formState, selectedBlueprintId)}
           />
           {isLoading ? <div className="mt-4 h-40 animate-pulse rounded-md bg-zinc-100" /> : null}
@@ -691,19 +780,19 @@ export function ProvisioningPage() {
             <>
               <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
                 <TextInput
-                  label="VM name"
+                  label={provisioningKind === 'lxc' ? 'Container name' : 'VM name'}
                   name="vm_name"
                   value={formState.vm_name}
                   onChange={updateField}
                 />
                 <TextInput
-                  label="Cloud hostname"
+                  label={provisioningKind === 'lxc' ? 'Container hostname' : 'Cloud hostname'}
                   name="cloud_init_hostname"
                   value={formState.cloud_init_hostname}
                   onChange={updateField}
                 />
                 <TextInput
-                  label="New VMID"
+                  label={provisioningKind === 'lxc' ? 'New CTID' : 'New VMID'}
                   name="new_vm_id"
                   type="number"
                   value={formState.new_vm_id}
@@ -715,22 +804,34 @@ export function ProvisioningPage() {
                     className="mt-1 w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-950 shadow-sm outline-none transition focus:border-zinc-900 focus:ring-2 focus:ring-zinc-900/10"
                     value={formState.template_id}
                     onChange={(event) => {
-                      const template = templates.find(
+                      const template = filteredTemplates.find(
                         (item) => String(item.template_id) === event.target.value,
                       );
                       updateField('template_id', event.target.value);
                       if (template) updateField('target_node', template.node);
                     }}
                   >
-                    {templates.map((template) => (
+                    {filteredTemplates.length === 0 ? (
+                      <option value="">
+                        {provisioningKind === 'lxc'
+                          ? 'No LXC templates found in Proxmox storage'
+                          : 'No VM templates found'}
+                      </option>
+                    ) : null}
+                    {filteredTemplates.map((template) => (
                       <option
                         key={`${template.node}-${template.template_id}`}
                         value={template.template_id}
                       >
-                        {template.name} ({template.template_id})
+                        {template.name} ({template.type === 'lxc' ? 'LXC' : 'VM'} {template.template_id})
                       </option>
                     ))}
                   </select>
+                  {provisioningKind === 'lxc' && selectedTemplate?.template_ref ? (
+                    <span className="mt-1 block break-all font-mono text-xs text-zinc-500">
+                      {selectedTemplate.template_ref}
+                    </span>
+                  ) : null}
                 </label>
                 <TextInput
                   label="Target node"
@@ -784,13 +885,13 @@ export function ProvisioningPage() {
                   onChange={updateField}
                 />
                 <TextInput
-                  label="Cloud-init user"
+                  label={provisioningKind === 'lxc' ? 'Container SSH user' : 'Cloud-init user'}
                   name="cloud_init_username"
                   value={formState.cloud_init_username}
                   onChange={updateField}
                 />
                 <TextInput
-                  label="Cloud-init password"
+                  label={provisioningKind === 'lxc' ? 'Container password' : 'Cloud-init password'}
                   name="cloud_init_password"
                   type="password"
                   value={formState.cloud_init_password}
@@ -832,13 +933,23 @@ export function ProvisioningPage() {
                 </label>
               </div>
 
-              <div className="mt-5 rounded-md border border-zinc-200 p-4">
+              <details className="mt-5 rounded-md border border-zinc-200">
+                <summary className="cursor-pointer list-none px-4 py-3 marker:hidden">
+                  <h4 className="text-sm font-semibold text-zinc-950">Advanced storage</h4>
+                  <p className="mt-1 text-xs text-zinc-500">
+                    Optional disks and mount volumes for nodes that need extra storage.
+                  </p>
+                </summary>
+                <div className="border-t border-zinc-200 p-4">
                 <div className="flex items-center justify-between gap-3">
                   <div>
-                    <h4 className="text-sm font-semibold text-zinc-950">Additional disks</h4>
+                    <h4 className="text-sm font-semibold text-zinc-950">
+                      {provisioningKind === 'lxc' ? 'Additional mount volumes' : 'Additional disks'}
+                    </h4>
                     <p className="mt-1 text-xs text-zinc-500">
-                      Extra disks are added after the root disk as scsi1, scsi2, and onward by
-                      default.
+                      {provisioningKind === 'lxc'
+                        ? 'Root filesystem storage is inferred from the selected template storage for now.'
+                        : 'Extra disks are added after the root disk as scsi1, scsi2, and onward by default.'}
                     </p>
                   </div>
                   <button
@@ -931,9 +1042,17 @@ export function ProvisioningPage() {
                     ))}
                   </div>
                 ) : null}
-              </div>
+                </div>
+              </details>
 
-              <div className="mt-5 grid gap-4 md:grid-cols-2">
+              <details className="mt-5 rounded-md border border-zinc-200">
+                <summary className="cursor-pointer list-none px-4 py-3 marker:hidden">
+                  <h4 className="text-sm font-semibold text-zinc-950">Bootstrap and profiles</h4>
+                  <p className="mt-1 text-xs text-zinc-500">
+                    Optional Jobs-backed profiles and packages to run after inventory registration.
+                  </p>
+                </summary>
+                <div className="grid gap-4 border-t border-zinc-200 p-4 md:grid-cols-2">
                 <MultiSelect
                   label="Bootstrap profiles"
                   options={profiles.map((profile) => ({
@@ -949,7 +1068,8 @@ export function ProvisioningPage() {
                   value={formState.bootstrap_package_ids}
                   onChange={(value) => updateField('bootstrap_package_ids', value)}
                 />
-              </div>
+                </div>
+              </details>
 
               <div className="mt-5 flex justify-end">
                 <button
@@ -958,13 +1078,13 @@ export function ProvisioningPage() {
                   type="button"
                   onClick={handleSubmit}
                 >
-                  {isSubmitting ? 'Provisioning' : 'Provision VM'}
+                  {isSubmitting ? 'Provisioning' : provisioningKind === 'lxc' ? 'Provision LXC' : 'Provision VM'}
                 </button>
               </div>
             </>
           ) : null}
         </>
-      </section>
+      </CollapsibleSection>
 
       <ProvisioningBatchHistory batches={batches} />
       <ProvisioningHistory requests={requests} onDelete={handleDeleteRequest} />
@@ -1257,8 +1377,10 @@ function toPayload(
 
   return {
     vm_name: formState.vm_name.trim(),
+    provisioning_type: selectedTemplate?.type === 'lxc' ? 'lxc' : 'qemu',
     target_node: formState.target_node || selectedTemplate?.node || '',
     template_id: Number(formState.template_id),
+    template_ref: selectedTemplate?.template_ref ?? null,
     new_vm_id: Number(formState.new_vm_id),
     cpu_cores: Number(formState.cpu_cores),
     memory_mb: Number(formState.memory_mb),
@@ -1406,4 +1528,9 @@ function splitCsv(value: string): string[] {
     .split(',')
     .map((item) => item.trim())
     .filter(Boolean);
+}
+
+function ensureCsvValue(value: string, nextValue: string): string {
+  const items = splitCsv(value);
+  return items.includes(nextValue) ? value : [...items, nextValue].join(', ');
 }

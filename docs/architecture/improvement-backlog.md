@@ -8,7 +8,7 @@ This backlog captures near-term product and engineering improvements from the Ma
 
 - Rework navigation groups so Inventory, Infrastructure, Provisioning, and Credentials sit under a clearer Core area. Operations should contain Jobs, Packages, Profiles, Deployments, Identity, and Monitoring.
 - Turn provisioning into a guided workflow: blueprint selection, identity/network fields, cloud-init credentials, bootstrap selection, review, then execution.
-- Move the single VM `Provision VM` wizard into the contextual workspace pattern. Blueprint selection/history should remain visible, while the run wizard opens from a primary action or dedicated wizard workspace.
+- Continue refining provisioning into a dedicated guided wizard. The large VM/LXC forms are now collapsible, but review/confirmation and step-by-step guidance still need polish.
 - Add a provisioning review screen that shows VM name, VMID, template, node, IP/CIDR, disks, bootstrap profiles/packages, and destructive or long-running effects before submission.
 - Replace raw JSON/text-heavy controls where possible with structured editors. Integrations, deployment env mappings, and blueprint disks should all prefer guided controls.
 - Add first-class logs views:
@@ -27,8 +27,8 @@ This backlog captures near-term product and engineering improvements from the Ma
 - Add blueprint clone/update flows. Current UI can save/delete but does not provide a polished edit/update path.
 - Add deployment-as-profile-step execution so profiles can truly orchestrate VM setup plus app deployment.
 - Add clearer success summaries after provisioning: Inventory link, bootstrap job links, Proxmox task IDs, and next recommended actions.
-- Add explicit active-source status to Monitoring and Integrations, showing whether a record is config-only, actively consumed by a module, or falling back to environment settings.
-- Add host detail tabs for Jobs, Deployments, Identity, Monitoring, Provider Metadata, and Logs so operators can inspect one server from one place.
+- Add explicit active-source status to Integrations, showing whether a record is config-only, actively consumed by a module, or falling back to environment settings.
+- Continue enriching the unified managed-node page with deeper provider metadata, logs, and runtime drilldowns. The current page already converges Jobs, Deployments, Workflows, Identity, Metrics, Terminal, Files, and lifecycle/readiness context.
 - Add a compact "operations queue" or "recent activity" panel on the dashboard.
 
 ### Usability Polish
@@ -47,11 +47,11 @@ This backlog captures near-term product and engineering improvements from the Ma
 ### Highest Impact
 
 - Continue moving long-running work out of request/response paths. Scheduled automations now create WorkflowRuns and dispatch through the in-process async queue; provisioning, direct profile/package execution, identity replication, bulk jobs, and deployments still need deeper workflow-backed async entrypoints.
-- Make Proxmox hosts/nodes first-class managed Inventory hypervisors, not just the connection endpoint behind an integration record. Discovery should create or reconcile `node_type=hypervisor` records for every Proxmox node, attach credentials/monitoring/identity/jobs where appropriate, and support host lifecycle actions such as archive, decommission, restore, and provider replacement.
+- Expand Proxmox host replacement/failover workflows now that hosts are first-class `hypervisor` managed nodes. Discovery creates/reconciles hypervisors and lifecycle operations archive/decommission/restore them, but provider endpoint replacement and cluster failover UX need hardening.
 - Add Proxmox integration endpoint replacement/failover workflows. Operators need to move from one Proxmox host/API endpoint to another or add a multi-node cluster without editing code or environment variables.
 - Add realtime status updates through polling endpoints first, then WebSockets or server-sent events later.
-- Expand the new workflow domain into full orchestration chaining. WorkflowRun and WorkflowStep now exist, but provisioning, deployment, identity, and direct package/profile execution still need complete step-by-step workflow refactors.
-- Implement deployment profile steps in `ProfileService` instead of treating deployment as a placeholder step kind.
+- Expand the workflow domain into full orchestration chaining. WorkflowRun and WorkflowStep now expose runtime visibility, but provisioning, identity, and direct package/profile execution still need complete step-by-step workflow refactors.
+- Deepen deployment/profile integration so profile steps can orchestrate deployments with full execution context and rollback-ready behavior.
 - Add audit persistence for infrastructure actions, provisioning tasks, deployment operations, identity replication, and destructive operations.
 - Continue making persisted integration records the runtime source of truth for providers. Proxmox and Monitoring have initial integration-driven resolution; provider host/node reconciliation and future adapters still need the same treatment.
 - Add provisioning blueprint or provisioning batch as a Workflow/Automation operation with minimal runtime inputs.
@@ -64,7 +64,7 @@ This backlog captures near-term product and engineering improvements from the Ma
 - Poll Proxmox lifecycle tasks to completion for start/stop/reboot/shutdown, not only provisioning tasks.
 - Store Proxmox task logs/status snapshots for later debugging.
 - Add rollback/cleanup strategy for provisioning failures after clone but before inventory registration.
-- Add explicit CT/LXC provisioning and management support instead of relying on the QEMU VM provisioning path.
+- Deepen CT/LXC readiness checks beyond the current discovery/provisioning/lifecycle foundation: interface detection, gateway reachability, DNS validation, SSH readiness polling, storage discovery, and richer template metadata.
 - Add cancellation support for queued/running Jobs and long-running provisioning workflows where technically possible.
 - Add optimistic locking or version fields for editable definitions and blueprints to avoid accidental overwrite.
 - Add structured error types for provider failures so the frontend can show actionable messages instead of generic API errors.
@@ -80,7 +80,7 @@ This backlog captures near-term product and engineering improvements from the Ma
 
 ### Testing and Tooling
 
-- Add backend tests for provisioning blueprints, additional disks, deployment credential env injection, and integration credential refs.
+- Add backend tests for provisioning blueprints, additional disks, deployment credential env injection, integration credential refs, LXC provisioning, hypervisor reconciliation, deployment target executions, and monitoring readiness derivation.
 - Add frontend tests for provisioning blueprint fill/save/delete, inventory edit modal behavior, and deployment credential env rows.
 - Add CI for lint, frontend build, backend tests, and Alembic migration validation.
 - Add migration tests against PostgreSQL, not only SQLite-backed service tests.
@@ -94,5 +94,5 @@ This backlog captures near-term product and engineering improvements from the Ma
 - Treat provisioning blueprints as the reusable "server shape" abstraction.
 - Treat profiles as host configuration standards.
 - Treat deployments as application/service delivery.
-- Treat monitoring/logging as feedback loops attached to inventory hosts and deployments.
+- Treat monitoring/logging as operational readiness feedback loops attached to inventory hosts, runtime executions, and deployments.
 - Avoid adding Terraform, Ansible, or a full workflow engine until the internal Jobs/Profile/Deployment workflow is stable enough to justify integration.

@@ -1,4 +1,4 @@
-import { AlertCircle, GitCompareArrows, RefreshCw } from 'lucide-react';
+import { AlertCircle, GitCompareArrows, RefreshCw, ServerIcon } from 'lucide-react';
 
 import { PageHeader } from '../../../components/layout/PageHeader';
 import { useAuth } from '../../auth/hooks/useAuth';
@@ -22,13 +22,18 @@ export function InfrastructurePage() {
     runAction,
     importVm,
     reconcileInventory,
+    syncHosts,
+    syncGuests,
+    decommissionHost,
+    restoreHost,
+    removeHostRecord,
     clearNotification,
   } = useProxmoxDashboard();
 
   function handleVmAction(vm: ProxmoxVm, action: ProxmoxVmAction) {
     if (action !== 'start') {
       const confirmed = window.confirm(
-        `${titleCase(action)} VM ${vm.name} (${vm.vm_id}) on ${vm.node}?`,
+        `${titleCase(action)} ${vm.type === 'lxc' ? 'LXC' : 'VM'} ${vm.name} (${vm.vm_id}) on ${vm.node}?`,
       );
 
       if (!confirmed) {
@@ -40,11 +45,11 @@ export function InfrastructurePage() {
   }
 
   function handleImportVm(vm: ProxmoxVm) {
-    const ipAddress = window.prompt('Inventory IP address for this VM', vm.ip_address ?? '');
+    const ipAddress = window.prompt(`Inventory IP address for this ${vm.type === 'lxc' ? 'LXC' : 'VM'}`, vm.ip_address ?? '');
     if (!ipAddress) {
       return;
     }
-    const sshUsername = window.prompt('SSH username', 'ubuntu');
+    const sshUsername = window.prompt('SSH username', vm.type === 'lxc' ? 'root' : 'ubuntu');
     if (!sshUsername) {
       return;
     }
@@ -55,7 +60,7 @@ export function InfrastructurePage() {
       vm_type: vm.type,
       hostname: vm.name,
       ip_address: ipAddress.trim(),
-      operating_system: 'cloud-init Linux',
+      operating_system: vm.type === 'lxc' ? 'Linux container' : 'cloud-init Linux',
       environment: 'lab',
       provider: 'proxmox',
       ssh_port: 22,
@@ -87,21 +92,48 @@ export function InfrastructurePage() {
           {allowActions ? (
             <div className="flex flex-col gap-3 rounded-lg border border-zinc-200 bg-white p-4 shadow-sm sm:flex-row sm:items-center sm:justify-between">
               <p className="text-sm text-zinc-500">
-                Provider discovery is read-only here. Use Inventory for lifecycle actions after a VM
-                or CT is imported.
+                Proxmox hypervisor hosts, guest VMs, and LXC containers are tracked as distinct managed node types.
               </p>
-              <button
-                className="inline-flex items-center gap-2 rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm font-semibold text-zinc-700 transition hover:bg-zinc-50"
-                type="button"
-                onClick={() => void reconcileInventory()}
-              >
-                <GitCompareArrows className="h-4 w-4" aria-hidden="true" />
-                Sync discovered guests
-              </button>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  className="inline-flex items-center gap-2 rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm font-semibold text-zinc-700 transition hover:bg-zinc-50"
+                  type="button"
+                  onClick={() => void syncHosts()}
+                >
+                  <ServerIcon className="h-4 w-4" aria-hidden="true" />
+                  Sync Proxmox hosts
+                </button>
+                <button
+                  className="inline-flex items-center gap-2 rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm font-semibold text-zinc-700 transition hover:bg-zinc-50"
+                  type="button"
+                  onClick={() => void syncGuests().then(reconcileInventory)}
+                >
+                  <GitCompareArrows className="h-4 w-4" aria-hidden="true" />
+                  Sync discovered guests
+                </button>
+              </div>
             </div>
           ) : null}
           <SummaryCards summary={dashboard.summary} />
-          <NodeCards nodes={dashboard.nodes} />
+          <NodeCards
+            allowManagement={allowActions}
+            nodes={dashboard.nodes}
+            onDecommission={(serverId, nodeName) => {
+              if (window.confirm(`Disconnect Proxmox host ${nodeName} from active NexusOps orchestration? The physical host will not be powered off or modified.`)) {
+                void decommissionHost(serverId);
+              }
+            }}
+            onReconnect={(serverId, nodeName) => {
+              if (window.confirm(`Reconnect Proxmox host ${nodeName} to active NexusOps orchestration?`)) {
+                void restoreHost(serverId);
+              }
+            }}
+            onRemoveRecord={(serverId, nodeName) => {
+              if (window.confirm(`Remove the disconnected inventory record for ${nodeName}? Sync the Proxmox integration to rediscover it later.`)) {
+                void removeHostRecord(serverId);
+              }
+            }}
+          />
           <VmTable
             actionByVmId={actionByVmId}
             allowActions={false}

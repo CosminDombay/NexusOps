@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Pencil, Play, Plus, Trash2 } from 'lucide-react';
+import { Clock3, History, Pencil, Play, Plus, Trash2 } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 
 import { ContextDrawer } from '../../../components/ContextDrawer';
 import { PageHeader } from '../../../components/layout/PageHeader';
+import { PageActionButton, RuntimeBadge, OperationalToolbar } from '../../../components/operations/OperationalComponents';
 import { getApiErrorMessage } from '../../../lib/api/client';
 import { listServers } from '../../inventory/api/serversApi';
 import { TargetSelector } from '../../inventory/components/TargetSelector';
@@ -227,6 +229,11 @@ export function AutomationsPage() {
       <PageHeader
         title="Automations"
         description="Recurring operational checks and package/profile compliance runs backed by persistent workflows."
+        actions={
+          <PageActionButton icon={Plus} onClick={() => setIsFormOpen(true)}>
+            Create automation
+          </PageActionButton>
+        }
       />
       {error ? (
         <p className="rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</p>
@@ -234,17 +241,6 @@ export function AutomationsPage() {
       {success ? (
         <p className="rounded-md bg-emerald-50 px-3 py-2 text-sm text-emerald-700">{success}</p>
       ) : null}
-
-      <div className="flex justify-end">
-        <button
-          className="inline-flex items-center gap-2 rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm font-semibold text-zinc-700 shadow-sm hover:bg-zinc-50"
-          type="button"
-          onClick={() => setIsFormOpen(true)}
-        >
-          <Plus className="h-4 w-4" aria-hidden="true" />
-          Create automation
-        </button>
-      </div>
 
       <ContextDrawer
         description="Schedule actions, packages, or profiles while preserving the automation list context."
@@ -344,14 +340,9 @@ export function AutomationsPage() {
           </div>
         </div>
         <div className="mt-4 flex justify-end">
-          <button
-            className="rounded-md bg-zinc-950 px-4 py-2 text-sm font-semibold text-white disabled:bg-zinc-300"
-            disabled={isWorking}
-            type="button"
-            onClick={() => void handleSave()}
-          >
+          <PageActionButton disabled={isWorking} onClick={() => void handleSave()}>
             {editingAutomationId ? 'Save automation' : 'Create automation'}
-          </button>
+          </PageActionButton>
         </div>
       </ContextDrawer>
 
@@ -364,33 +355,45 @@ export function AutomationsPage() {
         {!isLoading ? (
           <div className="divide-y divide-zinc-100">
             {automations.map((automation) => (
-              <article
-                key={automation.id}
-                className="flex flex-col gap-3 p-5 lg:flex-row lg:items-center lg:justify-between"
-              >
-                <div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <h4 className="font-semibold text-zinc-950">{automation.name}</h4>
-                    <span className="rounded-full bg-zinc-100 px-2 py-1 text-xs font-semibold text-zinc-700">
-                      {automation.enabled ? 'enabled' : 'disabled'}
-                    </span>
-                    {automation.last_status ? (
-                      <span className="rounded-full bg-zinc-100 px-2 py-1 text-xs font-semibold text-zinc-700">
-                        last {automation.last_status}
-                      </span>
-                    ) : null}
+              <article key={automation.id} className="grid gap-4 p-5 xl:grid-cols-[minmax(0,1fr)_auto]">
+                <div className="space-y-4">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <h4 className="font-semibold text-zinc-950">{automation.name}</h4>
+                        <RuntimeBadge value={automation.runtime_state} />
+                        <span className="rounded-full bg-zinc-100 px-2 py-1 text-xs font-semibold text-zinc-700">
+                          {automation.enabled ? 'enabled' : 'disabled'}
+                        </span>
+                      </div>
+                      <p className="mt-1 text-sm text-zinc-500">
+                        {automation.schedule_type === 'interval'
+                          ? `Every ${automation.interval_seconds}s`
+                          : automation.cron_expression}{' '}
+                        - {automation.operation_type} {automation.reference_id}
+                      </p>
+                    </div>
+                    <div className="grid gap-2 text-xs text-zinc-500 sm:grid-cols-3">
+                      <RuntimeFact label="Last run" value={formatDate(automation.last_run_at)} />
+                      <RuntimeFact label="Next run" value={formatDate(automation.next_run_at)} />
+                      <RuntimeFact label="Executions" value={String(automation.execution_count)} />
+                    </div>
                   </div>
-                  <p className="mt-1 text-sm text-zinc-500">
-                    {automation.schedule_type === 'interval'
-                      ? `Every ${automation.interval_seconds}s`
-                      : automation.cron_expression}{' '}
-                    - {automation.operation_type} {automation.reference_id}
-                  </p>
-                  <p className="mt-1 text-sm text-zinc-500">
-                    Targets: {formatAutomationTargets(automation, servers)}
-                  </p>
+
+                  <div>
+                    <p className="mb-2 text-xs font-semibold uppercase text-zinc-500">Targets</p>
+                    <AutomationTargets automation={automation} servers={servers} />
+                  </div>
+
+                  <div className="grid gap-3 lg:grid-cols-3">
+                    <RuntimeMetric icon={Clock3} label="Last duration" value={formatDurationSeconds(automation.last_duration_seconds)} />
+                    <RuntimeMetric icon={History} label="Last success" value={formatDate(automation.last_success_at)} />
+                    <RuntimeMetric icon={History} label="Last failure" value={formatDate(automation.last_failure_at)} />
+                  </div>
+
+                  <RecentExecutions automation={automation} />
                 </div>
-                <div className="flex flex-wrap gap-2">
+                <OperationalToolbar>
                   <button
                     className="rounded-md border border-zinc-300 px-3 py-2 text-sm font-semibold text-zinc-700"
                     disabled={isWorking}
@@ -426,7 +429,7 @@ export function AutomationsPage() {
                     <Trash2 className="h-4 w-4" aria-hidden="true" />
                     Delete
                   </button>
-                </div>
+                </OperationalToolbar>
               </article>
             ))}
             {automations.length === 0 ? (
@@ -460,14 +463,113 @@ function TextInput({
   );
 }
 
-function formatAutomationTargets(automation: Automation, servers: Server[]): string {
-  const names = automation.target_server_ids.map((serverId) => {
-    const server = servers.find((candidate) => candidate.id === serverId);
-    return server?.hostname ?? serverId;
-  });
-  if (names.length === 0) return 'No hosts selected';
-  if (names.length <= 3) return names.join(', ');
-  return `${names.slice(0, 3).join(', ')} +${names.length - 3} more`;
+function AutomationTargets({ automation, servers }: { automation: Automation; servers: Server[] }) {
+  const targets = automation.target_nodes.length
+    ? automation.target_nodes
+    : automation.target_server_ids.map((serverId) => {
+        const server = servers.find((candidate) => candidate.id === serverId);
+        return {
+          id: serverId,
+          hostname: server?.hostname ?? serverId,
+          node_type: server?.node_type ?? 'unknown',
+          environment: server?.environment ?? 'unknown',
+          provider: server?.provider ?? 'unknown',
+          source: server?.source ?? 'unknown',
+          tags: server?.tags ?? [],
+        };
+      });
+
+  if (!targets.length) {
+    return <p className="text-sm text-zinc-500">No targets selected.</p>;
+  }
+
+  return (
+    <div className="flex flex-wrap gap-2">
+      {targets.map((target) => (
+        <div key={target.id} className="rounded-md border border-zinc-200 bg-zinc-50 px-3 py-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-sm font-semibold text-zinc-950">{target.hostname}</span>
+            <span className="rounded-full bg-white px-2 py-0.5 text-xs font-semibold text-zinc-700 ring-1 ring-inset ring-zinc-200">
+              {formatNodeType(target.node_type)}
+            </span>
+          </div>
+          <p className="mt-1 text-xs text-zinc-500">
+            {target.environment} - {target.provider} - {target.source}
+          </p>
+          {target.tags.length ? (
+            <p className="mt-1 text-xs text-zinc-500">{target.tags.slice(0, 3).join(', ')}</p>
+          ) : null}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function RecentExecutions({ automation }: { automation: Automation }) {
+  if (!automation.recent_executions.length) {
+    return <p className="text-sm text-zinc-500">No execution history yet.</p>;
+  }
+
+  return (
+    <div>
+      <p className="mb-2 text-xs font-semibold uppercase text-zinc-500">Recent execution history</p>
+      <div className="grid gap-2">
+        {automation.recent_executions.map((execution) => (
+          <div key={execution.id} className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-zinc-200 px-3 py-2 text-sm">
+            <div>
+              <span className="font-semibold text-zinc-950">{formatLabel(execution.workflow_type)}</span>
+              <span className="ml-2 text-zinc-500">{execution.target_nodes.join(', ') || execution.target_hostname || 'Unknown target'}</span>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <RuntimeBadge value={execution.status} />
+              <span className="text-xs text-zinc-500">{formatDurationSeconds(execution.duration_seconds)}</span>
+              <span className="text-xs text-zinc-500">{formatDate(execution.started_at ?? execution.created_at)}</span>
+            </div>
+            {execution.error_message ? <p className="basis-full text-xs text-rose-700">{execution.error_message}</p> : null}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function RuntimeFact({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="min-w-28 rounded-md bg-zinc-50 px-3 py-2">
+      <div className="font-semibold uppercase">{label}</div>
+      <div className="mt-1 text-zinc-800">{value}</div>
+    </div>
+  );
+}
+
+function RuntimeMetric({ icon: Icon, label, value }: { icon: LucideIcon; label: string; value: string }) {
+  return (
+    <div className="rounded-md border border-zinc-200 px-3 py-2">
+      <Icon className="h-4 w-4 text-zinc-500" aria-hidden="true" />
+      <div className="mt-2 text-xs font-semibold uppercase text-zinc-500">{label}</div>
+      <div className="mt-1 text-sm font-semibold text-zinc-950">{value}</div>
+    </div>
+  );
+}
+
+function formatDate(value: string | null): string {
+  return value ? new Date(value).toLocaleString() : 'Never';
+}
+
+function formatDurationSeconds(value: number | null): string {
+  if (value == null) return 'Not measured';
+  if (value < 60) return `${value}s`;
+  return `${Math.floor(value / 60)}m ${value % 60}s`;
+}
+
+function formatLabel(value: string): string {
+  return value.replace(/_/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function formatNodeType(value: string): string {
+  if (value === 'lxc') return 'LXC';
+  if (value === 'vm') return 'VM';
+  return formatLabel(value);
 }
 
 function toPayload(form: FormState): AutomationPayload | null {

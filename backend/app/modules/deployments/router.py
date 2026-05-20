@@ -9,9 +9,11 @@ from backend.app.db.session import get_db_session
 from backend.app.modules.credentials.repository import CredentialRepository
 from backend.app.modules.credentials.service import CredentialService
 from backend.app.modules.deployments.repository import (
+    DeploymentExecutionRepository,
     DeploymentRepository,
     DeploymentRevisionRepository,
     DeploymentTargetRepository,
+    DeploymentTargetExecutionRepository,
 )
 from backend.app.modules.deployments.schemas import (
     DeploymentCreate,
@@ -41,6 +43,8 @@ async def get_deployment_service(
         repository=DeploymentRepository(session),
         target_repository=DeploymentTargetRepository(session),
         revision_repository=DeploymentRevisionRepository(session),
+        execution_repository=DeploymentExecutionRepository(session),
+        target_execution_repository=DeploymentTargetExecutionRepository(session),
         server_repository=server_repository,
         job_service=JobService(
             job_repository=JobRepository(session),

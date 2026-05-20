@@ -49,8 +49,8 @@ export function HostToolsPage() {
       <PageHeader title={`${server.hostname} Tools`} description="Backend-mediated shell and file access for this inventory-managed host." />
 
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <Link className="text-sm font-semibold text-zinc-600 hover:text-zinc-950" to={`/inventory/${server.id}`}>
-          Back to host detail
+        <Link className="text-sm font-semibold text-zinc-600 hover:text-zinc-950" to={`/nodes/${server.id}`}>
+          Back to node operations
         </Link>
         {!canUseRemoteAccess ? (
           <span className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-900">

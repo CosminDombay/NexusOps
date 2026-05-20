@@ -8,6 +8,8 @@ from backend.app.adapters.proxmox import HttpProxmoxAdapter
 from backend.app.adapters.ssh import ParamikoSshAdapter
 from backend.app.db.session import get_db_session
 from backend.app.modules.auth.security.dependencies import require_operator
+from backend.app.modules.credentials.repository import CredentialRepository
+from backend.app.modules.credentials.service import CredentialService
 from backend.app.modules.inventory.discovery import HostDiscoveryError, HostDiscoveryService
 from backend.app.modules.inventory.models import ServerEnvironment
 from backend.app.modules.inventory.health import InventoryHealthService
@@ -46,8 +48,13 @@ async def get_inventory_health_service(
     return InventoryHealthService(ServerRepository(session))
 
 
-async def get_host_discovery_service() -> HostDiscoveryService:
-    return HostDiscoveryService(ParamikoSshAdapter())
+async def get_host_discovery_service(
+    session: Annotated[AsyncSession, Depends(get_db_session)],
+) -> HostDiscoveryService:
+    return HostDiscoveryService(
+        ParamikoSshAdapter(),
+        credential_service=CredentialService(repository=CredentialRepository(session)),
+    )
 
 
 @router.get("", response_model=list[ServerRead])

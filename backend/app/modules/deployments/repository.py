@@ -5,8 +5,10 @@ from sqlalchemy import delete, func, select
 from backend.app.common.repository import BaseRepository
 from backend.app.modules.deployments.models import (
     Deployment,
+    DeploymentExecution,
     DeploymentRevision,
     DeploymentTarget,
+    DeploymentTargetExecution,
 )
 
 
@@ -42,6 +44,12 @@ class DeploymentTargetRepository(BaseRepository[DeploymentTarget]):
         )
         return result.scalar_one_or_none()
 
+    async def list_for_deployment(self, deployment_id: UUID) -> list[DeploymentTarget]:
+        result = await self.session.execute(
+            select(DeploymentTarget).where(DeploymentTarget.deployment_id == deployment_id)
+        )
+        return list(result.scalars().all())
+
     async def delete_for_deployment(self, deployment_id: UUID) -> None:
         await self.session.execute(delete(DeploymentTarget).where(DeploymentTarget.deployment_id == deployment_id))
 
@@ -71,3 +79,51 @@ class DeploymentRevisionRepository(BaseRepository[DeploymentRevision]):
 
     async def delete_for_deployment(self, deployment_id: UUID) -> None:
         await self.session.execute(delete(DeploymentRevision).where(DeploymentRevision.deployment_id == deployment_id))
+
+
+class DeploymentExecutionRepository(BaseRepository[DeploymentExecution]):
+    async def create(self, execution: DeploymentExecution) -> DeploymentExecution:
+        self.session.add(execution)
+        await self.session.flush()
+        await self.session.refresh(execution)
+        return execution
+
+    async def list_for_deployment(self, deployment_id: UUID) -> list[DeploymentExecution]:
+        result = await self.session.execute(
+            select(DeploymentExecution)
+            .where(DeploymentExecution.deployment_id == deployment_id)
+            .order_by(DeploymentExecution.created_at.desc())
+        )
+        return list(result.scalars().all())
+
+    async def delete_for_deployment(self, deployment_id: UUID) -> None:
+        await self.session.execute(delete(DeploymentExecution).where(DeploymentExecution.deployment_id == deployment_id))
+
+
+class DeploymentTargetExecutionRepository(BaseRepository[DeploymentTargetExecution]):
+    async def create(self, execution: DeploymentTargetExecution) -> DeploymentTargetExecution:
+        self.session.add(execution)
+        await self.session.flush()
+        await self.session.refresh(execution)
+        return execution
+
+    async def list_for_execution(self, execution_id: UUID) -> list[DeploymentTargetExecution]:
+        result = await self.session.execute(
+            select(DeploymentTargetExecution)
+            .where(DeploymentTargetExecution.execution_id == execution_id)
+            .order_by(DeploymentTargetExecution.created_at.asc())
+        )
+        return list(result.scalars().all())
+
+    async def list_for_deployment(self, deployment_id: UUID) -> list[DeploymentTargetExecution]:
+        result = await self.session.execute(
+            select(DeploymentTargetExecution)
+            .where(DeploymentTargetExecution.deployment_id == deployment_id)
+            .order_by(DeploymentTargetExecution.created_at.desc())
+        )
+        return list(result.scalars().all())
+
+    async def delete_for_deployment(self, deployment_id: UUID) -> None:
+        await self.session.execute(
+            delete(DeploymentTargetExecution).where(DeploymentTargetExecution.deployment_id == deployment_id)
+        )

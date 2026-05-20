@@ -193,6 +193,8 @@ class JobService:
             ssh_private_key_path = (
                 server.ssh_private_key_path if server.ssh_auth_method == ServerSshAuthMethod.KEY else None
             )
+            ssh_private_key: str | None = None
+            ssh_passphrase: str | None = None
             credential_ref = payload.credential_ref or (str(server.credential_id) if server.credential_id is not None else None)
             if credential_ref:
                 if self.credential_service is None:
@@ -204,7 +206,9 @@ class JobService:
                     ssh_private_key_path = None
                 elif credential.credential_type == "ssh_key":
                     ssh_password = None
-                    ssh_private_key_path = server.ssh_private_key_path
+                    ssh_private_key_path = None
+                    ssh_private_key = credential.private_key
+                    ssh_passphrase = credential.passphrase
 
             result = await self.ssh_adapter.run_command(
                 host=server.ip_address,
@@ -213,6 +217,8 @@ class JobService:
                 user=ssh_user,
                 password=ssh_password,
                 private_key_path=ssh_private_key_path,
+                private_key=ssh_private_key,
+                passphrase=ssh_passphrase,
             )
             job.stdout = result.stdout
             job.stderr = result.stderr

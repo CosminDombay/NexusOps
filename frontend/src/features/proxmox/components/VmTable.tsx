@@ -1,4 +1,5 @@
-import { Download, Loader2, Play, Power, RotateCw } from 'lucide-react';
+import { Download, Loader2, Play, Power, RotateCw, Trash2 } from 'lucide-react';
+import { Link } from 'react-router-dom';
 
 import type { ProxmoxVm, ProxmoxVmAction } from '../types/proxmox';
 import { formatBytes, formatPercent, titleCase } from '../utils/format';
@@ -17,8 +18,8 @@ export function VmTable({ vms, actionByVmId, allowActions, allowImport = allowAc
   return (
     <section className="rounded-lg border border-zinc-200 bg-white shadow-sm">
       <div className="border-b border-zinc-200 px-5 py-4">
-        <h3 className="text-base font-semibold text-zinc-950">Virtual machines</h3>
-        <p className="mt-1 text-sm text-zinc-500">{vms.length} guests discovered from Proxmox.</p>
+        <h3 className="text-base font-semibold text-zinc-950">Proxmox guests</h3>
+        <p className="mt-1 text-sm text-zinc-500">{vms.length} QEMU VM and LXC container records discovered from Proxmox.</p>
       </div>
 
       <div className="hidden overflow-x-auto lg:block">
@@ -41,11 +42,19 @@ export function VmTable({ vms, actionByVmId, allowActions, allowImport = allowAc
             {vms.map((vm) => (
               <tr key={`${vm.node}-${vm.type}-${vm.vm_id}`} className="hover:bg-zinc-50">
                 <td className="px-5 py-4">
-                  <div className="font-medium text-zinc-950">{vm.name}</div>
-                  <div className="mt-1 text-xs text-zinc-500">VMID {vm.vm_id}</div>
+                  {vm.inventory_server_id ? (
+                    <Link className="font-medium text-zinc-950 hover:text-zinc-700" to={`/nodes/${vm.inventory_server_id}`}>
+                      {vm.name}
+                    </Link>
+                  ) : (
+                    <div className="font-medium text-zinc-950">{vm.name}</div>
+                  )}
+                  <div className="mt-1 text-xs text-zinc-500">{vm.type === 'lxc' ? 'CTID' : 'VMID'} {vm.vm_id}</div>
                 </td>
                 <td className="px-5 py-4 text-sm text-zinc-700">{vm.node}</td>
-                <td className="px-5 py-4 text-sm text-zinc-700">{titleCase(vm.type)}</td>
+                <td className="px-5 py-4 text-sm text-zinc-700">
+                  <NodeTypeBadge type={vm.type} />
+                </td>
                 <td className="px-5 py-4">
                   <StatusBadge status={vm.status} />
                 </td>
@@ -83,9 +92,15 @@ export function VmTable({ vms, actionByVmId, allowActions, allowImport = allowAc
           <article key={`${vm.node}-${vm.type}-${vm.vm_id}`} className="rounded-lg border border-zinc-200 p-4">
             <div className="flex items-start justify-between gap-3">
               <div>
-                <h4 className="font-semibold text-zinc-950">{vm.name}</h4>
+                {vm.inventory_server_id ? (
+                  <Link className="font-semibold text-zinc-950 hover:text-zinc-700" to={`/nodes/${vm.inventory_server_id}`}>
+                    {vm.name}
+                  </Link>
+                ) : (
+                  <h4 className="font-semibold text-zinc-950">{vm.name}</h4>
+                )}
                 <p className="mt-1 text-sm text-zinc-500">
-                  VMID {vm.vm_id} on {vm.node}
+                  {vm.type === 'lxc' ? 'CTID' : 'VMID'} {vm.vm_id} on {vm.node}
                 </p>
               </div>
               <StatusBadge status={vm.status} />
@@ -94,7 +109,7 @@ export function VmTable({ vms, actionByVmId, allowActions, allowImport = allowAc
               <InventoryBadge status={vm.inventory_sync_status} />
             </div>
             <dl className="mt-4 grid grid-cols-2 gap-3 text-sm">
-              <Metric label="Type" value={titleCase(vm.type)} />
+              <Metric label="Type" value={guestTypeLabel(vm.type)} />
               <Metric label="CPU" value={formatPercent(vm.cpu_usage)} />
               <Metric
                 label="Memory"
@@ -193,6 +208,15 @@ export function VmActions({
         tone="danger"
         onClick={() => onAction(vm, 'stop')}
       />
+      <ActionButton
+        action="delete"
+        disabled={isRunning || isBusy}
+        icon={Trash2}
+        isLoading={activeAction === 'delete'}
+        label="Delete"
+        tone="danger"
+        onClick={() => onAction(vm, 'delete')}
+      />
       {allowImport ? (
         <button
           className="inline-flex items-center gap-1.5 rounded-md border border-emerald-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-emerald-700 transition hover:bg-emerald-50 disabled:cursor-not-allowed disabled:border-zinc-300 disabled:bg-zinc-100 disabled:text-zinc-400"
@@ -255,6 +279,22 @@ function Metric({ label, value, wide = false }: { label: string; value: string; 
       <dd className="mt-1 font-medium text-zinc-800">{value}</dd>
     </div>
   );
+}
+
+function NodeTypeBadge({ type }: { type: string }) {
+  const className =
+    type === 'lxc'
+      ? 'bg-cyan-50 text-cyan-700 ring-cyan-200'
+      : 'bg-indigo-50 text-indigo-700 ring-indigo-200';
+  return (
+    <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ring-1 ring-inset ${className}`}>
+      {guestTypeLabel(type)}
+    </span>
+  );
+}
+
+function guestTypeLabel(type: string): string {
+  return type === 'lxc' ? 'LXC' : type === 'qemu' ? 'VM' : titleCase(type);
 }
 
 function InventoryBadge({ status }: { status: ProxmoxVm['inventory_sync_status'] }) {

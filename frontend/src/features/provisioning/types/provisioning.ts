@@ -15,6 +15,8 @@ export type ProxmoxTemplate = {
   name: string;
   node: string;
   type: string;
+  template_ref: string | null;
+  storage: string | null;
 };
 
 export type ProxmoxStorage = {
@@ -33,8 +35,10 @@ export type ProxmoxStorage = {
 export type ProvisioningRequest = {
   id: string;
   vm_name: string;
+  provisioning_type: string;
   target_node: string;
   template_id: number;
+  template_ref: string | null;
   new_vm_id: number;
   cpu_cores: number;
   memory_mb: number;
@@ -71,8 +75,10 @@ export type ProvisioningDisk = {
 
 export type CreateProvisioningPayload = {
   vm_name: string;
+  provisioning_type: 'qemu' | 'lxc';
   target_node: string;
   template_id: number;
+  template_ref: string | null;
   new_vm_id: number;
   cpu_cores: number;
   memory_mb: number;

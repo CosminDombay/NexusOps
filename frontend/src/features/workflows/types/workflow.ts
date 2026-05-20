@@ -33,6 +33,12 @@ export type WorkflowRun = {
   result_summary: Record<string, unknown>;
   error_message: string | null;
   steps: WorkflowStep[];
+  current_step: string | null;
+  completed_steps: number;
+  failed_steps: number;
+  duration_seconds: number | null;
+  target_nodes: string[];
+  linked_job_ids: string[];
   created_at: string;
   updated_at: string;
 };

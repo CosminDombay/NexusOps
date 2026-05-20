@@ -2,7 +2,7 @@ from datetime import datetime
 from ipaddress import ip_address, ip_interface
 from uuid import UUID
 
-from typing import Self
+from typing import Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -15,6 +15,8 @@ class ProxmoxTemplateRead(BaseModel):
     name: str
     node: str
     type: str = "qemu"
+    template_ref: str | None = None
+    storage: str | None = None
 
 
 class ProvisioningDiskCreate(BaseModel):
@@ -33,8 +35,10 @@ class ProvisioningDiskCreate(BaseModel):
 
 class ProvisioningCreate(BaseModel):
     vm_name: str = Field(min_length=1, max_length=255)
+    provisioning_type: Literal["qemu", "lxc"] = "qemu"
     target_node: str = Field(min_length=1, max_length=100)
     template_id: int = Field(gt=0)
+    template_ref: str | None = Field(default=None, max_length=500)
     new_vm_id: int = Field(gt=0)
     cpu_cores: int = Field(default=2, ge=1, le=64)
     memory_mb: int = Field(default=2048, ge=512)
@@ -60,12 +64,15 @@ class ProvisioningCreate(BaseModel):
     @field_validator(
         "vm_name",
         "target_node",
+        "template_ref",
         "network_bridge",
         "cloud_init_hostname",
         "cloud_init_username",
     )
     @classmethod
-    def strip_required_strings(cls, value: str) -> str:
+    def strip_required_strings(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
         stripped = value.strip()
         if not stripped:
             raise ValueError("Value cannot be blank")
@@ -97,6 +104,12 @@ class ProvisioningCreate(BaseModel):
     @classmethod
     def validate_dns_servers(cls, value: list[str]) -> list[str]:
         return [str(ip_address(item)) for item in value]
+
+    @model_validator(mode="after")
+    def validate_lxc_template_ref(self) -> Self:
+        if self.provisioning_type == "lxc" and not self.template_ref:
+            raise ValueError("template_ref is required for LXC provisioning")
+        return self
 
 
 class ProvisioningBlueprintBase(BaseModel):
@@ -226,8 +239,10 @@ class ProvisioningBlueprintRead(ProvisioningBlueprintBase):
 class ProvisioningRead(BaseModel):
     id: UUID
     vm_name: str
+    provisioning_type: str = "qemu"
     target_node: str
     template_id: int
+    template_ref: str | None = None
     new_vm_id: int
     cpu_cores: int
     memory_mb: int

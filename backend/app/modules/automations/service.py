@@ -3,7 +3,7 @@ from uuid import UUID
 
 from backend.app.modules.automations.models import Automation, AutomationOperationType
 from backend.app.modules.automations.repository import AutomationRepository
-from backend.app.modules.automations.schemas import AutomationCreate, AutomationRead, AutomationUpdate
+from backend.app.modules.automations.schemas import AutomationCreate, AutomationRead, AutomationTargetRead, AutomationUpdate
 from backend.app.modules.inventory.models import InventoryLifecycleState
 from backend.app.modules.inventory.repository import ServerRepository
 from backend.app.modules.jobs.schemas import JobActionExecuteRequest
@@ -44,7 +44,17 @@ class AutomationService:
         self.package_service = package_service
 
     async def list_automations(self) -> list[AutomationRead]:
-        return [AutomationRead.model_validate(item) for item in await self.repository.list()]
+        automations = await self.repository.list()
+        workflows = await self.workflow_service.list_workflows()
+        servers = await self.server_repository.list(include_inactive=True)
+        return [
+            self._to_read(
+                automation,
+                workflows=[workflow for workflow in workflows if workflow.context_json.get("automation_id") == str(automation.id)],
+                servers=servers,
+            )
+            for automation in automations
+        ]
 
     async def create_automation(self, payload: AutomationCreate) -> AutomationRead:
         self._validate_supported_operation(payload.operation_type)
@@ -67,7 +77,7 @@ class AutomationService:
             )
         )
         await self.repository.session.commit()
-        return AutomationRead.model_validate(automation)
+        return self._to_read(automation)
 
     async def update_automation(self, automation_id: UUID, payload: AutomationUpdate) -> AutomationRead:
         automation = await self._automation(automation_id)
@@ -81,7 +91,7 @@ class AutomationService:
             setattr(automation, key, value)
         await self.repository.session.commit()
         await self.repository.session.refresh(automation)
-        return AutomationRead.model_validate(automation)
+        return self._to_read(automation)
 
     async def delete_automation(self, automation_id: UUID) -> None:
         automation = await self._automation(automation_id)
@@ -93,14 +103,14 @@ class AutomationService:
         automation.enabled = True
         await self.repository.session.commit()
         await self.repository.session.refresh(automation)
-        return AutomationRead.model_validate(automation)
+        return self._to_read(automation)
 
     async def disable_automation(self, automation_id: UUID) -> AutomationRead:
         automation = await self._automation(automation_id)
         automation.enabled = False
         await self.repository.session.commit()
         await self.repository.session.refresh(automation)
-        return AutomationRead.model_validate(automation)
+        return self._to_read(automation)
 
     async def create_run_workflow(
         self,
@@ -229,3 +239,41 @@ class AutomationService:
             AutomationOperationType.PACKAGE,
         }:
             raise AutomationValidationError("Only action, profile, and package automations are supported initially")
+
+    def _to_read(self, automation: Automation, *, workflows=None, servers=None) -> AutomationRead:
+        workflows = sorted(workflows or [], key=lambda item: item.created_at, reverse=True)
+        servers = servers or []
+        target_nodes = []
+        for server_id in automation.target_server_ids:
+            server = next((item for item in servers if str(item.id) == str(server_id)), None)
+            if server:
+                target_nodes.append(
+                    AutomationTargetRead(
+                        id=str(server.id),
+                        hostname=server.hostname,
+                        node_type=server.node_type.value,
+                        environment=server.environment.value,
+                        provider=server.provider,
+                        source=server.source,
+                        tags=server.tags,
+                    )
+                )
+        last_success = next((workflow for workflow in workflows if workflow.status.value == "success"), None)
+        last_failure = next((workflow for workflow in workflows if workflow.status.value == "failed"), None)
+        recent = workflows[:5]
+        last = recent[0] if recent else None
+        runtime_state = "disabled" if not automation.enabled else "idle"
+        if last and last.status.value in {"queued", "running", "success", "failed", "cancelled", "pending"}:
+            runtime_state = "queued" if last.status.value == "pending" else last.status.value
+
+        return AutomationRead.model_validate(automation).model_copy(
+            update={
+                "runtime_state": runtime_state,
+                "last_success_at": last_success.finished_at if last_success else None,
+                "last_failure_at": last_failure.finished_at if last_failure else None,
+                "last_duration_seconds": last.duration_seconds if last else None,
+                "execution_count": len(workflows),
+                "target_nodes": target_nodes,
+                "recent_executions": recent,
+            }
+        )

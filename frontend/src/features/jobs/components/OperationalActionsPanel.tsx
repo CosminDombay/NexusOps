@@ -38,7 +38,7 @@ export function OperationalActionsPanel({
   const canExecute = Boolean(selectedActionId && selectedServerId) && !isExecuting;
 
   return (
-    <section className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm">
+    <section>
       <div className="flex flex-col gap-4 xl:flex-row xl:items-end">
         <div className="grid flex-1 gap-4 md:grid-cols-2">
           <div className="md:col-span-2">

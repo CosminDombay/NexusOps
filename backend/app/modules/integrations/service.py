@@ -115,10 +115,12 @@ class IntegrationService:
             headers=headers,
         )
 
-    async def get_proxmox_adapter(self) -> HttpProxmoxAdapter:
-        integration = await self._active_proxmox_integration()
+    async def get_proxmox_adapter(self, integration_id: UUID | None = None) -> HttpProxmoxAdapter:
+        integration = await self.repository.get_by_id(integration_id) if integration_id else await self._active_proxmox_integration()
         if integration is None:
             return HttpProxmoxAdapter()
+        if integration.provider_type != IntegrationProviderType.PROXMOX:
+            raise IntegrationNotFoundError("Proxmox integration not found")
 
         token_secret, token_username = await self._secret_and_username(
             integration,

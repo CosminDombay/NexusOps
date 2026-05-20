@@ -8,7 +8,8 @@ from typing import Iterable
 
 from backend.app.adapters.ssh.base import SshAdapter
 from backend.app.adapters.ssh.paramiko import SshConnectionError
-from backend.app.modules.inventory.models import Server
+from backend.app.modules.credentials.service import CredentialNotFoundError, CredentialService
+from backend.app.modules.inventory.models import Server, ServerSshAuthMethod
 from backend.app.modules.inventory.schemas import (
     DockerContainerRead,
     DockerNetworkRead,
@@ -34,8 +35,14 @@ class _CommandSpec:
 class HostDiscoveryService:
     """Read-only Linux host discovery over the existing SSH boundary."""
 
-    def __init__(self, ssh_adapter: SshAdapter) -> None:
+    def __init__(
+        self,
+        ssh_adapter: SshAdapter,
+        *,
+        credential_service: CredentialService | None = None,
+    ) -> None:
         self.ssh_adapter = ssh_adapter
+        self.credential_service = credential_service
 
     async def system(self, server: Server) -> HostSystemRead:
         sections = await self._run_sections(
@@ -106,13 +113,40 @@ class HostDiscoveryService:
 
     async def _run_sections(self, server: Server, specs: Iterable[_CommandSpec]) -> dict[str, str]:
         command = _sectioned_command(specs)
+        ssh_user = server.ssh_username
+        ssh_password = server.ssh_password if server.ssh_auth_method == ServerSshAuthMethod.PASSWORD else None
+        ssh_private_key_path = (
+            server.ssh_private_key_path if server.ssh_auth_method == ServerSshAuthMethod.KEY else None
+        )
+        ssh_private_key: str | None = None
+        ssh_passphrase: str | None = None
+
+        if server.credential_id is not None:
+            if self.credential_service is None:
+                raise HostDiscoveryError("Credential service is required for credential-backed host discovery")
+            try:
+                credential = await self.credential_service.resolve_credential(server.credential_id)
+            except CredentialNotFoundError as exc:
+                raise HostDiscoveryError("Configured SSH credential was not found") from exc
+            ssh_user = credential.username or ssh_user
+            if credential.credential_type in {"password", "ssh_password"}:
+                ssh_password = credential.secret
+                ssh_private_key_path = None
+            elif credential.credential_type == "ssh_key":
+                ssh_password = None
+                ssh_private_key_path = None
+                ssh_private_key = credential.private_key
+                ssh_passphrase = credential.passphrase
+
         try:
             result = await self.ssh_adapter.run_command(
                 host=server.ip_address,
                 port=server.ssh_port,
-                user=server.ssh_username,
-                password=server.ssh_password,
-                private_key_path=server.ssh_private_key_path,
+                user=ssh_user,
+                password=ssh_password,
+                private_key_path=ssh_private_key_path,
+                private_key=ssh_private_key,
+                passphrase=ssh_passphrase,
                 command=command,
             )
         except SshConnectionError as exc:

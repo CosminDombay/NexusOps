@@ -28,6 +28,8 @@ class FakeSshAdapter(SshAdapter):
         user: str,
         password: str | None = None,
         private_key_path: str | None = None,
+        private_key: str | None = None,
+        passphrase: str | None = None,
     ) -> SshExecutionResult:
         return SshExecutionResult(exit_code=0, stdout=f"ran {command}", stderr="")
 
