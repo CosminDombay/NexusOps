@@ -390,6 +390,7 @@ export function ProfilesPage() {
             <div className="mt-4">
               <TargetSelector
                 servers={servers}
+                eligibility="profiles"
                 selection={{
                   mode: targetSelector.selection.mode,
                   selectedId: selectedServerId,

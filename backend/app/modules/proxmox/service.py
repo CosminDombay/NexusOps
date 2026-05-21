@@ -31,6 +31,12 @@ from backend.app.modules.proxmox.schemas import (
     ProxmoxVmActionRead,
     ProxmoxVmRead,
 )
+from backend.app.modules.runtime_state.service import RuntimeStateService
+from backend.app.modules.runtime_state.repository import (
+    NodeRuntimeSnapshotRepository,
+    RuntimeRefreshStatusRepository,
+)
+from backend.app.modules.runtime_state.snapshots import RuntimeSnapshotService
 
 logger = structlog.get_logger(__name__)
 
@@ -56,6 +62,14 @@ class ProxmoxService:
         self.adapter = adapter
         self.server_repository = server_repository
         self.integration_id = integration_id
+        self.runtime_snapshots = (
+            RuntimeSnapshotService(
+                NodeRuntimeSnapshotRepository(server_repository.session),
+                status_repository=RuntimeRefreshStatusRepository(server_repository.session),
+            )
+            if server_repository is not None
+            else None
+        )
 
     async def get_nodes(self) -> list[ProxmoxNodeRead]:
         raw_nodes = await self.adapter.get_nodes()
@@ -326,9 +340,6 @@ class ProxmoxService:
     async def shutdown_vm(self, vm_id: int) -> ProxmoxVmActionRead:
         return await self._run_vm_action(vm_id=vm_id, action="shutdown")
 
-    async def delete_vm(self, vm_id: int) -> ProxmoxVmActionRead:
-        return await self._run_vm_action(vm_id=vm_id, action="delete")
-
     async def _run_vm_action(self, *, vm_id: int, action: str) -> ProxmoxVmActionRead:
         vm = await self._find_vm(vm_id)
         self._validate_action(vm=vm, action=action)
@@ -393,9 +404,6 @@ class ProxmoxService:
             raise ProxmoxVmActionNotAllowedError(
                 f"VM must be running before {action} can be requested"
             )
-        if action == "delete" and vm.status == "running":
-            raise ProxmoxVmActionNotAllowedError("Guest must be stopped before delete can be requested")
-
     async def _dispatch_action(self, *, vm: ProxmoxVmRead, action: str) -> dict[str, Any]:
         if action == "start":
             return await self.adapter.start_vm(node=vm.node, vm_id=vm.vm_id, vm_type=vm.type)
@@ -405,8 +413,6 @@ class ProxmoxService:
             return await self.adapter.reboot_vm(node=vm.node, vm_id=vm.vm_id, vm_type=vm.type)
         if action == "shutdown":
             return await self.adapter.shutdown_vm(node=vm.node, vm_id=vm.vm_id, vm_type=vm.type)
-        if action == "delete":
-            return await self.adapter.delete_vm(node=vm.node, vm_id=vm.vm_id, vm_type=vm.type)
         raise ProxmoxVmActionNotAllowedError("Unsupported VM action")
 
     @classmethod
@@ -535,6 +541,16 @@ class ProxmoxService:
         enriched: list[ProxmoxVmRead] = []
         for vm in vms:
             match, sync_status, notes = InventoryService.match_discovered_vm(vm, inventory)
+            runtime_state = RuntimeStateService.from_provider_guest(vm, match)
+            if match is not None and self.runtime_snapshots is not None:
+                snapshot = await self.runtime_snapshots.refresh_provider_snapshot(
+                    match,
+                    provider_state=vm.status,
+                    provider_reachable=True,
+                    provider_guest_exists=not vm.template,
+                    commit=False,
+                )
+                runtime_state = self.runtime_snapshots.to_runtime_state(snapshot)
             enriched.append(
                 vm.model_copy(
                     update={
@@ -543,9 +559,18 @@ class ProxmoxService:
                         "inventory_lifecycle_state": match.lifecycle_state.value if match else None,
                         "inventory_sync_status": sync_status.value,
                         "inventory_notes": notes,
+                        "runtime_state": runtime_state,
                     }
                 )
             )
+        if self.runtime_snapshots is not None:
+            await self.runtime_snapshots.record_refresh_status(
+                "provider",
+                "success",
+                metadata_json={"vm_count": len(vms)},
+                commit=False,
+            )
+            await self.server_repository.session.commit()
         return enriched
 
     async def _add_host_inventory_context(self, nodes: list[ProxmoxNodeRead]) -> list[ProxmoxNodeRead]:
@@ -567,6 +592,23 @@ class ProxmoxService:
                 ),
                 None,
             )
+            runtime_state = None
+            if match and self.runtime_snapshots is not None:
+                snapshot = await self.runtime_snapshots.refresh_provider_snapshot(
+                    match,
+                    provider_state=node.status,
+                    provider_reachable=node.status == "online",
+                    provider_guest_exists=True,
+                    commit=False,
+                )
+                runtime_state = self.runtime_snapshots.to_runtime_state(snapshot)
+            elif match:
+                runtime_state = RuntimeStateService.from_inventory_node(
+                    match,
+                    provider_state=node.status,
+                    provider_reachable=node.status == "online",
+                    provider_guest_exists=True,
+                )
             enriched.append(
                 node.model_copy(
                     update={
@@ -575,9 +617,18 @@ class ProxmoxService:
                         "inventory_hostname": match.hostname if match else None,
                         "inventory_lifecycle_state": match.lifecycle_state.value if match else None,
                         "inventory_sync_status": self._host_sync_status(match),
+                        "runtime_state": runtime_state,
                     }
                 )
             )
+        if self.runtime_snapshots is not None:
+            await self.runtime_snapshots.record_refresh_status(
+                "provider",
+                "success",
+                metadata_json={"node_count": len(nodes)},
+                commit=False,
+            )
+            await self.server_repository.session.commit()
         return enriched
 
     @staticmethod

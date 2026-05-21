@@ -674,6 +674,7 @@ function DeploymentDrawer({
           <div className="min-w-0">
             <TargetSelector
               servers={servers}
+              eligibility="deployments"
               selection={targetSelector.selection}
               filters={targetSelector.filters}
               title="Deployment target"

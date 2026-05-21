@@ -47,6 +47,7 @@ export function OperationalActionsPanel({
               servers={servers}
               selection={{ mode: 'single', selectedId: selectedServerId, selectedIds: [] }}
               filters={targetSelector.filters}
+              eligibility="jobs"
               title="Action target"
               description="Operational actions run against one inventory-managed host."
               onFiltersChange={targetSelector.setFilters}

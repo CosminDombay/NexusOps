@@ -154,7 +154,6 @@ async def sync_proxmox_hosts(
     ) as exc:
         raise _map_proxmox_error(exc) from exc
 
-
 @router.post(
     "/guests/sync",
     response_model=ProxmoxGuestSyncRead,
@@ -244,26 +243,6 @@ async def shutdown_vm(
 ) -> ProxmoxVmActionRead:
     try:
         return await service.shutdown_vm(vm_id)
-    except (
-        ProxmoxConfigurationError,
-        ProxmoxConnectionError,
-        ProxmoxVmActionNotAllowedError,
-        ProxmoxVmNotFoundError,
-    ) as exc:
-        raise _map_proxmox_error(exc) from exc
-
-
-@router.post(
-    "/vms/{vm_id}/delete",
-    response_model=ProxmoxVmActionRead,
-    dependencies=[Depends(require_operator)],
-)
-async def delete_vm(
-    vm_id: int,
-    service: Annotated[ProxmoxService, Depends(get_proxmox_service)],
-) -> ProxmoxVmActionRead:
-    try:
-        return await service.delete_vm(vm_id)
     except (
         ProxmoxConfigurationError,
         ProxmoxConnectionError,

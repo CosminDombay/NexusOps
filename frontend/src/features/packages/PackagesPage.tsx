@@ -285,6 +285,7 @@ export function PackagesPage() {
 
       <TargetSelector
         servers={servers}
+        eligibility="jobs"
         selection={{
           mode: targetSelector.selection.mode,
           selectedId: selectedServerId,

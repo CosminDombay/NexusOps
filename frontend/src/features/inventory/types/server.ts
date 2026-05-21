@@ -1,3 +1,5 @@
+import type { NodeRuntimeState } from '../../runtime-state/types/runtimeState';
+
 export type ServerEnvironment = 'development' | 'staging' | 'production' | 'testing' | 'lab';
 
 export type ServerStatus = 'unknown' | 'online' | 'offline' | 'maintenance';
@@ -49,12 +51,16 @@ export type Server = {
   sync_state: InventorySyncStatus;
   provider_node: string | null;
   provider_type: string | null;
+  monitoring_interface: string | null;
+  monitoring_target: string | null;
+  monitoring_strategy: string | null;
   provider_metadata: Record<string, unknown>;
   capabilities: string[];
   last_seen_at: string | null;
   last_health_check_at: string | null;
   last_health_status: InventoryHealthStatus;
   last_health_error: string | null;
+  runtime_state: NodeRuntimeState | null;
   created_at: string;
   updated_at: string;
 };
@@ -82,6 +88,9 @@ export type CreateServerPayload = {
   sync_state?: InventorySyncStatus;
   provider_node?: string | null;
   provider_type?: string | null;
+  monitoring_interface?: string | null;
+  monitoring_target?: string | null;
+  monitoring_strategy?: string | null;
   provider_metadata?: Record<string, unknown>;
   capabilities?: string[];
 };

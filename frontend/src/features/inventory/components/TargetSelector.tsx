@@ -11,6 +11,7 @@ type TargetSelectorProps = {
   title?: string;
   description?: string;
   allowBulk?: boolean;
+  eligibility?: 'jobs' | 'deployments' | 'profiles' | 'identity' | 'shell' | 'all';
   onSelectionChange: (selection: TargetSelection) => void;
   onFiltersChange: (filters: TargetFilters) => void;
 };
@@ -22,12 +23,14 @@ export function TargetSelector({
   title = 'Targets',
   description = 'Select inventory-managed hosts for this operation.',
   allowBulk = true,
+  eligibility = 'all',
   onSelectionChange,
   onFiltersChange,
 }: TargetSelectorProps) {
-  const filteredTargets = useFilteredTargets(servers, filters);
-  const environments = unique(servers.map((server) => server.environment));
-  const providers = unique(servers.map((server) => server.provider));
+  const eligibleServers = servers.filter((server) => isEligibleTarget(server, eligibility));
+  const filteredTargets = useFilteredTargets(eligibleServers, filters);
+  const environments = unique(eligibleServers.map((server) => server.environment));
+  const providers = unique(eligibleServers.map((server) => server.provider));
   const selectedCount = selection.mode === 'bulk' ? selection.selectedIds.length : selection.selectedId ? 1 : 0;
 
   function updateSelection(patch: Partial<TargetSelection>) {
@@ -161,6 +164,32 @@ export function TargetSelector({
       )}
     </section>
   );
+}
+
+function isEligibleTarget(server: Server, eligibility: TargetSelectorProps['eligibility']): boolean {
+  if (eligibility === 'all') {
+    return true;
+  }
+  const flags = server.runtime_state?.eligibility;
+  if (!flags) {
+    return server.managed && !['archived', 'decommissioned', 'deleted'].includes(server.lifecycle_state);
+  }
+  if (eligibility === 'jobs') {
+    return flags.can_run_jobs;
+  }
+  if (eligibility === 'deployments') {
+    return flags.can_deploy;
+  }
+  if (eligibility === 'profiles') {
+    return flags.can_apply_profiles;
+  }
+  if (eligibility === 'identity') {
+    return flags.can_manage_identity;
+  }
+  if (eligibility === 'shell') {
+    return flags.can_open_shell;
+  }
+  return true;
 }
 
 function SelectFilter({

@@ -25,10 +25,10 @@ class _FakeAsyncClient:
     async def get(self, url, **kwargs):
         if url.endswith("/-/healthy"):
             return _FakeResponse()
-        return _FakeResponse({"data": {"result": [{"value": [0, "42.5"]}]}})
+        return _FakeResponse({"data": {"result": [{"value": [9_999_999_999, "1"]}]}})
 
 
-class _FakeTailscalePrometheusClient:
+class _FakeExactTargetPrometheusClient:
     queries: list[str] = []
 
     def __init__(self, *args, **kwargs) -> None:
@@ -45,25 +45,11 @@ class _FakeTailscalePrometheusClient:
             return _FakeResponse()
         query = kwargs.get("params", {}).get("query", "")
         self.queries.append(query)
-        if query == 'node_uname_info{nodename="hds-tool"}':
-            return _FakeResponse(
-                {
-                    "data": {
-                        "result": [
-                            {
-                                "metric": {"instance": "100.90.80.15:9100", "nodename": "hds-tool"},
-                                "value": [0, "1"],
-                            }
-                        ]
-                    }
-                }
-            )
-        if "100\\.90\\.80\\.15:9100" in query:
+        if 'instance="100.90.80.15:9100"' in query:
             if query.startswith("up{"):
                 return _FakeResponse({"data": {"result": [{"value": [0, "1"]}]}})
             if query.startswith("node_boot_time_seconds{"):
                 return _FakeResponse({"data": {"result": [{"value": [9_999_999_999, "1"]}]}})
-            return _FakeResponse({"data": {"result": [{"value": [0, "12.5"]}]}})
         return _FakeResponse({"data": {"result": []}})
 
 
@@ -82,7 +68,19 @@ def test_monitoring_uses_prometheus_integration(client, monkeypatch) -> None:
         },
     )
     assert create_integration_response.status_code == 201
-    assert client.post("/api/v1/servers", json=server_payload()).status_code == 201
+    assert client.post(
+        "/api/v1/servers",
+        json=server_payload(
+            monitoring_interface="tailscale",
+            monitoring_target="100.90.80.15:9100",
+            monitoring_strategy="host",
+            provider_metadata={"cpu_usage_percent": 42.5},
+        ),
+    ).status_code == 201
+
+    server_id = client.get("/api/v1/servers").json()[0]["id"]
+    metrics_response = client.get(f"/api/v1/monitoring/servers/{server_id}/metrics")
+    assert metrics_response.status_code == 200
 
     response = client.get("/api/v1/monitoring/overview")
 
@@ -93,7 +91,9 @@ def test_monitoring_uses_prometheus_integration(client, monkeypatch) -> None:
     assert prometheus["reachable"] is True
     assert prometheus["url"] == "http://prometheus.internal:9090"
     assert payload["servers"][0]["cpu_usage_percent"] == 42.5
+    assert payload["servers"][0]["monitoring_state"] == "monitoring_partial"
     assert payload["servers"][0]["prometheus_url"].startswith("http://prometheus.internal:9090/graph")
+    assert '=~' not in payload["servers"][0]["prometheus_url"]
 
 
 def test_monitoring_missing_prometheus_returns_partial_data(client) -> None:
@@ -107,12 +107,12 @@ def test_monitoring_missing_prometheus_returns_partial_data(client) -> None:
     assert prometheus["configured"] is False
     assert prometheus["reachable"] is False
     assert payload["servers"][0]["cpu_usage_percent"] is None
-    assert payload["servers"][0]["metrics_error"] == "Prometheus integration is not configured or is disabled"
+    assert payload["servers"][0]["metrics_error"] is None
 
 
-def test_monitoring_discovers_prometheus_tailscale_instance_by_hostname(client, monkeypatch) -> None:
-    _FakeTailscalePrometheusClient.queries = []
-    monkeypatch.setattr("backend.app.modules.monitoring.service.httpx.AsyncClient", _FakeTailscalePrometheusClient)
+def test_monitoring_uses_exact_canonical_targets(client, monkeypatch) -> None:
+    _FakeExactTargetPrometheusClient.queries = []
+    monkeypatch.setattr("backend.app.modules.monitoring.service.httpx.AsyncClient", _FakeExactTargetPrometheusClient)
 
     assert client.post(
         "/api/v1/integrations",
@@ -127,15 +127,25 @@ def test_monitoring_discovers_prometheus_tailscale_instance_by_hostname(client, 
     ).status_code == 201
     assert client.post(
         "/api/v1/servers",
-        json=server_payload(hostname="hds-tool", ip_address="192.168.50.15"),
+        json=server_payload(
+            hostname="hds-tool",
+            ip_address="192.168.50.15",
+            monitoring_interface="tailscale",
+            monitoring_target="100.90.80.15:9100",
+            monitoring_strategy="host",
+        ),
     ).status_code == 201
+
+    server_id = client.get("/api/v1/servers").json()[0]["id"]
+    metrics_response = client.get(f"/api/v1/monitoring/servers/{server_id}/metrics")
+    assert metrics_response.status_code == 200
 
     response = client.get("/api/v1/monitoring/overview")
 
     assert response.status_code == 200
     server = response.json()["servers"][0]
-    assert server["cpu_usage_percent"] == 12.5
     assert server["metrics_available"] is True
     assert server["scrape_target_health"] == "up"
     assert "100.90.80.15:9100" in server["monitoring_targets"]
-    assert any("100\\.90\\.80\\.15:9100" in query for query in _FakeTailscalePrometheusClient.queries)
+    assert all("=~" not in query for query in _FakeExactTargetPrometheusClient.queries)
+    assert any('instance="100.90.80.15:9100"' in query for query in _FakeExactTargetPrometheusClient.queries)

@@ -10,6 +10,8 @@ from backend.app.modules.inventory.models import Server
 from backend.app.modules.inventory.repository import ServerRepository
 from backend.app.modules.inventory.schemas import InventoryHealthCheckResult, InventoryHealthSummary
 from backend.app.modules.inventory.service import ServerNotFoundError
+from backend.app.modules.runtime_state.repository import NodeRuntimeSnapshotRepository, RuntimeRefreshStatusRepository
+from backend.app.modules.runtime_state.snapshots import RuntimeSnapshotService
 
 logger = structlog.get_logger(__name__)
 
@@ -24,6 +26,10 @@ class InventoryHealthService:
     def __init__(self, repository: ServerRepository, *, timeout_seconds: float = 3.0) -> None:
         self.repository = repository
         self.timeout_seconds = timeout_seconds
+        self.runtime_snapshots = RuntimeSnapshotService(
+            NodeRuntimeSnapshotRepository(repository.session),
+            status_repository=RuntimeRefreshStatusRepository(repository.session),
+        )
 
     async def check_server(self, server_id: UUID) -> InventoryHealthCheckResult:
         server = await self.repository.get_by_id(server_id)
@@ -130,6 +136,15 @@ class InventoryHealthService:
         server.last_health_status = status
         server.last_health_check_at = checked_at
         server.last_health_error = error
+        await self.runtime_snapshots.refresh_inventory_snapshot(server, commit=False)
+        await self.runtime_snapshots.record_refresh_status(
+            "ssh",
+            "success" if status == InventoryHealthStatus.ONLINE else "degraded",
+            error=error,
+            metadata_json={"node_id": str(server.id), "hostname": server.hostname},
+            node_id=server.id,
+            commit=False,
+        )
         await self.repository.session.commit()
         await self.repository.session.refresh(server)
         return InventoryHealthCheckResult(

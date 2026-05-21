@@ -440,7 +440,7 @@ Frontend Monitoring page
 
 Monitoring intentionally avoids Grafana dashboard lifecycle ownership. Grafana is an optional deep-analysis provider, not a required dashboard-per-node dependency. Operational health is derived from lifecycle state, SSH/readiness metadata, metrics availability, logs availability, exporter detection, stale telemetry, and provider health.
 
-Monitoring target resolution checks more than the Inventory primary IP. NexusOps builds a candidate set from the Inventory IP, hostname, provider metadata such as Tailscale and detected IPs, and Prometheus `node_uname_info` matches by nodename. This prevents false degraded states when a node is scraped through a Tailscale address or another telemetry-specific endpoint.
+Monitoring target resolution uses explicit managed-node endpoint metadata. Operators configure a canonical `monitoring_target` such as `100.90.80.15:9100`, along with `monitoring_interface` and `monitoring_strategy`. NexusOps does not build hostname permutations, regex instance selectors, or Prometheus `node_uname_info` discovery queries during readiness validation.
 
 ## Current Backend Boundaries
 

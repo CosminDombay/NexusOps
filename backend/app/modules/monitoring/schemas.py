@@ -25,6 +25,8 @@ class ServerMetricsRead(BaseModel):
     hostname: str
     ip_address: str
     monitoring_targets: list[str] = Field(default_factory=list)
+    monitoring_interface: str | None = None
+    monitoring_strategy: str = "host"
     online: bool
     cpu_usage_percent: float | None = None
     memory_usage_percent: float | None = None
@@ -38,14 +40,21 @@ class ServerMetricsRead(BaseModel):
     metrics_error: str | None = None
     logs_error: str | None = None
     monitoring_state: str = "unknown"
+    monitoring_status: str = "Unknown"
     metrics_available: bool = False
     logs_available: bool = False
     node_exporter_detected: bool = False
+    node_exporter_reachable: bool = False
     cadvisor_detected: bool = False
+    cadvisor_running: bool = False
+    docker_runtime_available: bool = False
     promtail_detected: bool = False
+    promtail_reachable: bool = False
     scrape_target_health: str = "unknown"
     stale_metrics: bool = False
     readiness_reasons: list[str] = Field(default_factory=list)
+    remediation: list[str] = Field(default_factory=list)
+    technical_details: list[str] = Field(default_factory=list)
     collected_at: datetime
 
 

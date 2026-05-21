@@ -115,7 +115,7 @@ function ProviderReadinessCard({ provider }: { provider: MonitoringProviderStatu
                 ? 'Log ingestion and stream readiness.'
                 : 'Metrics scrape and exporter visibility.'}
           </p>
-          {provider.error ? <p className="mt-2 text-xs text-rose-700">{provider.error}</p> : null}
+          {provider.error ? <p className="mt-2 text-xs text-rose-700">{providerStatusMessage(provider)}</p> : null}
         </div>
         {provider.url ? (
           <a className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-zinc-300 text-zinc-700 hover:bg-zinc-50" href={provider.url} rel="noreferrer" target="_blank" title="Open provider">
@@ -133,13 +133,13 @@ function ObservabilityRow({ server }: { server: ServerMetrics }) {
       <td className="px-5 py-4">
         <div className="font-medium text-zinc-950">{server.hostname}</div>
         <div className="font-mono text-xs text-zinc-500">{server.ip_address}</div>
-        {server.monitoring_targets.length > 1 ? (
+        {server.monitoring_targets.length ? (
           <div className="mt-1 max-w-52 truncate font-mono text-[11px] text-zinc-400" title={server.monitoring_targets.join(', ')}>
-            targets: {server.monitoring_targets.slice(0, 3).join(', ')}
+            {server.monitoring_interface ?? 'target'}: {server.monitoring_targets[0]}
           </div>
         ) : null}
       </td>
-      <td className="px-5 py-4"><RuntimeBadge value={server.monitoring_state} /></td>
+      <td className="px-5 py-4"><RuntimeBadge value={server.monitoring_status} /></td>
       <td className="px-5 py-4">
         <StatusPill tone={server.metrics_available ? 'success' : 'danger'}>
           {server.metrics_available ? 'Available' : 'Missing'}
@@ -153,7 +153,7 @@ function ObservabilityRow({ server }: { server: ServerMetrics }) {
       <td className="px-5 py-4">
         <div className="flex flex-wrap gap-1.5">
           <StatusPill tone={server.node_exporter_detected ? 'success' : 'warning'}>node</StatusPill>
-          <StatusPill tone={server.cadvisor_detected ? 'success' : 'muted'}>cadvisor</StatusPill>
+          <StatusPill tone={server.cadvisor_running ? 'success' : server.monitoring_strategy === 'host' ? 'muted' : 'warning'}>cadvisor</StatusPill>
           <StatusPill tone={server.promtail_detected ? 'success' : 'warning'}>promtail</StatusPill>
         </div>
       </td>
@@ -169,7 +169,10 @@ function ObservabilityRow({ server }: { server: ServerMetrics }) {
             CPU {formatPercent(server.cpu_usage_percent)} / Mem {formatPercent(server.memory_usage_percent)} / Disk {formatPercent(server.disk_usage_percent)}
           </div>
           {server.readiness_reasons.length ? (
-            <div className="text-xs text-amber-700">{server.readiness_reasons.slice(0, 3).join(', ')}</div>
+            <div className="text-xs text-amber-700">{server.readiness_reasons.slice(0, 3).map(formatReason).join(', ')}</div>
+          ) : null}
+          {server.remediation.length ? (
+            <div className="text-xs text-zinc-500">{server.remediation[0]}</div>
           ) : null}
           <div className="flex flex-wrap gap-2">
             <MetricLink label="Prometheus" href={server.prometheus_url} />
@@ -209,4 +212,15 @@ function MetricCard({ icon: Icon, label, value }: { icon: typeof Activity; label
 
 function formatPercent(value: number | null): string {
   return value === null ? 'No data' : `${value.toFixed(1)}%`;
+}
+
+function formatReason(value: string): string {
+  return value.replace(/_/g, ' ');
+}
+
+function providerStatusMessage(provider: MonitoringProviderStatus): string {
+  if (!provider.configured) {
+    return `${provider.provider_type} integration is not configured.`;
+  }
+  return `${provider.provider_type} readiness unavailable.`;
 }

@@ -1,5 +1,7 @@
 from pydantic import BaseModel, Field
 
+from backend.app.modules.runtime_state.schemas import NodeRuntimeState
+
 
 class ProxmoxNodeRead(BaseModel):
     name: str
@@ -20,6 +22,7 @@ class ProxmoxNodeRead(BaseModel):
     inventory_lifecycle_state: str | None = None
     inventory_sync_status: str = "unmanaged"
     capabilities: list[str] = Field(default_factory=list)
+    runtime_state: NodeRuntimeState | None = None
 
 
 class ProxmoxVmRead(BaseModel):
@@ -46,6 +49,7 @@ class ProxmoxVmRead(BaseModel):
     inventory_lifecycle_state: str | None = None
     inventory_sync_status: str = "unmanaged"
     inventory_notes: list[str] = Field(default_factory=list)
+    runtime_state: NodeRuntimeState | None = None
 
 
 class ProxmoxStorageRead(BaseModel):

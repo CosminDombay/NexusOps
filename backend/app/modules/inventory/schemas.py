@@ -15,6 +15,7 @@ from backend.app.common.constants import (
     ServerSshAuthMethod,
     ServerStatus,
 )
+from backend.app.modules.runtime_state.schemas import NodeRuntimeState
 
 
 class ServerBase(BaseModel):
@@ -42,6 +43,9 @@ class ServerBase(BaseModel):
     sync_state: InventorySyncStatus = InventorySyncStatus.UNKNOWN
     provider_node: str | None = Field(default=None, max_length=100)
     provider_type: str | None = Field(default=None, max_length=50)
+    monitoring_interface: str | None = Field(default=None, max_length=50)
+    monitoring_target: str | None = Field(default=None, max_length=255)
+    monitoring_strategy: str | None = Field(default=None, max_length=100)
     provider_metadata: dict[str, object] = Field(default_factory=dict)
     capabilities: list[str] = Field(default_factory=list)
     last_seen_at: datetime | None = None
@@ -86,7 +90,7 @@ class ServerBase(BaseModel):
                 seen.add(clean)
         return normalized
 
-    @field_validator("ssh_password", "ssh_private_key_path")
+    @field_validator("ssh_password", "ssh_private_key_path", "monitoring_interface", "monitoring_target", "monitoring_strategy")
     @classmethod
     def strip_optional_secret_strings(cls, value: str | None) -> str | None:
         if value is None:
@@ -132,6 +136,9 @@ class ServerUpdate(BaseModel):
     sync_state: InventorySyncStatus | None = None
     provider_node: str | None = Field(default=None, max_length=100)
     provider_type: str | None = Field(default=None, max_length=50)
+    monitoring_interface: str | None = Field(default=None, max_length=50)
+    monitoring_target: str | None = Field(default=None, max_length=255)
+    monitoring_strategy: str | None = Field(default=None, max_length=100)
     provider_metadata: dict[str, object] | None = None
     capabilities: list[str] | None = None
     last_seen_at: datetime | None = None
@@ -184,7 +191,7 @@ class ServerUpdate(BaseModel):
                 seen.add(clean)
         return normalized
 
-    @field_validator("ssh_password", "ssh_private_key_path")
+    @field_validator("ssh_password", "ssh_private_key_path", "monitoring_interface", "monitoring_target", "monitoring_strategy")
     @classmethod
     def strip_optional_secret_strings(cls, value: str | None) -> str | None:
         if value is None:
@@ -204,10 +211,7 @@ class ServerRead(ServerBase):
     created_at: datetime
     updated_at: datetime
     ssh_password: str | None = Field(default=None, exclude=True)
-
-    @model_validator(mode="after")
-    def validate_ssh_auth(self) -> Self:
-        return self
+    runtime_state: NodeRuntimeState | None = None
 
     model_config = ConfigDict(from_attributes=True)
 

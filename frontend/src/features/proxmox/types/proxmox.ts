@@ -1,3 +1,5 @@
+import type { NodeRuntimeState } from '../../runtime-state/types/runtimeState';
+
 export type ProxmoxNode = {
   name: string;
   status: string;
@@ -17,6 +19,7 @@ export type ProxmoxNode = {
   inventory_lifecycle_state: string | null;
   inventory_sync_status: 'unknown' | 'synced' | 'unmanaged' | 'orphaned' | 'mismatch' | 'archived';
   capabilities: string[];
+  runtime_state: NodeRuntimeState | null;
 };
 
 export type ProxmoxVm = {
@@ -43,6 +46,7 @@ export type ProxmoxVm = {
   inventory_lifecycle_state: string | null;
   inventory_sync_status: 'unknown' | 'synced' | 'unmanaged' | 'orphaned' | 'mismatch' | 'archived';
   inventory_notes: string[];
+  runtime_state: NodeRuntimeState | null;
 };
 
 export type ProxmoxClusterSummary = {
@@ -89,7 +93,7 @@ export type ProxmoxGuestSyncResult = {
   skipped: string[];
 };
 
-export type ProxmoxVmAction = 'start' | 'stop' | 'reboot' | 'shutdown' | 'delete';
+export type ProxmoxVmAction = 'start' | 'stop' | 'reboot' | 'shutdown';
 
 export type ProxmoxVmActionResponse = {
   vm_id: number;

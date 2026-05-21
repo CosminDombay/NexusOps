@@ -1,8 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { AlertCircle, Archive, CheckSquare, Pencil, Play, Power, RefreshCw, RotateCcw, RotateCw, ServerIcon, Trash2 } from 'lucide-react';
 
 import type { ProxmoxVmAction } from '../../proxmox/types/proxmox';
+import { RuntimeStateBadge } from '../../runtime-state/components/RuntimeStateBadge';
+import { canRunLifecycleAction } from '../../runtime-state/utils/eligibility';
 import type { Server, UpdateServerPayload } from '../types/server';
 import { formatLabel } from '../utils/options';
 import { EnvironmentBadge, HealthBadge, LifecycleBadge, ManagementBadge, NodeTypeBadge, SyncBadge } from './ServerBadges';
@@ -55,6 +57,21 @@ export function ServerList({
     setSelectedServerIds((current) => current.filter((serverId) => serverIds.has(serverId)));
   }, [servers]);
 
+  const selectedServerIdSet = useMemo(() => new Set(selectedServerIds), [selectedServerIds]);
+  const selectedServers = useMemo(
+    () => servers.filter((server) => selectedServerIdSet.has(server.id)),
+    [selectedServerIdSet, servers],
+  );
+  const eligibleLifecycleCounts = useMemo(
+    () => ({
+      start: countEligibleLifecycleTargets(selectedServers, 'start'),
+      shutdown: countEligibleLifecycleTargets(selectedServers, 'shutdown'),
+      reboot: countEligibleLifecycleTargets(selectedServers, 'reboot'),
+      stop: countEligibleLifecycleTargets(selectedServers, 'stop'),
+    }),
+    [selectedServers],
+  );
+
   if (isLoading) {
     return (
       <div className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm">
@@ -99,8 +116,6 @@ export function ServerList({
     );
   }
 
-  const selectedServers = servers.filter((server) => selectedServerIds.includes(server.id));
-  const selectedLifecycleTargets = selectedServers.filter(hasInventoryVmId);
   const allServersSelected = selectedServerIds.length === servers.length;
   const hasSelection = selectedServerIds.length > 0;
 
@@ -123,7 +138,10 @@ export function ServerList({
       }
     }
 
-    const success = await onVmLifecycleAction(selectedServerIds, action);
+    const eligibleIds = selectedServers
+      .filter((server) => canRunServerLifecycleAction(server, action))
+      .map((server) => server.id);
+    const success = await onVmLifecycleAction(eligibleIds, action);
     if (success) {
       setSelectedServerIds([]);
     }
@@ -144,32 +162,32 @@ export function ServerList({
             <div className="flex flex-wrap gap-2">
               <LifecycleActionButton
                 action="start"
-                count={selectedLifecycleTargets.length}
-                disabled={isRunningVmLifecycleAction || selectedLifecycleTargets.length === 0}
+                count={eligibleLifecycleCounts.start}
+                disabled={isRunningVmLifecycleAction || eligibleLifecycleCounts.start === 0}
                 icon={Play}
                 label="Start"
                 onClick={runSelectedLifecycleAction}
               />
               <LifecycleActionButton
                 action="shutdown"
-                count={selectedLifecycleTargets.length}
-                disabled={isRunningVmLifecycleAction || selectedLifecycleTargets.length === 0}
+                count={eligibleLifecycleCounts.shutdown}
+                disabled={isRunningVmLifecycleAction || eligibleLifecycleCounts.shutdown === 0}
                 icon={Power}
                 label="Shutdown"
                 onClick={runSelectedLifecycleAction}
               />
               <LifecycleActionButton
                 action="reboot"
-                count={selectedLifecycleTargets.length}
-                disabled={isRunningVmLifecycleAction || selectedLifecycleTargets.length === 0}
+                count={eligibleLifecycleCounts.reboot}
+                disabled={isRunningVmLifecycleAction || eligibleLifecycleCounts.reboot === 0}
                 icon={RotateCw}
                 label="Reboot"
                 onClick={runSelectedLifecycleAction}
               />
               <LifecycleActionButton
                 action="stop"
-                count={selectedLifecycleTargets.length}
-                disabled={isRunningVmLifecycleAction || selectedLifecycleTargets.length === 0}
+                count={eligibleLifecycleCounts.stop}
+                disabled={isRunningVmLifecycleAction || eligibleLifecycleCounts.stop === 0}
                 icon={Power}
                 label="Stop"
                 onClick={runSelectedLifecycleAction}
@@ -220,7 +238,7 @@ export function ServerList({
                   onChange={(event) => toggleAllServers(event.target.checked)}
                 />
               </th>
-              {['Hostname', 'Type', 'IP address', 'Environment', 'Provider', 'Lifecycle', 'Mgmt', 'Sync', 'Health', 'Last checked', 'Actions'].map((heading) => (
+              {['Hostname', 'Type', 'IP address', 'Environment', 'Provider', 'Runtime', 'Lifecycle', 'Mgmt', 'Sync', 'Health', 'Last checked', 'Actions'].map((heading) => (
                 <th key={heading} className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-normal text-zinc-500">
                   {heading}
                 </th>
@@ -233,7 +251,7 @@ export function ServerList({
                 <td className="px-5 py-4">
                   <input
                     aria-label={`Select ${server.hostname}`}
-                    checked={selectedServerIds.includes(server.id)}
+                    checked={selectedServerIdSet.has(server.id)}
                     className="h-4 w-4 rounded border-zinc-300 text-zinc-950 focus:ring-zinc-950"
                     type="checkbox"
                     onChange={(event) => {
@@ -263,6 +281,14 @@ export function ServerList({
                   <div className="mt-1 font-mono text-xs text-zinc-500">
                     {providerRelationship(server)}
                   </div>
+                </td>
+                <td className="px-5 py-4">
+                  <RuntimeStateBadge runtimeState={server.runtime_state} />
+                  {server.runtime_state?.degraded_reasons.length ? (
+                    <div className="mt-1 text-xs text-zinc-500">
+                      {server.runtime_state.degraded_reasons.slice(0, 2).map(formatLabel).join(', ')}
+                    </div>
+                  ) : null}
                 </td>
                 <td className="px-5 py-4">
                   <LifecycleBadge state={server.lifecycle_state} />
@@ -306,7 +332,7 @@ export function ServerList({
               <div className="flex items-start gap-3">
                 <input
                   aria-label={`Select ${server.hostname}`}
-                  checked={selectedServerIds.includes(server.id)}
+                  checked={selectedServerIdSet.has(server.id)}
                   className="mt-1 h-4 w-4 rounded border-zinc-300 text-zinc-950 focus:ring-zinc-950"
                   type="checkbox"
                   onChange={(event) => {
@@ -333,6 +359,7 @@ export function ServerList({
               <ManagementBadge state={server.management_state} />
               <SyncBadge status={server.sync_state} />
               <HealthBadge status={server.last_health_status} />
+              <RuntimeStateBadge runtimeState={server.runtime_state} />
               <span className="inline-flex items-center rounded-full bg-zinc-100 px-2.5 py-1 text-xs font-medium text-zinc-700 ring-1 ring-inset ring-zinc-200">
                 {formatLabel(server.provider)}
               </span>
@@ -413,6 +440,23 @@ function hasInventoryVmId(server: Server): boolean {
 
   const vmId = Number(rawVmId);
   return Number.isInteger(vmId) && vmId > 0;
+}
+
+function canRunServerLifecycleAction(server: Server, action: ProxmoxVmAction): boolean {
+  if (server.runtime_state) {
+    return canRunLifecycleAction(server.runtime_state, action);
+  }
+  if (!hasInventoryVmId(server)) {
+    return false;
+  }
+  if (action === 'start') {
+    return true;
+  }
+  return server.status === 'online';
+}
+
+function countEligibleLifecycleTargets(servers: Server[], action: ProxmoxVmAction): number {
+  return servers.filter((server) => canRunServerLifecycleAction(server, action)).length;
 }
 
 function LifecycleActionButton({

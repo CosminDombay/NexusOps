@@ -47,6 +47,7 @@ export function RunCommandPanel({
             selectedIds: selectedServerIds,
           }}
           filters={targetSelector.filters}
+          eligibility="jobs"
           title="Command targets"
           description="Run a raw command against one host or a selected group of hosts."
           onFiltersChange={targetSelector.setFilters}

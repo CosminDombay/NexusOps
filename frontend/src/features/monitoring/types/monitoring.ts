@@ -13,6 +13,8 @@ export type ServerMetrics = {
   hostname: string;
   ip_address: string;
   monitoring_targets: string[];
+  monitoring_interface: string | null;
+  monitoring_strategy: string;
   online: boolean;
   cpu_usage_percent: number | null;
   memory_usage_percent: number | null;
@@ -26,14 +28,21 @@ export type ServerMetrics = {
   metrics_error: string | null;
   logs_error: string | null;
   monitoring_state: string;
+  monitoring_status: string;
   metrics_available: boolean;
   logs_available: boolean;
   node_exporter_detected: boolean;
+  node_exporter_reachable: boolean;
   cadvisor_detected: boolean;
+  cadvisor_running: boolean;
+  docker_runtime_available: boolean;
   promtail_detected: boolean;
+  promtail_reachable: boolean;
   scrape_target_health: string;
   stale_metrics: boolean;
   readiness_reasons: string[];
+  remediation: string[];
+  technical_details: string[];
   collected_at: string;
 };
 

@@ -1,5 +1,4 @@
 from datetime import UTC, datetime
-import re
 from typing import Any
 from uuid import UUID
 
@@ -18,14 +17,23 @@ from backend.app.modules.monitoring.schemas import (
     PrometheusHealthRead,
     ServerMetricsRead,
 )
+from backend.app.modules.runtime_state.repository import (
+    NodeRuntimeSnapshotRepository,
+    RuntimeRefreshStatusRepository,
+)
+from backend.app.modules.runtime_state.snapshots import RuntimeSnapshotService
 
 
 class MonitoringService:
-    """Prometheus HTTP API integration for lightweight server metrics."""
+    """Observability readiness validation backed by runtime snapshots."""
 
     def __init__(self, server_repository: ServerRepository, integration_service: IntegrationService) -> None:
         self.server_repository = server_repository
         self.integration_service = integration_service
+        self.runtime_snapshots = RuntimeSnapshotService(
+            NodeRuntimeSnapshotRepository(server_repository.session),
+            status_repository=RuntimeRefreshStatusRepository(server_repository.session),
+        )
 
     async def prometheus_health(self) -> PrometheusHealthRead:
         providers = await self.provider_statuses()
@@ -52,14 +60,22 @@ class MonitoringService:
             raise ServerNotFoundError("Server not found")
         configs = await self._provider_configs()
         prometheus_config = configs.get(IntegrationProviderType.PROMETHEUS)
-        monitoring_targets = await self._monitoring_targets(server, prometheus_config)
-        metrics, metrics_error = await self._fetch_metrics(monitoring_targets, prometheus_config)
+        monitoring_target = self._monitoring_target(server)
+        monitoring_targets = [monitoring_target] if monitoring_target else []
+        metrics = self._operational_summary(server)
+        technical_details: list[str] = []
         readiness = await self._node_observability_readiness(
-            server.hostname,
-            monitoring_targets,
-            metrics,
-            metrics_error,
+            server,
+            monitoring_target,
             configs,
+            technical_details=technical_details,
+        )
+        await self.runtime_snapshots.refresh_monitoring_snapshot(
+            server,
+            monitoring_targets=monitoring_targets,
+            metrics=metrics,
+            observability=readiness,
+            metrics_error=None,
         )
         return ServerMetricsRead(
             server_id=server.id,
@@ -76,73 +92,82 @@ class MonitoringService:
             loki_url=self._loki_url(configs.get(IntegrationProviderType.LOKI)),
             advanced_metrics_url=self._grafana_url(configs.get(IntegrationProviderType.GRAFANA)),
             advanced_logs_url=self._grafana_url(configs.get(IntegrationProviderType.GRAFANA)),
-            metrics_error=metrics_error,
+            metrics_error=None,
             **readiness,
             collected_at=datetime.now(UTC),
         )
 
     async def overview(self) -> MonitoringOverviewRead:
         servers = await self.server_repository.list()
+        await self.runtime_snapshots.attach_snapshots(servers)
+        snapshot_map = await self.runtime_snapshots.snapshot_repository.list_by_node_ids(
+            server.id for server in servers
+        )
         configs = await self._provider_configs()
-        providers = await self.provider_statuses(configs)
+        providers = await self._snapshot_provider_statuses(configs)
         server_metrics = []
         for server in servers:
-            try:
-                monitoring_targets = await self._monitoring_targets(
-                    server,
-                    configs.get(IntegrationProviderType.PROMETHEUS),
+            snapshot = snapshot_map.get(server.id)
+            runtime_state = getattr(server, "runtime_state", None)
+            metrics = snapshot.metrics if snapshot is not None and isinstance(snapshot.metrics, dict) else {}
+            observability = (
+                snapshot.observability
+                if snapshot is not None and isinstance(snapshot.observability, dict)
+                else {}
+            )
+            monitoring_targets = (
+                snapshot.monitoring_targets
+                if snapshot is not None and snapshot.monitoring_targets
+                else self._static_monitoring_targets(server)
+            )
+            monitoring_state = runtime_state.monitoring_state if runtime_state else "unknown"
+            readiness_reasons = list(
+                dict.fromkeys(
+                    [
+                        *observability.get("readiness_reasons", []),
+                        *(runtime_state.degraded_reasons if runtime_state else []),
+                    ]
                 )
-                metrics, metrics_error = await self._fetch_metrics(
-                    monitoring_targets,
-                    configs.get(IntegrationProviderType.PROMETHEUS),
+            )
+            server_metrics.append(
+                ServerMetricsRead(
+                    server_id=server.id,
+                    hostname=server.hostname,
+                    ip_address=server.ip_address,
+                    monitoring_targets=monitoring_targets,
+                    monitoring_interface=_optional_str(observability.get("monitoring_interface")),
+                    monitoring_strategy=_optional_str(observability.get("monitoring_strategy")) or "host",
+                    online=runtime_state.ssh_state == "ready" if runtime_state else False,
+                    cpu_usage_percent=_optional_float(metrics.get("cpu")),
+                    memory_usage_percent=_optional_float(metrics.get("memory")),
+                    disk_usage_percent=_optional_float(metrics.get("disk")),
+                    uptime_seconds=_optional_float(metrics.get("uptime")),
+                    grafana_url=self._grafana_url(configs.get(IntegrationProviderType.GRAFANA)),
+                    prometheus_url=self._prometheus_url(configs.get(IntegrationProviderType.PROMETHEUS), monitoring_targets),
+                    loki_url=self._loki_url(configs.get(IntegrationProviderType.LOKI)),
+                    advanced_metrics_url=self._grafana_url(configs.get(IntegrationProviderType.GRAFANA)),
+                    advanced_logs_url=self._grafana_url(configs.get(IntegrationProviderType.GRAFANA)),
+                    metrics_error=None,
+                    logs_error=None,
+                    monitoring_state=monitoring_state,
+                    monitoring_status=self._display_state(monitoring_state),
+                    metrics_available=bool(observability.get("metrics_available")),
+                    logs_available=bool(observability.get("logs_available")),
+                    node_exporter_detected=bool(observability.get("node_exporter_detected")),
+                    node_exporter_reachable=bool(observability.get("node_exporter_reachable")),
+                    cadvisor_detected=bool(observability.get("cadvisor_detected")),
+                    cadvisor_running=bool(observability.get("cadvisor_running")),
+                    docker_runtime_available=bool(observability.get("docker_runtime_available")),
+                    promtail_detected=bool(observability.get("promtail_detected")),
+                    promtail_reachable=bool(observability.get("promtail_reachable")),
+                    scrape_target_health=_optional_str(observability.get("scrape_target_health")) or "unknown",
+                    stale_metrics=bool(observability.get("stale_metrics")),
+                    readiness_reasons=readiness_reasons,
+                    remediation=list(observability.get("remediation", [])),
+                    technical_details=list(observability.get("technical_details", [])),
+                    collected_at=snapshot.last_checked_at if snapshot and snapshot.last_checked_at else datetime.now(UTC),
                 )
-                readiness = await self._node_observability_readiness(
-                    server.hostname,
-                    monitoring_targets,
-                    metrics,
-                    metrics_error,
-                    configs,
-                )
-                server_metrics.append(
-                    ServerMetricsRead(
-                        server_id=server.id,
-                        hostname=server.hostname,
-                        ip_address=server.ip_address,
-                        monitoring_targets=monitoring_targets,
-                        online=server.last_health_status == InventoryHealthStatus.ONLINE,
-                        cpu_usage_percent=metrics.get("cpu"),
-                        memory_usage_percent=metrics.get("memory"),
-                        disk_usage_percent=metrics.get("disk"),
-                        uptime_seconds=metrics.get("uptime"),
-                        grafana_url=self._grafana_url(configs.get(IntegrationProviderType.GRAFANA)),
-                        prometheus_url=self._prometheus_url(configs.get(IntegrationProviderType.PROMETHEUS), monitoring_targets),
-                        loki_url=self._loki_url(configs.get(IntegrationProviderType.LOKI)),
-                        advanced_metrics_url=self._grafana_url(configs.get(IntegrationProviderType.GRAFANA)),
-                        advanced_logs_url=self._grafana_url(configs.get(IntegrationProviderType.GRAFANA)),
-                        metrics_error=metrics_error,
-                        **readiness,
-                        collected_at=datetime.now(UTC),
-                    )
-                )
-            except Exception as exc:
-                server_metrics.append(
-                    ServerMetricsRead(
-                        server_id=server.id,
-                        hostname=server.hostname,
-                        ip_address=server.ip_address,
-                        monitoring_targets=self._static_monitoring_targets(server),
-                        online=False,
-                        grafana_url=self._grafana_url(configs.get(IntegrationProviderType.GRAFANA)),
-                        prometheus_url=self._prometheus_url(configs.get(IntegrationProviderType.PROMETHEUS), self._static_monitoring_targets(server)),
-                        loki_url=self._loki_url(configs.get(IntegrationProviderType.LOKI)),
-                        advanced_metrics_url=self._grafana_url(configs.get(IntegrationProviderType.GRAFANA)),
-                        advanced_logs_url=self._grafana_url(configs.get(IntegrationProviderType.GRAFANA)),
-                        metrics_error=str(exc),
-                        monitoring_state="monitoring_unavailable",
-                        readiness_reasons=[str(exc)],
-                        collected_at=datetime.now(UTC),
-                    )
-                )
+            )
         online_count = sum(1 for server in server_metrics if server.online)
         return MonitoringOverviewRead(
             total_servers=len(server_metrics),
@@ -155,6 +180,57 @@ class MonitoringService:
             stale_metrics_servers=sum(1 for server in server_metrics if server.stale_metrics),
             providers=providers,
             servers=server_metrics,
+        )
+
+    async def _snapshot_provider_statuses(
+        self,
+        configs: dict[IntegrationProviderType, ProviderConnectionConfig | None],
+    ) -> list[MonitoringProviderStatusRead]:
+        statuses = {
+            status.scope: status
+            for status in await self.runtime_snapshots.list_refresh_statuses()
+        }
+        monitoring_refresh = statuses.get("monitoring")
+        provider_refresh = statuses.get("provider")
+        return [
+            self._snapshot_provider_status(
+                IntegrationProviderType.PROMETHEUS,
+                configs.get(IntegrationProviderType.PROMETHEUS),
+                monitoring_refresh,
+            ),
+            self._snapshot_provider_status(
+                IntegrationProviderType.GRAFANA,
+                configs.get(IntegrationProviderType.GRAFANA),
+                monitoring_refresh,
+            ),
+            self._snapshot_provider_status(
+                IntegrationProviderType.LOKI,
+                configs.get(IntegrationProviderType.LOKI),
+                monitoring_refresh or provider_refresh,
+            ),
+        ]
+
+    @staticmethod
+    def _snapshot_provider_status(
+        provider_type: IntegrationProviderType,
+        config: ProviderConnectionConfig | None,
+        refresh_status: object | None,
+    ) -> MonitoringProviderStatusRead:
+        if config is None:
+            return MonitoringProviderStatusRead(
+                provider_type=provider_type.value,
+                configured=False,
+                reachable=False,
+                error=f"{provider_type.value} integration is not configured or is disabled",
+            )
+        status_value = getattr(refresh_status, "status", "unknown") if refresh_status else "unknown"
+        return MonitoringProviderStatusRead(
+            provider_type=provider_type.value,
+            configured=True,
+            reachable=status_value == "success",
+            integration_id=config.integration_id,
+            url=config.base_url,
+            error=getattr(refresh_status, "last_error", None) if status_value == "failed" else None,
         )
 
     async def provider_statuses(
@@ -201,14 +277,14 @@ class MonitoringService:
             ) as client:
                 response = await client.get(f"{config.base_url}{health_path}", headers=config.headers)
                 response.raise_for_status()
-        except Exception as exc:
+        except Exception:
             return MonitoringProviderStatusRead(
                 provider_type=provider_type.value,
                 configured=True,
                 reachable=False,
                 integration_id=config.integration_id,
                 url=config.base_url,
-                error=str(exc),
+                error=f"{provider_type.value}_unavailable",
             )
         return MonitoringProviderStatusRead(
             provider_type=provider_type.value,
@@ -218,79 +294,59 @@ class MonitoringService:
             url=config.base_url,
         )
 
-    async def _fetch_metrics(
-        self,
-        monitoring_targets: list[str],
-        prometheus_config: ProviderConnectionConfig | None,
-    ) -> tuple[dict[str, float | None], str | None]:
-        empty = {"cpu": None, "memory": None, "disk": None, "uptime": None}
-        if prometheus_config is None:
-            return empty, "Prometheus integration is not configured or is disabled"
-
-        instance_selector = self._instance_selector(monitoring_targets)
-        queries = {
-            "cpu": f'100 - (avg by(instance) (rate(node_cpu_seconds_total{{mode="idle",instance=~"{instance_selector}"}}[5m])) * 100)',
-            "memory": f'(1 - (node_memory_MemAvailable_bytes{{instance=~"{instance_selector}"}} / node_memory_MemTotal_bytes{{instance=~"{instance_selector}"}})) * 100',
-            "disk": f'100 - ((node_filesystem_avail_bytes{{mountpoint="/",instance=~"{instance_selector}"}} * 100) / node_filesystem_size_bytes{{mountpoint="/",instance=~"{instance_selector}"}})',
-            "uptime": f'time() - node_boot_time_seconds{{instance=~"{instance_selector}"}}',
-        }
-        metrics: dict[str, float | None] = {}
-        errors: list[str] = []
-        async with httpx.AsyncClient(
-            timeout=prometheus_config.timeout_seconds,
-            verify=prometheus_config.verify_ssl,
-        ) as client:
-            for key, query in queries.items():
-                try:
-                    response = await client.get(
-                        f"{prometheus_config.base_url}/api/v1/query",
-                        params={"query": query},
-                        headers=prometheus_config.headers,
-                    )
-                    response.raise_for_status()
-                    metrics[key] = self._first_value(response.json())
-                except Exception as exc:
-                    metrics[key] = None
-                    errors.append(f"{key}: {exc}")
-        return metrics, "; ".join(errors) if errors else None
-
     async def _node_observability_readiness(
         self,
-        hostname: str,
-        monitoring_targets: list[str],
-        metrics: dict[str, float | None],
-        metrics_error: str | None,
+        server: Server,
+        monitoring_target: str | None,
         configs: dict[IntegrationProviderType, ProviderConnectionConfig | None],
+        *,
+        technical_details: list[str],
     ) -> dict[str, object]:
         prometheus_config = configs.get(IntegrationProviderType.PROMETHEUS)
         loki_config = configs.get(IntegrationProviderType.LOKI)
-        instance_selector = self._instance_selector(monitoring_targets)
-        metrics_available = any(value is not None for value in metrics.values())
-        scrape_health = await self._prometheus_target_health(monitoring_targets, prometheus_config)
-        node_exporter_detected = scrape_health in {"up", "unknown"} and metrics_available
-        cadvisor_detected = await self._prometheus_has_series(
-            prometheus_config,
-            f'container_last_seen{{instance=~"{instance_selector}"}}',
-        )
-        logs_available, logs_error = await self._loki_stream_present(hostname, monitoring_targets, loki_config)
+        strategy = self._monitoring_strategy(server)
+        scrape_health = await self._prometheus_target_health(monitoring_target, prometheus_config, technical_details)
+        metrics_recent = await self._prometheus_metrics_recent(monitoring_target, prometheus_config, technical_details)
+        metrics_available = scrape_health == "up"
+        stale_metrics = scrape_health == "up" and not metrics_recent
+        logs_available = await self._loki_stream_present(server, monitoring_target, loki_config, technical_details)
+        node_exporter_reachable = scrape_health == "up"
+        node_exporter_detected = monitoring_target is not None and scrape_health in {"up", "down"}
+        promtail_reachable = logs_available
         promtail_detected = logs_available
-        stale_metrics = await self._prometheus_has_stale_metrics(monitoring_targets, prometheus_config)
+        docker_runtime_available = self._metadata_bool(server, "docker_runtime_available")
+        cadvisor_target = self._container_monitoring_target(server)
+        cadvisor_running = await self._prometheus_cadvisor_running(cadvisor_target, prometheus_config, technical_details)
+        cadvisor_detected = cadvisor_running or bool(cadvisor_target)
 
         reasons: list[str] = []
-        if metrics_error:
-            reasons.append(metrics_error)
+        remediation: list[str] = []
+        if not monitoring_target:
+            reasons.append("monitoring_target_missing")
+            remediation.append("Set a canonical monitoring target such as 100.90.80.15:9100.")
         if not metrics_available:
-            reasons.append("metrics_missing")
+            reasons.append("metrics_unavailable")
+            remediation.append("Verify Prometheus can scrape the configured node_exporter target.")
         if not node_exporter_detected:
             reasons.append("node_exporter_missing")
-        if scrape_health not in {"up", "unknown"}:
+            remediation.append("Install or start node_exporter for host metrics.")
+        elif not node_exporter_reachable:
+            reasons.append("node_exporter_unreachable")
+        if scrape_health not in {"up", "unknown", "unconfigured"}:
             reasons.append(f"scrape_{scrape_health}")
         if stale_metrics:
             reasons.append("stale_metrics")
-        if logs_error:
-            reasons.append(logs_error)
+            remediation.append("Check Prometheus scrape freshness for the configured target.")
         if not logs_available:
             reasons.append("logs_missing")
+            remediation.append("Verify promtail is running and Loki receives logs for this node.")
+        if strategy in {"container", "host_container"}:
+            if not docker_runtime_available:
+                reasons.append("docker_runtime_unavailable")
+                remediation.append("Validate Docker runtime before expecting container telemetry.")
+            if not cadvisor_running:
+                reasons.append("cadvisor_not_running")
+                remediation.append("Start cAdvisor as container telemetry; host observability does not require it.")
 
         if metrics_available and logs_available and not stale_metrics:
             state = "monitoring_ready"
@@ -298,35 +354,47 @@ class MonitoringService:
             state = "stale_metrics"
         elif metrics_available or logs_available:
             state = "monitoring_partial"
+        elif not monitoring_target:
+            state = "unknown"
         else:
             state = "monitoring_missing"
 
         return {
+            "monitoring_interface": self._monitoring_interface(server),
+            "monitoring_strategy": strategy,
             "metrics_available": metrics_available,
             "logs_available": logs_available,
             "node_exporter_detected": node_exporter_detected,
+            "node_exporter_reachable": node_exporter_reachable,
             "cadvisor_detected": cadvisor_detected,
+            "cadvisor_running": cadvisor_running,
+            "docker_runtime_available": docker_runtime_available,
             "promtail_detected": promtail_detected,
+            "promtail_reachable": promtail_reachable,
             "scrape_target_health": scrape_health,
             "stale_metrics": stale_metrics,
-            "logs_error": logs_error,
             "monitoring_state": state,
+            "monitoring_status": self._display_state(state),
             "readiness_reasons": list(dict.fromkeys(reasons)),
+            "remediation": list(dict.fromkeys(remediation)),
+            "technical_details": technical_details,
         }
 
     async def _prometheus_target_health(
         self,
-        monitoring_targets: list[str],
+        monitoring_target: str | None,
         config: ProviderConnectionConfig | None,
+        technical_details: list[str],
     ) -> str:
         if config is None:
             return "unconfigured"
-        instance_selector = self._instance_selector(monitoring_targets)
+        if not monitoring_target:
+            return "unknown"
         try:
             async with httpx.AsyncClient(timeout=config.timeout_seconds, verify=config.verify_ssl) as client:
                 response = await client.get(
                     f"{config.base_url}/api/v1/query",
-                    params={"query": f'up{{instance=~"{instance_selector}"}}'},
+                    params={"query": f'up{{instance="{monitoring_target}"}}'},
                     headers=config.headers,
                 )
                 response.raise_for_status()
@@ -335,132 +403,143 @@ class MonitoringService:
                     return "up"
                 if value == 0:
                     return "down"
-        except Exception:
+        except Exception as exc:
+            technical_details.append(f"prometheus_scrape_check: {exc}")
             return "unavailable"
         return "missing"
 
-    async def _prometheus_has_series(
+    async def _prometheus_metrics_recent(
         self,
+        monitoring_target: str | None,
         config: ProviderConnectionConfig | None,
-        query: str,
+        technical_details: list[str],
     ) -> bool:
-        if config is None:
+        if config is None or not monitoring_target:
             return False
         try:
             async with httpx.AsyncClient(timeout=config.timeout_seconds, verify=config.verify_ssl) as client:
                 response = await client.get(
                     f"{config.base_url}/api/v1/query",
-                    params={"query": query},
-                    headers=config.headers,
-                )
-                response.raise_for_status()
-                return bool(response.json().get("data", {}).get("result", []))
-        except Exception:
-            return False
-
-    async def _prometheus_has_stale_metrics(
-        self,
-        monitoring_targets: list[str],
-        config: ProviderConnectionConfig | None,
-    ) -> bool:
-        if config is None:
-            return False
-        instance_selector = self._instance_selector(monitoring_targets)
-        try:
-            async with httpx.AsyncClient(timeout=config.timeout_seconds, verify=config.verify_ssl) as client:
-                response = await client.get(
-                    f"{config.base_url}/api/v1/query",
-                    params={"query": f'node_boot_time_seconds{{instance=~"{instance_selector}"}}'},
+                    params={"query": f'node_boot_time_seconds{{instance="{monitoring_target}"}}'},
                     headers=config.headers,
                 )
                 response.raise_for_status()
                 sample_time = self._first_timestamp(response.json())
                 if sample_time is None:
                     return False
-                return (datetime.now(UTC).timestamp() - sample_time) > 900
-        except Exception:
+                return (datetime.now(UTC).timestamp() - sample_time) <= 900
+        except Exception as exc:
+            technical_details.append(f"prometheus_freshness_check: {exc}")
+            return False
+
+    async def _prometheus_cadvisor_running(
+        self,
+        cadvisor_target: str | None,
+        config: ProviderConnectionConfig | None,
+        technical_details: list[str],
+    ) -> bool:
+        if config is None or not cadvisor_target:
+            return False
+        try:
+            async with httpx.AsyncClient(timeout=config.timeout_seconds, verify=config.verify_ssl) as client:
+                response = await client.get(
+                    f"{config.base_url}/api/v1/query",
+                    params={"query": f'up{{instance="{cadvisor_target}"}}'},
+                    headers=config.headers,
+                )
+                response.raise_for_status()
+                return self._first_value(response.json()) == 1
+        except Exception as exc:
+            technical_details.append(f"cadvisor_check: {exc}")
             return False
 
     async def _loki_stream_present(
         self,
-        hostname: str,
-        monitoring_targets: list[str],
+        server: Server,
+        monitoring_target: str | None,
         config: ProviderConnectionConfig | None,
-    ) -> tuple[bool, str | None]:
+        technical_details: list[str],
+    ) -> bool:
         if config is None:
-            return False, "loki_not_configured"
-        instance_selector = self._instance_selector(monitoring_targets)
-        queries = [f'{{host="{hostname}"}}', f'{{hostname="{hostname}"}}', f'{{instance=~"{instance_selector}"}}']
+            return False
+        selector = self._loki_selector(server, monitoring_target)
+        if selector is None:
+            return False
         try:
             async with httpx.AsyncClient(timeout=config.timeout_seconds, verify=config.verify_ssl) as client:
-                for query in queries:
-                    response = await client.get(
-                        f"{config.base_url}/loki/api/v1/query",
-                        params={"query": query},
-                        headers=config.headers,
-                    )
-                    response.raise_for_status()
-                    if response.json().get("data", {}).get("result", []):
-                        return True, None
+                response = await client.get(
+                    f"{config.base_url}/loki/api/v1/query",
+                    params={"query": selector},
+                    headers=config.headers,
+                )
+                response.raise_for_status()
+                return bool(response.json().get("data", {}).get("result", []))
         except Exception as exc:
-            return False, f"loki_unavailable: {exc}"
-        return False, "log_stream_missing"
-
-    async def _monitoring_targets(
-        self,
-        server: Server,
-        prometheus_config: ProviderConnectionConfig | None,
-    ) -> list[str]:
-        targets = self._static_monitoring_targets(server)
-        targets.extend(await self._prometheus_instances_for_hostname(server.hostname, prometheus_config))
-        return list(dict.fromkeys(target for target in targets if target))
+            technical_details.append(f"loki_log_check: {exc}")
+            return False
 
     def _static_monitoring_targets(self, server: Server) -> list[str]:
-        metadata = server.provider_metadata if isinstance(server.provider_metadata, dict) else {}
-        targets: list[str] = [server.ip_address, server.hostname]
-        for key in (
-            "tailscale_ip",
-            "tailscale_ipv4",
-            "tailscale_ipv6",
-            "management_ip",
-            "detected_ip_address",
-            "lan_ip",
-        ):
-            self._append_target(targets, metadata.get(key))
-        for key in ("tailscale_ips", "ip_addresses", "detected_ip_addresses", "management_ips"):
-            self._append_target(targets, metadata.get(key))
-        return list(dict.fromkeys(target for target in targets if target))
+        target = self._monitoring_target(server)
+        return [target] if target else []
 
-    async def _prometheus_instances_for_hostname(
-        self,
-        hostname: str,
-        config: ProviderConnectionConfig | None,
-    ) -> list[str]:
-        if config is None or not hostname:
-            return []
-        safe_hostname = hostname.replace("\\", "\\\\").replace('"', '\\"')
-        queries = [
-            f'node_uname_info{{nodename="{safe_hostname}"}}',
-            f'node_uname_info{{instance=~"{re.escape(hostname)}(:[0-9]+)?$"}}',
-        ]
-        instances: list[str] = []
-        try:
-            async with httpx.AsyncClient(timeout=config.timeout_seconds, verify=config.verify_ssl) as client:
-                for query in queries:
-                    response = await client.get(
-                        f"{config.base_url}/api/v1/query",
-                        params={"query": query},
-                        headers=config.headers,
-                    )
-                    response.raise_for_status()
-                    for result in response.json().get("data", {}).get("result", []):
-                        metric = result.get("metric", {})
-                        instance = metric.get("instance") if isinstance(metric, dict) else None
-                        if isinstance(instance, str) and instance.strip():
-                            instances.append(instance.strip())
-        except Exception:
-            return []
-        return list(dict.fromkeys(instances))
+    @staticmethod
+    def _monitoring_interface(server: Server) -> str | None:
+        metadata = server.provider_metadata if isinstance(server.provider_metadata, dict) else {}
+        value = getattr(server, "monitoring_interface", None) or metadata.get("monitoring_interface")
+        return value if isinstance(value, str) and value in {"lan", "tailscale", "localhost", "docker"} else None
+
+    @staticmethod
+    def _monitoring_strategy(server: Server) -> str:
+        metadata = server.provider_metadata if isinstance(server.provider_metadata, dict) else {}
+        value = getattr(server, "monitoring_strategy", None) or metadata.get("monitoring_strategy") or "host"
+        return value if isinstance(value, str) and value in {"host", "container", "host_container"} else "host"
+
+    @staticmethod
+    def _monitoring_target(server: Server) -> str | None:
+        metadata = server.provider_metadata if isinstance(server.provider_metadata, dict) else {}
+        value = getattr(server, "monitoring_target", None) or metadata.get("monitoring_target")
+        return value.strip() if isinstance(value, str) and value.strip() else None
+
+    @staticmethod
+    def _container_monitoring_target(server: Server) -> str | None:
+        metadata = server.provider_metadata if isinstance(server.provider_metadata, dict) else {}
+        value = metadata.get("cadvisor_target") or metadata.get("container_monitoring_target")
+        return value.strip() if isinstance(value, str) and value.strip() else None
+
+    @staticmethod
+    def _loki_selector(server: Server, monitoring_target: str | None) -> str | None:
+        metadata = server.provider_metadata if isinstance(server.provider_metadata, dict) else {}
+        raw_selector = metadata.get("loki_selector")
+        if isinstance(raw_selector, str) and raw_selector.strip():
+            return raw_selector.strip()
+        if monitoring_target:
+            return f'{{instance="{monitoring_target}"}}'
+        return None
+
+    @staticmethod
+    def _operational_summary(server: Server) -> dict[str, float | None]:
+        metadata = server.provider_metadata if isinstance(server.provider_metadata, dict) else {}
+        return {
+            "cpu": _optional_float(metadata.get("cpu_usage_percent")),
+            "memory": _optional_float(metadata.get("memory_usage_percent")),
+            "disk": _optional_float(metadata.get("disk_usage_percent")),
+            "uptime": _optional_float(metadata.get("uptime_seconds")),
+        }
+
+    @staticmethod
+    def _metadata_bool(server: Server, key: str) -> bool:
+        metadata = server.provider_metadata if isinstance(server.provider_metadata, dict) else {}
+        return bool(metadata.get(key))
+
+    @staticmethod
+    def _display_state(state: str) -> str:
+        return {
+            "monitoring_ready": "Healthy",
+            "monitoring_partial": "Partial",
+            "monitoring_missing": "Missing",
+            "stale_metrics": "Stale",
+            "unknown": "Unknown",
+        }.get(state, "Unknown")
 
     @staticmethod
     def _append_target(targets: list[str], value: object) -> None:
@@ -477,21 +556,6 @@ class MonitoringService:
                         nested = item.get(key)
                         if isinstance(nested, str) and nested.strip():
                             targets.append(nested.strip())
-
-    @staticmethod
-    def _instance_selector(monitoring_targets: list[str]) -> str:
-        targets = [target for target in monitoring_targets if target]
-        if not targets:
-            return "$^"
-        patterns: list[str] = []
-        for target in targets:
-            escaped = re.escape(target)
-            if ":" in target:
-                patterns.append(escaped)
-            else:
-                patterns.append(f"{escaped}(:[0-9]+)?")
-                patterns.append(f"{escaped}.*")
-        return "|".join(dict.fromkeys(patterns))
 
     @staticmethod
     def _first_value(payload: dict[str, Any]) -> float | None:
@@ -529,8 +593,9 @@ class MonitoringService:
     def _prometheus_url(config: ProviderConnectionConfig | None, monitoring_targets: list[str]) -> str | None:
         if config is None:
             return None
-        selector = MonitoringService._instance_selector(monitoring_targets)
-        return f"{config.base_url}/graph?g0.expr=up%7Binstance%3D~%22{selector}%22%7D"
+        if not monitoring_targets:
+            return config.base_url
+        return f"{config.base_url}/graph?g0.expr=up%7Binstance%3D%22{monitoring_targets[0]}%22%7D"
 
     @staticmethod
     def _loki_url(config: ProviderConnectionConfig | None) -> str | None:
@@ -546,3 +611,14 @@ def _provider_status(
     return next(
         provider for provider in providers if provider.provider_type == provider_type.value
     )
+
+
+def _optional_float(value: object) -> float | None:
+    try:
+        return float(value) if value is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _optional_str(value: object) -> str | None:
+    return value if isinstance(value, str) and value else None

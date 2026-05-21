@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { getApiErrorMessage } from '../../../lib/api/client';
 import { runVmAction } from '../../proxmox/api/proxmoxApi';
@@ -51,14 +51,16 @@ export function useServers(): UseServersResult {
   const [isCheckingHealth, setIsCheckingHealth] = useState(false);
   const [isRunningVmLifecycleAction, setIsRunningVmLifecycleAction] = useState(false);
   const [includeInactive, setIncludeInactive] = useState(false);
+  const hasLoadedRef = useRef(false);
 
   const refreshServers = useCallback(async () => {
-    setIsLoading(true);
+    setIsLoading(!hasLoadedRef.current);
     setError(null);
 
     try {
       const nextServers = await listServers(includeInactive);
-      setServers(nextServers);
+      setServers((currentServers) => reconcileServers(currentServers, nextServers));
+      hasLoadedRef.current = true;
     } catch (caughtError) {
       setError(getApiErrorMessage(caughtError));
     } finally {
@@ -288,4 +290,25 @@ function getInventoryVmId(server: Server): number | null {
 
   const vmId = Number(rawVmId);
   return Number.isInteger(vmId) && vmId > 0 ? vmId : null;
+}
+
+function reconcileServers(currentServers: Server[], nextServers: Server[]): Server[] {
+  if (currentServers.length === 0) {
+    return nextServers;
+  }
+  const currentById = new Map(currentServers.map((server) => [server.id, server]));
+  return nextServers.map((nextServer) => {
+    const currentServer = currentById.get(nextServer.id);
+    if (!currentServer) {
+      return nextServer;
+    }
+    if (
+      currentServer.updated_at === nextServer.updated_at &&
+      currentServer.runtime_state?.last_checked_at === nextServer.runtime_state?.last_checked_at &&
+      currentServer.runtime_state?.stale_after === nextServer.runtime_state?.stale_after
+    ) {
+      return currentServer;
+    }
+    return nextServer;
+  });
 }

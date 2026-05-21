@@ -21,6 +21,12 @@ from backend.app.modules.workflows.models import WorkflowRun
 from backend.app.modules.inventory.repository import ServerRepository
 from backend.app.modules.inventory.schemas import ProxmoxInventoryImport, ServerCreate, ServerUpdate
 from backend.app.modules.proxmox.schemas import ProxmoxVmRead
+from backend.app.modules.runtime_state.repository import (
+    NodeRuntimeSnapshotRepository,
+    RuntimeRefreshEventRepository,
+    RuntimeRefreshStatusRepository,
+)
+from backend.app.modules.runtime_state.snapshots import RuntimeSnapshotService
 
 logger = structlog.get_logger(__name__)
 
@@ -38,6 +44,11 @@ class InventoryService:
 
     def __init__(self, repository: ServerRepository) -> None:
         self.repository = repository
+        self.runtime_snapshots = RuntimeSnapshotService(
+            NodeRuntimeSnapshotRepository(repository.session),
+            status_repository=RuntimeRefreshStatusRepository(repository.session),
+            event_repository=RuntimeRefreshEventRepository(repository.session),
+        )
 
     async def create_server(self, payload: ServerCreate) -> Server:
         await self._ensure_unique(hostname=payload.hostname, ip_address=payload.ip_address)
@@ -49,6 +60,7 @@ class InventoryService:
         server = Server(**data)
         try:
             created = await self.repository.create(server)
+            await self.runtime_snapshots.refresh_inventory_snapshot(created, commit=False)
             await self.repository.session.commit()
         except IntegrityError as exc:
             await self.repository.session.rollback()
@@ -131,6 +143,7 @@ class InventoryService:
 
         try:
             created = await self.repository.create(server)
+            await self.runtime_snapshots.refresh_inventory_snapshot(created, commit=False)
             await self.repository.session.commit()
         except IntegrityError as exc:
             await self.repository.session.rollback()
@@ -183,6 +196,7 @@ class InventoryService:
 
         await self.repository.session.commit()
         await self.repository.session.refresh(server)
+        await self.runtime_snapshots.refresh_inventory_snapshot(server)
         logger.info(
             "proxmox_vm_restored_from_archive",
             server_id=str(server.id),
@@ -211,6 +225,7 @@ class InventoryService:
         try:
             await self.repository.session.flush()
             await self.repository.session.refresh(server)
+            await self.runtime_snapshots.refresh_inventory_snapshot(server, commit=False)
             await self.repository.session.commit()
         except IntegrityError as exc:
             await self.repository.session.rollback()
@@ -246,6 +261,7 @@ class InventoryService:
         }
         await self.repository.session.commit()
         await self.repository.session.refresh(server)
+        await self.runtime_snapshots.refresh_inventory_snapshot(server)
         logger.info("server_decommissioned", server_id=str(server.id), hostname=server.hostname)
         return server
 
@@ -270,6 +286,7 @@ class InventoryService:
         }
         await self.repository.session.commit()
         await self.repository.session.refresh(server)
+        await self.runtime_snapshots.refresh_inventory_snapshot(server)
         logger.info("server_restored", server_id=str(server.id), hostname=server.hostname)
         return server
 
@@ -285,6 +302,7 @@ class InventoryService:
         server.sync_state = InventorySyncStatus.UNMANAGED
         await self.repository.session.commit()
         await self.repository.session.refresh(server)
+        await self.runtime_snapshots.refresh_inventory_snapshot(server)
         logger.info("server_marked_unmanaged", server_id=str(server.id), hostname=server.hostname)
         return server
 
@@ -341,12 +359,14 @@ class InventoryService:
         server.last_health_status = InventoryHealthStatus.ARCHIVED
         await self.repository.session.commit()
         await self.repository.session.refresh(server)
+        await self.runtime_snapshots.refresh_inventory_snapshot(server)
+        await self.runtime_snapshots.refresh_inventory_snapshot(server)
 
     async def get_server(self, server_id: UUID) -> Server:
         server = await self.repository.get_by_id(server_id)
         if server is None:
             raise ServerNotFoundError("Server not found")
-        return server
+        return await self.runtime_snapshots.attach_snapshot(server)
 
     async def list_servers(
         self,
@@ -356,12 +376,13 @@ class InventoryService:
         search: str | None = None,
         include_inactive: bool = False,
     ) -> list[Server]:
-        return await self.repository.list(
+        servers = await self.repository.list(
             environment=environment,
             provider=provider,
             search=search,
             include_inactive=include_inactive,
         )
+        return await self.runtime_snapshots.attach_snapshots(servers)
 
     async def reconcile_proxmox_inventory(
         self,
@@ -405,6 +426,7 @@ class InventoryService:
             changed.append(server)
 
         if changed:
+            await self.runtime_snapshots.refresh_inventory_snapshots(changed, commit=False)
             await self.repository.session.commit()
 
         return changed

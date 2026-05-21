@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { Activity, Box, ExternalLink, HardDrive, Loader2, Play, Power, RefreshCw, RotateCw, ServerIcon, ShieldCheck, TerminalSquare, Trash2 } from 'lucide-react';
+import { Activity, Box, ExternalLink, HardDrive, Loader2, Play, Power, RefreshCw, RotateCw, ServerIcon, ShieldCheck, TerminalSquare } from 'lucide-react';
 
 import { PageHeader } from '../../../components/layout/PageHeader';
 import { getApiErrorMessage } from '../../../lib/api/client';
@@ -20,6 +20,8 @@ import { runVmAction } from '../../proxmox/api/proxmoxApi';
 import type { ProxmoxVmAction } from '../../proxmox/types/proxmox';
 import { FileBrowserPanel } from '../../remote-access/components/FileBrowserPanel';
 import { ShellPanel } from '../../remote-access/components/ShellPanel';
+import { RuntimeStateBadge } from '../../runtime-state/components/RuntimeStateBadge';
+import { canRunLifecycleAction } from '../../runtime-state/utils/eligibility';
 import { listWorkflows } from '../../workflows/api/workflowsApi';
 import type { WorkflowRun } from '../../workflows/types/workflow';
 import {
@@ -188,6 +190,7 @@ export function HostDetailPage() {
           <LifecycleBadge state={server.lifecycle_state} />
           <SyncBadge status={server.sync_status} />
           <HealthBadge status={server.last_health_status} />
+          <RuntimeStateBadge runtimeState={server.runtime_state} />
           <ReadinessBadge readiness={nodeReadiness(server, state)} />
           <NodeTypePill nodeType={server.node_type} />
         </div>
@@ -229,7 +232,7 @@ export function HostDetailPage() {
         <HostTabPanel
           activeVmAction={activeVmAction}
           allowManagement={allowManagement}
-          canUseRemoteAccess={allowManagement}
+          canUseRemoteAccess={allowManagement && Boolean(server.runtime_state?.eligibility.can_open_shell ?? true)}
           server={server}
           state={state}
           tab={activeTab}
@@ -259,8 +262,9 @@ export function HostDetailPage() {
               <Info label="Provider" value={`${server.provider}${server.provider_node ? ` / ${server.provider_node}` : ''}`} />
               <Info label="Lifecycle" value={server.lifecycle_state} />
               <Info label="Operational state" value={nodeReadiness(server, state)} />
-              <Info label="SSH readiness" value={sshReadiness(server, state)} />
-              <Info label="Monitoring state" value={monitoringReadiness(state)} />
+              <Info label="SSH readiness" value={server.runtime_state?.ssh_state ?? sshReadiness(server, state)} />
+              <Info label="Monitoring state" value={server.runtime_state?.monitoring_state ?? monitoringReadiness(state)} />
+              <Info label="Provider state" value={server.runtime_state?.provider_state ?? 'unknown'} />
             </dl>
           </Panel>
 
@@ -631,14 +635,16 @@ function VmLifecycleActions({
   const vmId = getProviderVmId(server);
   const isBusy = activeAction !== null;
   const isLinkedProxmoxVm = server.provider === 'proxmox' && vmId !== null;
-  const isOnline = server.status === 'online' || server.last_health_status === 'online';
   const commonDisabled = !allowManagement || !isLinkedProxmoxVm || isBusy;
+  const canStart = canRunLifecycleAction(server.runtime_state, 'start') || (!server.runtime_state && isLinkedProxmoxVm);
+  const canStop = canRunLifecycleAction(server.runtime_state, 'stop') || (!server.runtime_state && (server.status === 'online' || server.last_health_status === 'online'));
+  const canReboot = canRunLifecycleAction(server.runtime_state, 'reboot') || (!server.runtime_state && (server.status === 'online' || server.last_health_status === 'online'));
 
   return (
     <div className="flex flex-wrap gap-2">
       <LifecycleButton
         action="start"
-        disabled={commonDisabled || isOnline}
+        disabled={commonDisabled || !canStart}
         icon={Play}
         isLoading={activeAction === 'start'}
         label="Start"
@@ -647,7 +653,7 @@ function VmLifecycleActions({
       />
       <LifecycleButton
         action="shutdown"
-        disabled={commonDisabled || !isOnline}
+        disabled={commonDisabled || !canStop}
         icon={Power}
         isLoading={activeAction === 'shutdown'}
         label="Shutdown"
@@ -655,7 +661,7 @@ function VmLifecycleActions({
       />
       <LifecycleButton
         action="reboot"
-        disabled={commonDisabled || !isOnline}
+        disabled={commonDisabled || !canReboot}
         icon={RotateCw}
         isLoading={activeAction === 'reboot'}
         label="Reboot"
@@ -663,21 +669,12 @@ function VmLifecycleActions({
       />
       <LifecycleButton
         action="stop"
-        disabled={commonDisabled || !isOnline}
+        disabled={commonDisabled || !canStop}
         icon={Power}
         isLoading={activeAction === 'stop'}
         label="Stop"
         tone="danger"
         onClick={() => onAction('stop')}
-      />
-      <LifecycleButton
-        action="delete"
-        disabled={commonDisabled || isOnline}
-        icon={Trash2}
-        isLoading={activeAction === 'delete'}
-        label="Delete"
-        tone="danger"
-        onClick={() => onAction('delete')}
       />
     </div>
   );
@@ -856,6 +853,12 @@ function formatPercent(value: number | null | undefined): string {
 }
 
 function nodeReadiness(server: Server, state: LoadState): string {
+  if (server.runtime_state) {
+    if (server.runtime_state.degraded_reasons.length) {
+      return 'degraded';
+    }
+    return server.runtime_state.orchestration_state;
+  }
   const metadataReadiness = String(server.provider_metadata.operational_readiness ?? '').trim();
   if (metadataReadiness) {
     if (!state.prometheus?.reachable && metadataReadiness === 'booted') {

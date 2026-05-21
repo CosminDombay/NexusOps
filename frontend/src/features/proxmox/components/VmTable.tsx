@@ -1,7 +1,9 @@
-import { Download, Loader2, Play, Power, RotateCw, Trash2 } from 'lucide-react';
+import { Download, Loader2, Play, Power, RotateCw } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
 import type { ProxmoxVm, ProxmoxVmAction } from '../types/proxmox';
+import { RuntimeStateBadge } from '../../runtime-state/components/RuntimeStateBadge';
+import { canRunLifecycleAction } from '../../runtime-state/utils/eligibility';
 import { formatBytes, formatPercent, titleCase } from '../utils/format';
 import { StatusBadge } from './StatusBadge';
 
@@ -26,7 +28,7 @@ export function VmTable({ vms, actionByVmId, allowActions, allowImport = allowAc
         <table className="min-w-full divide-y divide-zinc-200">
           <thead className="bg-zinc-50">
             <tr>
-              {['VM', 'Node', 'Type', 'Status', 'Inventory', 'CPU', 'Memory', 'Actions'].map(
+              {['VM', 'Node', 'Type', 'Status', 'Runtime', 'Inventory', 'CPU', 'Memory', 'Actions'].map(
                 (heading) => (
                   <th
                     key={heading}
@@ -57,6 +59,14 @@ export function VmTable({ vms, actionByVmId, allowActions, allowImport = allowAc
                 </td>
                 <td className="px-5 py-4">
                   <StatusBadge status={vm.status} />
+                </td>
+                <td className="px-5 py-4">
+                  <RuntimeStateBadge runtimeState={vm.runtime_state} />
+                  {vm.runtime_state?.degraded_reasons.length ? (
+                    <div className="mt-1 text-xs text-zinc-500">
+                      {vm.runtime_state.degraded_reasons.slice(0, 2).map(titleCase).join(', ')}
+                    </div>
+                  ) : null}
                 </td>
                 <td className="px-5 py-4">
                   <InventoryBadge status={vm.inventory_sync_status} />
@@ -106,6 +116,7 @@ export function VmTable({ vms, actionByVmId, allowActions, allowImport = allowAc
               <StatusBadge status={vm.status} />
             </div>
             <div className="mt-3 flex flex-wrap gap-2">
+              <RuntimeStateBadge runtimeState={vm.runtime_state} />
               <InventoryBadge status={vm.inventory_sync_status} />
             </div>
             <dl className="mt-4 grid grid-cols-2 gap-3 text-sm">
@@ -149,9 +160,11 @@ export function VmActions({
   onAction: (vm: ProxmoxVm, action: ProxmoxVmAction) => void;
   onImport: (vm: ProxmoxVm) => void;
 }) {
-  const isRunning = vm.status === 'running';
   const isBusy = Boolean(activeAction);
   const canImport = vm.inventory_sync_status === 'unmanaged' || vm.inventory_sync_status === 'archived';
+  const canStart = canRunLifecycleAction(vm.runtime_state, 'start') || (!vm.runtime_state && vm.status !== 'running');
+  const canStop = canRunLifecycleAction(vm.runtime_state, 'stop') || (!vm.runtime_state && vm.status === 'running');
+  const canReboot = canRunLifecycleAction(vm.runtime_state, 'reboot') || (!vm.runtime_state && vm.status === 'running');
 
   if (!allowActions) {
     return (
@@ -176,7 +189,7 @@ export function VmActions({
     <div className="flex flex-wrap gap-2">
       <ActionButton
         action="start"
-        disabled={isRunning || isBusy}
+        disabled={!canStart || isBusy}
         icon={Play}
         isLoading={activeAction === 'start'}
         label="Start"
@@ -185,7 +198,7 @@ export function VmActions({
       />
       <ActionButton
         action="shutdown"
-        disabled={!isRunning || isBusy}
+        disabled={!canStop || isBusy}
         icon={Power}
         isLoading={activeAction === 'shutdown'}
         label="Shutdown"
@@ -193,7 +206,7 @@ export function VmActions({
       />
       <ActionButton
         action="reboot"
-        disabled={!isRunning || isBusy}
+        disabled={!canReboot || isBusy}
         icon={RotateCw}
         isLoading={activeAction === 'reboot'}
         label="Reboot"
@@ -201,21 +214,12 @@ export function VmActions({
       />
       <ActionButton
         action="stop"
-        disabled={!isRunning || isBusy}
+        disabled={!canStop || isBusy}
         icon={Power}
         isLoading={activeAction === 'stop'}
         label="Stop"
         tone="danger"
         onClick={() => onAction(vm, 'stop')}
-      />
-      <ActionButton
-        action="delete"
-        disabled={isRunning || isBusy}
-        icon={Trash2}
-        isLoading={activeAction === 'delete'}
-        label="Delete"
-        tone="danger"
-        onClick={() => onAction(vm, 'delete')}
       />
       {allowImport ? (
         <button

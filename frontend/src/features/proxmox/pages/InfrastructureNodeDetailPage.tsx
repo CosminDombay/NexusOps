@@ -8,6 +8,7 @@ import { useAuth } from '../../auth/hooks/useAuth';
 import { decommissionServer, deleteServer, restoreServer } from '../../inventory/api/serversApi';
 import { getProxmoxNodeDetail, runVmAction } from '../api/proxmoxApi';
 import type { ProxmoxNodeDetail, ProxmoxVm, ProxmoxVmAction } from '../types/proxmox';
+import { RuntimeStateBadge } from '../../runtime-state/components/RuntimeStateBadge';
 import { formatBytes, formatPercent, formatUptime, titleCase } from '../utils/format';
 import { StatusBadge } from '../components/StatusBadge';
 import { VmActions } from '../components/VmTable';
@@ -133,6 +134,7 @@ export function InfrastructureNodeDetailPage() {
       <div className="flex items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-2">
           <StatusBadge status={node.status} />
+          <RuntimeStateBadge runtimeState={node.runtime_state} />
           <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700 ring-1 ring-inset ring-slate-200">
             Hypervisor host
           </span>
@@ -164,6 +166,7 @@ export function InfrastructureNodeDetailPage() {
         <Panel title="Management" icon={ShieldCheck}>
           <Info label="Management IP" value={node.management_ip ?? 'Not discovered'} />
           <Info label="Inventory state" value={node.inventory_lifecycle_state ?? node.inventory_sync_status} />
+          <Info label="Runtime state" value={node.runtime_state?.orchestration_state ?? 'unknown'} />
           <Info label="Provider" value="Proxmox hypervisor node" />
           {allowActions && node.inventory_server_id ? (
             <div className="flex flex-wrap gap-2 pt-2">
@@ -220,7 +223,7 @@ export function InfrastructureNodeDetailPage() {
         <div className="overflow-x-auto">
           <table className="min-w-full divide-y divide-zinc-200">
             <thead className="bg-zinc-50">
-              <tr>{['Name', 'VMID', 'Type', 'Status', 'IP', 'Inventory', 'Actions'].map((heading) => <th key={heading} className="px-5 py-3 text-left text-xs font-semibold uppercase text-zinc-500">{heading}</th>)}</tr>
+              <tr>{['Name', 'VMID', 'Type', 'Status', 'Runtime', 'IP', 'Inventory', 'Actions'].map((heading) => <th key={heading} className="px-5 py-3 text-left text-xs font-semibold uppercase text-zinc-500">{heading}</th>)}</tr>
             </thead>
             <tbody className="divide-y divide-zinc-100">
               {vms.map((vm) => (
@@ -229,6 +232,7 @@ export function InfrastructureNodeDetailPage() {
                   <td className="px-5 py-4 font-mono text-sm text-zinc-700">{vm.vm_id}</td>
                   <td className="px-5 py-4 text-sm text-zinc-700">{vm.type}</td>
                   <td className="px-5 py-4"><StatusBadge status={vm.status} /></td>
+                  <td className="px-5 py-4"><RuntimeStateBadge runtimeState={vm.runtime_state} /></td>
                   <td className="px-5 py-4 font-mono text-sm text-zinc-700">{vm.ip_address ?? '-'}</td>
                   <td className="px-5 py-4 text-sm">
                     {vm.inventory_server_id ? <Link className="font-semibold text-zinc-800 hover:text-zinc-950" to={`/inventory/${vm.inventory_server_id}`}>{vm.inventory_hostname}</Link> : titleCase(vm.inventory_sync_status)}
