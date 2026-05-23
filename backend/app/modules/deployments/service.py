@@ -1,5 +1,6 @@
 from datetime import UTC, datetime
 import re
+from hashlib import sha256
 from uuid import UUID
 
 from backend.app.modules.deployments.models import (
@@ -470,6 +471,15 @@ class DockerComposeDeploymentService:
 
     @staticmethod
     def _heredoc(filename: str, content: str, marker: str) -> str:
+        base_marker = marker
+        digest = sha256(content.encode("utf-8")).hexdigest()
+        suffix_length = 12
+        attempt = 0
+        while re.search(rf"^{re.escape(marker)}$", content, flags=re.MULTILINE):
+            attempt += 1
+            counter_suffix = f"_{attempt}" if suffix_length == len(digest) else ""
+            marker = f"{base_marker}_{digest[:suffix_length]}{counter_suffix}"
+            suffix_length = min(len(digest), suffix_length + 4)
         return f"cat > {filename} <<'{marker}'\n{content}\n{marker}"
 
     @classmethod

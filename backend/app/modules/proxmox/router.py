@@ -252,16 +252,46 @@ async def get_dashboard(
     dependencies=[Depends(require_operator)],
 )
 async def sync_proxmox_hosts(
-    service: Annotated[ProxmoxService, Depends(get_proxmox_service)],
+    services: Annotated[list[tuple[ProxmoxService, IntegrationService, object]], Depends(get_proxmox_services)],
 ) -> ProxmoxHostSyncRead:
-    try:
-        return await service.sync_hosts()
-    except (
-        ProxmoxConfigurationError,
-        ProxmoxConnectionError,
-        ProxmoxVmActionNotAllowedError,
-    ) as exc:
-        raise _map_proxmox_error(exc) from exc
+    if not services:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="No enabled Proxmox integration is configured",
+        )
+
+    discovered_count = imported_count = updated_count = 0
+    hosts: list[ProxmoxNodeRead] = []
+    skipped: list[str] = []
+
+    for service, integration_service, integration in services:
+        try:
+            await integration_service.mark_integration_syncing(integration)
+            result = await service.sync_hosts()
+            await integration_service.mark_integration_connected(integration)
+        except (ProxmoxConfigurationError, ProxmoxConnectionError, ProxmoxVmActionNotAllowedError) as exc:
+            await integration_service.mark_integration_error(integration, str(exc))
+            await InventoryService(ServerRepository(integration_service.repository.session)).mark_integration_resources_disconnected(
+                integration.id,
+                error=str(exc),
+            )
+            skipped.append(f"{integration.name}: {exc}")
+            continue
+
+        discovered_count += result.discovered_count
+        imported_count += result.imported_count
+        updated_count += result.updated_count
+        hosts.extend(result.hosts)
+        skipped.extend(result.skipped)
+
+    return ProxmoxHostSyncRead(
+        discovered_count=discovered_count,
+        imported_count=imported_count,
+        updated_count=updated_count,
+        skipped_count=len(skipped),
+        hosts=hosts,
+        skipped=skipped,
+    )
 
 @router.post(
     "/guests/sync",
@@ -269,16 +299,46 @@ async def sync_proxmox_hosts(
     dependencies=[Depends(require_operator)],
 )
 async def sync_proxmox_guests(
-    service: Annotated[ProxmoxService, Depends(get_proxmox_service)],
+    services: Annotated[list[tuple[ProxmoxService, IntegrationService, object]], Depends(get_proxmox_services)],
 ) -> ProxmoxGuestSyncRead:
-    try:
-        return await service.sync_guests()
-    except (
-        ProxmoxConfigurationError,
-        ProxmoxConnectionError,
-        ProxmoxVmActionNotAllowedError,
-    ) as exc:
-        raise _map_proxmox_error(exc) from exc
+    if not services:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="No enabled Proxmox integration is configured",
+        )
+
+    discovered_count = imported_count = updated_count = 0
+    guests: list[ProxmoxVmRead] = []
+    skipped: list[str] = []
+
+    for service, integration_service, integration in services:
+        try:
+            await integration_service.mark_integration_syncing(integration)
+            result = await service.sync_guests()
+            await integration_service.mark_integration_connected(integration)
+        except (ProxmoxConfigurationError, ProxmoxConnectionError, ProxmoxVmActionNotAllowedError) as exc:
+            await integration_service.mark_integration_error(integration, str(exc))
+            await InventoryService(ServerRepository(integration_service.repository.session)).mark_integration_resources_disconnected(
+                integration.id,
+                error=str(exc),
+            )
+            skipped.append(f"{integration.name}: {exc}")
+            continue
+
+        discovered_count += result.discovered_count
+        imported_count += result.imported_count
+        updated_count += result.updated_count
+        guests.extend(result.guests)
+        skipped.extend(result.skipped)
+
+    return ProxmoxGuestSyncRead(
+        discovered_count=discovered_count,
+        imported_count=imported_count,
+        updated_count=updated_count,
+        skipped_count=len(skipped),
+        guests=guests,
+        skipped=skipped,
+    )
 
 
 @router.post(

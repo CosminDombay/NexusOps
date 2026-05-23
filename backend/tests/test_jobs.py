@@ -9,7 +9,12 @@ from backend.app.modules.inventory.service import InventoryService
 from backend.app.modules.inventory.schemas import ServerCreate
 from backend.app.modules.jobs.models import JobStatus
 from backend.app.modules.jobs.repository import CustomOperationalActionRepository, JobRepository
-from backend.app.modules.jobs.schemas import JobActionExecuteRequest, JobExecuteRequest, OperationalActionCreate
+from backend.app.modules.jobs.schemas import (
+    JobActionExecuteRequest,
+    JobBulkExecuteRequest,
+    JobExecuteRequest,
+    OperationalActionCreate,
+)
 from backend.app.modules.jobs.service import (
     JobService,
     JobTargetNotFoundError,
@@ -163,6 +168,33 @@ async def test_job_service_marks_nonzero_exit_as_failed(client) -> None:
         assert job.status == JobStatus.FAILED
         assert job.exit_code == 1
         assert job.stderr == "command failed\n"
+
+
+@pytest.mark.asyncio
+async def test_bulk_job_request_dedupes_target_ids(client) -> None:
+    session = next(iter(client.app.dependency_overrides.values()))
+    async for db_session in session():
+        server = await InventoryService(ServerRepository(db_session)).create_server(
+            ServerCreate(**server_payload(hostname="bulk-target-01", ip_address="10.1.0.21"))
+        )
+        adapter = FakeSshAdapter()
+        service = JobService(
+            job_repository=JobRepository(db_session),
+            server_repository=ServerRepository(db_session),
+            ssh_adapter=adapter,
+        )
+
+        result = await service.execute_bulk(
+            JobBulkExecuteRequest(
+                target_server_ids=[server.id, server.id],
+                command="uptime",
+            )
+        )
+
+        assert result.success_count == 1
+        assert result.failure_count == 0
+        assert len(result.results) == 1
+        assert len(adapter.calls) == 1
 
 
 @pytest.mark.asyncio

@@ -195,6 +195,20 @@ async def test_proxmox_host_sync_imports_hypervisor_inventory(client) -> None:
         assert servers[0].provider_metadata["running_vm_count"] == 1
 
 
+def test_proxmox_global_host_sync_requires_enabled_integration(client) -> None:
+    response = client.post("/api/v1/proxmox/hosts/sync")
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == "No enabled Proxmox integration is configured"
+
+
+def test_proxmox_global_guest_sync_requires_enabled_integration(client) -> None:
+    response = client.post("/api/v1/proxmox/guests/sync")
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == "No enabled Proxmox integration is configured"
+
+
 @pytest.mark.asyncio
 async def test_proxmox_host_sync_adopts_legacy_hostname_record(client) -> None:
     session = next(iter(client.app.dependency_overrides.values()))

@@ -363,11 +363,13 @@ class ProvisioningService:
                 provider="proxmox",
                 external_id=str(payload.new_vm_id),
                 source="provisioned",
+                source_type="proxmox",
                 managed=True,
                 node_type=ManagedNodeType.LXC if payload.provisioning_type == "lxc" else ManagedNodeType.VM,
                 management_state=ManagementState.MANAGED,
                 lifecycle_state=InventoryLifecycleState.PROVISIONED,
                 sync_status=InventorySyncStatus.SYNCED,
+                sync_state=InventorySyncStatus.SYNCED,
                 provider_node=payload.target_node,
                 provider_type=payload.provisioning_type,
                 provider_metadata={

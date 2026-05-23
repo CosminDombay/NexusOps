@@ -265,6 +265,40 @@ async def test_deployment_service_updates_record_and_marks_draft(client) -> None
         assert updated.remote_path == "/home/ubuntu/nexusops/deployments"
 
 
+def test_deployment_heredoc_marker_changes_when_content_contains_marker() -> None:
+    script = DockerComposeDeploymentService._heredoc(
+        "docker-compose.yaml",
+        "services:\nNEXUSOPS_COMPOSE_EOF\n  app:\n    image: nginx",
+        "NEXUSOPS_COMPOSE_EOF",
+    )
+
+    first_line, *_, last_line = script.splitlines()
+
+    assert first_line != "cat > docker-compose.yaml <<'NEXUSOPS_COMPOSE_EOF'"
+    assert first_line.startswith("cat > docker-compose.yaml <<'NEXUSOPS_COMPOSE_EOF_")
+    assert last_line.startswith("NEXUSOPS_COMPOSE_EOF_")
+
+
+def test_deployment_heredoc_marker_keeps_changing_until_unique() -> None:
+    marker = "NEXUSOPS_COMPOSE_EOF"
+    first_script = DockerComposeDeploymentService._heredoc(
+        "docker-compose.yaml",
+        marker,
+        marker,
+    )
+    generated_marker = first_script.split("<<'", 1)[1].split("'", 1)[0]
+
+    script = DockerComposeDeploymentService._heredoc(
+        "docker-compose.yaml",
+        f"{marker}\n{generated_marker}",
+        marker,
+    )
+
+    first_line, *_, last_line = script.splitlines()
+
+    assert generated_marker not in {first_line.split("<<'", 1)[1].split("'", 1)[0], last_line}
+
+
 def test_profiles_router_lists_profiles(client) -> None:
     response = client.get("/api/v1/profiles")
 

@@ -31,6 +31,11 @@ class JobBulkExecuteRequest(BaseModel):
     operation_type: str = Field(default="command", min_length=1, max_length=100)
     credential_ref: str | None = Field(default=None, max_length=255)
 
+    @field_validator("target_server_ids")
+    @classmethod
+    def dedupe_target_server_ids(cls, value: list[UUID]) -> list[UUID]:
+        return list(dict.fromkeys(value))
+
     @field_validator("command", "redacted_command", "operation_type")
     @classmethod
     def strip_bulk_required_strings(cls, value: str) -> str:

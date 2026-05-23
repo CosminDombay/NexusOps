@@ -212,6 +212,9 @@ async def test_provisioning_creates_vm_and_inventory_record(client) -> None:
         servers = await ServerRepository(db_session).list(search="10.3.0.50")
         assert len(servers) == 1
         assert servers[0].provider == "proxmox"
+        assert servers[0].source_type == "proxmox"
+        assert servers[0].sync_status == InventorySyncStatus.SYNCED
+        assert servers[0].sync_state == InventorySyncStatus.SYNCED
 
 
 @pytest.mark.asyncio
@@ -376,3 +379,4 @@ async def test_provisioning_restores_archived_inventory_record_for_reused_ip(cli
         assert restored.ip_address == "10.3.0.50"
         assert restored.lifecycle_state == InventoryLifecycleState.PROVISIONED
         assert restored.managed is True
+        assert restored.sync_state == InventorySyncStatus.SYNCED
