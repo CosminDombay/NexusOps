@@ -13,7 +13,7 @@ Proxmox visibility/lifecycle control, template-based VM provisioning with NexusO
 Proxmox-to-inventory synchronization, SSH-backed job execution, reusable operational actions, package definitions,
 infrastructure profiles, editable operational templates, credential-backed secret injection, Docker Compose deployments, and simple variable-driven execution.
 
-The latest full project review is documented in `docs/project-review-up-to-2026-05-23.md`.
+The latest monitoring/inventory review is documented in `docs/project-review-2026-05-23-monitoring-inventory.md`.
 
 ## MVP Domains
 
@@ -38,7 +38,7 @@ The latest full project review is documented in `docs/project-review-up-to-2026-
 - SSH-backed Docker Compose deployment workflows
 - Credential-backed deployment environment variables
 - Package installation automation
-- Prometheus-backed monitoring/statistics foundations
+- Snapshot-backed monitoring validation with Prometheus/Grafana provider links
 - Linux identity orchestration and replication
 - guided access profiles for Linux identity operations
 - distro-aware administrator group abstraction
@@ -131,7 +131,7 @@ docker compose -f infra/docker-compose.dev.yml up --build
 - Built-in profiles can be edited as persisted working copies, cloned into user-managed templates, reordered, or restored to the system default.
 - Integration records provide a central place to store and test provider/monitoring connection metadata while runtime adapters still primarily use local environment configuration.
 - Docker Compose deployments store compose/env definitions and execute deploy/redeploy/restart/stop/status/logs through the Jobs -> SSH pipeline. Deployment-specific credential references are resolved server-side into `.env` at runtime and redacted from persisted job command history.
-- Monitoring reads metrics from the Prometheus HTTP API when configured and links to Grafana when configured.
+- Monitoring stores lightweight validation snapshots for managed Inventory nodes, checks node_exporter, promtail, and cAdvisor availability, validates Prometheus as provider-level infrastructure, and links operators to Grafana when configured.
 - Identity orchestration stores Linux users, groups, SSH public keys, and permission templates, then replicates user/group/access/permission changes across selected Inventory-managed hosts through Jobs and SSH.
 - Identity includes guided access profiles such as Administrator, Deployment Operator, Docker Operator, Log Viewer, Read Only, and Service Account. These profiles configure shell, sudo behavior, recommended groups, and defaults while preserving advanced Linux controls.
 - Identity resolves administrator access through a distro-aware abstraction, using `sudo` on Debian/Ubuntu style hosts and `wheel` on RHEL/CentOS/Fedora style hosts during replicated execution.

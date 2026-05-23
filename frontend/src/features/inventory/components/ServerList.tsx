@@ -544,7 +544,7 @@ function ServerActions({
   }
 
   async function unmanageServer() {
-    if (window.confirm(`Mark ${server.hostname} as unmanaged? It will stay visible but jobs and remote access will no longer target it.`)) {
+    if (window.confirm(`Mark ${server.hostname} as unmanaged? It will leave the managed Inventory view and jobs and remote access will no longer target it.`)) {
       await onUnmanage(server.id);
     }
   }

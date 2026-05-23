@@ -29,6 +29,7 @@ class Settings(BaseSettings):
     grafana_base_url: str | None = None
     loki_base_url: str | None = None
     monitoring_timeout_seconds: int = Field(default=10, ge=1, le=60)
+    monitoring_validation_interval_seconds: int = Field(default=300, ge=60, le=86400)
     nexusops_master_key: str | None = None
     nexusops_admin_user: str | None = None
     nexusops_admin_email: str | None = None

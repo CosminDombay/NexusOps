@@ -13,6 +13,7 @@ import type {
 
 export type ServerListParams = {
   includeInactive?: boolean;
+  includeUnmanaged?: boolean;
   integrationId?: string;
   cluster?: string;
 };
@@ -21,6 +22,7 @@ export async function listServers(params: ServerListParams = {}): Promise<Server
   const response = await apiClient.get<Server[]>('/servers', {
     params: {
       ...(params.includeInactive ? { include_inactive: true } : {}),
+      ...(params.includeUnmanaged ? { include_unmanaged: true } : {}),
       ...(params.integrationId ? { integration_id: params.integrationId } : {}),
       ...(params.cluster ? { cluster: params.cluster } : {}),
     },

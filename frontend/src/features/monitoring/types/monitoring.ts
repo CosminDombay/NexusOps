@@ -26,10 +26,15 @@ export type ServerMetrics = {
   advanced_metrics_url: string | null;
   container_metrics_url: string | null;
   advanced_logs_url: string | null;
+  open_grafana_url: string | null;
   metrics_error: string | null;
   logs_error: string | null;
   monitoring_state: string;
   monitoring_status: string;
+  node_exporter_status: string;
+  promtail_status: string;
+  cadvisor_status: string;
+  prometheus_target_health: string;
   metrics_available: boolean;
   logs_available: boolean;
   node_exporter_detected: boolean;
@@ -44,6 +49,8 @@ export type ServerMetrics = {
   readiness_reasons: string[];
   remediation: string[];
   technical_details: string[];
+  last_validated_at: string | null;
+  last_successful_check_at: string | null;
   collected_at: string;
 };
 
@@ -53,6 +60,11 @@ export type MonitoringOverview = {
   offline_servers: number;
   observable_servers: number;
   degraded_servers: number;
+  monitored_servers: number;
+  partial_servers: number;
+  unmonitored_servers: number;
+  stale_servers: number;
+  unknown_servers: number;
   metrics_missing_servers: number;
   logs_missing_servers: number;
   stale_metrics_servers: number;
@@ -69,4 +81,10 @@ export type PrometheusHealth = {
   grafana_url: string | null;
   loki_url: string | null;
   providers: MonitoringProviderStatus[];
+};
+
+export type MonitoringValidation = {
+  checked_servers: number;
+  updated_servers: number;
+  failed_servers: number;
 };

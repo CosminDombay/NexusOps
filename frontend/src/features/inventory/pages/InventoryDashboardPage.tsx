@@ -126,7 +126,7 @@ export function InventoryDashboardPage() {
       </div>
 
       <ContextDrawer
-        description="Manual import is for bare-metal nodes, unmanaged servers, and externally provisioned systems."
+        description="Manual import is for managed bare-metal nodes and externally provisioned systems."
         isOpen={isCreateOpen}
         title="Import Existing Host"
         width="lg"

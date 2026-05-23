@@ -204,17 +204,18 @@ The implemented system is focused on foundations, visibility, narrowly scoped pr
   - centered responsive create/edit deployment drawer so forms appear only when requested
   - inspect and log panels for operational feedback
   - partial success/failure rollups for multi-target orchestration
-- Monitoring readiness:
-  - Prometheus HTTP API health check
-  - basic per-server CPU, memory, disk, and uptime query support
-  - monitoring target matching across Inventory IP, hostname, provider metadata, Tailscale/detected IPs, and Prometheus nodename discovery
-  - Prometheus scrape target, exporter, stale-metric, and missing-telemetry checks
-  - Loki reachability and log-stream availability checks where provider data is available
-  - optional Grafana deep links only when configured
-  - provider readiness and connection status derived from enabled Integration records
-  - partial provider failures return status/error metadata without crashing the monitoring overview
-  - infrastructure observability board focused on node readiness, degraded telemetry, missing exporters, stale metrics, and provider health
-  - NexusOps treats Prometheus, Loki, and Grafana as telemetry providers, not dashboard lifecycle systems
+- Monitoring validation:
+  - persisted monitoring snapshots per managed Inventory node
+  - node states: monitored, partial, unmonitored, stale, and unknown
+  - node-local service checks for node_exporter, promtail, and cAdvisor
+  - TCP reachability validation for exporter ports
+  - SSH `systemctl is-active` fallback where Inventory SSH metadata is available
+  - cAdvisor Docker fallback through `docker ps` when cAdvisor is containerized
+  - Prometheus shown as provider-level monitoring infrastructure health, not a per-node row signal
+  - Grafana jump links generated from integration templates and node metadata
+  - Monitoring overview renders persisted snapshots only and does not query Prometheus, Loki, or Grafana during page rendering
+  - unmanaged/discovered provider assets are excluded; Monitoring follows the managed Inventory CMDB boundary
+  - NexusOps treats Prometheus and Grafana as external observability tools, not dashboard lifecycle systems
 - Linux identity orchestration:
   - reusable Linux user and group records
   - SSH public key records
@@ -431,7 +432,7 @@ The 2026-05-23 review confirms that the implementation has moved beyond the olde
 - Inventory is now a managed-node CMDB for hypervisors, VMs, LXCs, and physical hosts rather than a simple server CRUD list.
 - Proxmox, provisioning, Jobs, profiles, packages, deployments, identity, monitoring, remote access, workflows, and automations all converge on Inventory-managed targets.
 - Credential-backed runtime secret resolution exists, but it should still be treated as encrypted local MVP secret handling rather than a production vault.
-- Runtime snapshots and monitoring readiness are present, but the current working tree includes monitoring changes that reintroduce some live Prometheus/Grafana discovery during overview reads; this conflicts with the snapshot-first monitoring design and should be reviewed before merging.
+- Runtime snapshots and monitoring validation are present. The Monitoring overview is snapshot-first and avoids live Prometheus/Grafana/Loki discovery during normal rendering.
 - Frontend lint and production build pass on the current working tree.
 - Backend tests are mostly green, but `backend/tests/test_inventory.py::test_inventory_import_restores_archived_proxmox_record` currently leaks to a real Proxmox endpoint and fails when `hellgate.himalayan-chimaera.ts.net:8006` is unreachable. The test should use a fake Proxmox service/adapter and never require live infrastructure.
 
@@ -490,12 +491,10 @@ The 2026-05-23 review confirms that the implementation has moved beyond the olde
 - Provisioning now collapses large action areas, but a full guided review wizard is still planned.
 - Provisioning blueprints are not yet first-class Workflow/Automation operations.
 - CT/LXC support is operationally wired for discovery, provisioning, lifecycle, and Inventory registration, but advanced filesystem editing, deeper network validation, and richer template/storage discovery remain future work.
-- Monitoring readiness is operational, but deep log exploration and centralized log indexing remain future work.
+- Monitoring validation is operational, but durable validation run history, richer failure reasons, deep log exploration, and centralized log indexing remain future work.
 - Remote shell WebSocket authentication uses the current JWT as a query parameter for MVP browser compatibility; a short-lived scoped remote-access token is still planned.
 - Refresh tokens are revoked through token-version changes, but refresh-token rotation/reuse detection is not implemented yet.
 - Monitoring overview should remain snapshot-first. Avoid live provider discovery or dashboard search during ordinary rendering unless it is behind an explicit refresh path.
-- The backend test suite has one known isolation issue: archived Proxmox import restoration can contact the configured real Proxmox API in tests.
-- The current repo has uncommitted monitoring/integration code and image assets as of the 2026-05-23 review; documentation updates should not assume those code changes are merged until committed.
 
 ## Current Safety Boundary
 

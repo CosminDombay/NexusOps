@@ -1,5 +1,5 @@
 import { apiClient } from '../../../lib/api/client';
-import type { MonitoringOverview, PrometheusHealth, ServerMetrics } from '../types/monitoring';
+import type { MonitoringOverview, MonitoringValidation, PrometheusHealth, ServerMetrics } from '../types/monitoring';
 
 export async function getMonitoringOverview(): Promise<MonitoringOverview> {
   const response = await apiClient.get<MonitoringOverview>('/monitoring/overview');
@@ -13,5 +13,15 @@ export async function getPrometheusHealth(): Promise<PrometheusHealth> {
 
 export async function getServerMetrics(serverId: string): Promise<ServerMetrics> {
   const response = await apiClient.get<ServerMetrics>(`/monitoring/servers/${serverId}/metrics`);
+  return response.data;
+}
+
+export async function validateMonitoring(): Promise<MonitoringValidation> {
+  const response = await apiClient.post<MonitoringValidation>('/monitoring/validate');
+  return response.data;
+}
+
+export async function validateServerMonitoring(serverId: string): Promise<MonitoringValidation> {
+  const response = await apiClient.post<MonitoringValidation>(`/monitoring/servers/${serverId}/validate`);
   return response.data;
 }

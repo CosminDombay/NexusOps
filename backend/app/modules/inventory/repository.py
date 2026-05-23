@@ -12,6 +12,11 @@ INACTIVE_LIFECYCLE_STATES = {
     InventoryLifecycleState.DELETED,
 }
 
+UNMANAGED_DISCOVERY_LIFECYCLE_STATES = {
+    InventoryLifecycleState.DISCOVERED,
+    InventoryLifecycleState.UNMANAGED,
+}
+
 
 class ServerRepository(BaseRepository[Server]):
     async def create(self, server: Server) -> Server:
@@ -78,6 +83,7 @@ class ServerRepository(BaseRepository[Server]):
         cluster: str | None = None,
         search: str | None = None,
         include_inactive: bool = False,
+        include_unmanaged: bool = False,
     ) -> list[Server]:
         query = select(Server).order_by(Server.created_at.desc())
 
@@ -105,6 +111,11 @@ class ServerRepository(BaseRepository[Server]):
 
         if not include_inactive:
             query = query.where(Server.lifecycle_state.not_in(INACTIVE_LIFECYCLE_STATES))
+
+        if not include_unmanaged:
+            query = query.where(Server.lifecycle_state.not_in(UNMANAGED_DISCOVERY_LIFECYCLE_STATES))
+            if not include_inactive:
+                query = query.where(Server.managed.is_(True))
 
         result = await self.session.execute(query)
         return list(result.scalars().all())

@@ -67,6 +67,7 @@ async def list_servers(
     integration_id: UUID | None = None,
     cluster: str | None = None,
     include_inactive: bool = False,
+    include_unmanaged: bool = False,
     search: Annotated[str | None, Query(min_length=1, max_length=255)] = None,
 ) -> list[ServerRead]:
     return await service.list_servers(
@@ -76,6 +77,7 @@ async def list_servers(
         cluster=cluster,
         search=search,
         include_inactive=include_inactive,
+        include_unmanaged=include_unmanaged,
     )
 
 

@@ -336,7 +336,7 @@ def test_inventory_decommission_and_restore_lifecycle(client) -> None:
     assert restored["sync_state"] == "unknown"
 
 
-def test_inventory_unmanage_keeps_node_visible_but_not_managed(client) -> None:
+def test_inventory_unmanage_removes_node_from_managed_inventory(client) -> None:
     create_response = client.post(
         "/api/v1/servers",
         json=server_payload(hostname="manual-node", ip_address="10.0.0.41"),
@@ -354,7 +354,11 @@ def test_inventory_unmanage_keeps_node_visible_but_not_managed(client) -> None:
 
     list_response = client.get("/api/v1/servers")
     assert list_response.status_code == 200
-    assert list_response.json()[0]["id"] == server_id
+    assert list_response.json() == []
+
+    discovery_response = client.get("/api/v1/servers", params={"include_unmanaged": True})
+    assert discovery_response.status_code == 200
+    assert discovery_response.json()[0]["id"] == server_id
 
 
 def test_inventory_import_restores_archived_proxmox_record(client, monkeypatch) -> None:

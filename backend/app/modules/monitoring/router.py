@@ -11,8 +11,10 @@ from backend.app.modules.integrations.repository import IntegrationRepository
 from backend.app.modules.integrations.service import IntegrationService
 from backend.app.modules.inventory.repository import ServerRepository
 from backend.app.modules.inventory.service import ServerNotFoundError
+from backend.app.modules.auth.security.dependencies import require_operator
 from backend.app.modules.monitoring.schemas import (
     MonitoringOverviewRead,
+    MonitoringValidationRead,
     PrometheusHealthRead,
     ServerMetricsRead,
 )
@@ -30,6 +32,7 @@ async def get_monitoring_service(
             IntegrationRepository(session),
             credential_service=CredentialService(repository=CredentialRepository(session)),
         ),
+        credential_service=CredentialService(repository=CredentialRepository(session)),
     )
 
 
@@ -55,4 +58,42 @@ async def get_server_metrics(
 async def get_prometheus_health(
     service: Annotated[MonitoringService, Depends(get_monitoring_service)],
 ) -> PrometheusHealthRead:
-    return await service.prometheus_health()
+    providers = await service.snapshot_provider_statuses()
+    prometheus = next(provider for provider in providers if provider.provider_type == "prometheus")
+    grafana = next((provider for provider in providers if provider.provider_type == "grafana"), None)
+    return PrometheusHealthRead(
+        configured=prometheus.configured,
+        reachable=prometheus.reachable,
+        error=prometheus.error,
+        integration_id=prometheus.integration_id,
+        prometheus_url=prometheus.url,
+        grafana_url=grafana.url if grafana else None,
+        loki_url=None,
+        providers=providers,
+    )
+
+
+@router.post(
+    "/validate",
+    response_model=MonitoringValidationRead,
+    dependencies=[Depends(require_operator)],
+)
+async def validate_monitoring(
+    service: Annotated[MonitoringService, Depends(get_monitoring_service)],
+) -> MonitoringValidationRead:
+    return await service.validate_all()
+
+
+@router.post(
+    "/servers/{server_id}/validate",
+    response_model=MonitoringValidationRead,
+    dependencies=[Depends(require_operator)],
+)
+async def validate_server_monitoring(
+    server_id: UUID,
+    service: Annotated[MonitoringService, Depends(get_monitoring_service)],
+) -> MonitoringValidationRead:
+    try:
+        return await service.validate_server(server_id)
+    except ServerNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc

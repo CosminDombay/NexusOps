@@ -260,16 +260,19 @@ async def test_proxmox_host_sync_adopts_legacy_hostname_record(client) -> None:
 async def test_proxmox_guest_sync_imports_lxc_inventory(client) -> None:
     session = next(iter(client.app.dependency_overrides.values()))
     async for db_session in session():
+        repository = ServerRepository(db_session)
         result = await ProxmoxService(
             FakeProxmoxAdapter(),
-            server_repository=ServerRepository(db_session),
+            server_repository=repository,
         ).sync_guests()
 
-        servers = await ServerRepository(db_session).list_by_provider("proxmox")
+        servers = await repository.list_by_provider("proxmox")
+        managed_inventory = await repository.list(provider="proxmox")
         lxc = next(server for server in servers if server.provider_type == "lxc")
 
         assert result.discovered_count == 3
         assert result.imported_count == 3
+        assert managed_inventory == []
         assert lxc.hostname == "ct-01"
         assert lxc.node_type == ManagedNodeType.LXC
         assert lxc.provider_metadata["operational_readiness"] == "booted"

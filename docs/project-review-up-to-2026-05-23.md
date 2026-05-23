@@ -1,5 +1,7 @@
 # NexusOps Project Review up to 2026-05-23
 
+> Update: this review has been superseded for the monitoring and Inventory boundary by `docs/project-review-2026-05-23-monitoring-inventory.md`. The newer review reflects the snapshot-only monitoring refactor, managed-only Inventory default, and current validation results.
+
 ## Executive Summary
 
 NexusOps has grown into a broad local control-plane MVP for infrastructure orchestration. The core architecture remains sound: FastAPI modules expose versioned APIs, services own workflows, repositories own persistence, adapters isolate external infrastructure, and the frontend stays feature-oriented under React/Vite.

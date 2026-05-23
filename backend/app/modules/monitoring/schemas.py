@@ -38,10 +38,15 @@ class ServerMetricsRead(BaseModel):
     advanced_metrics_url: str | None = None
     container_metrics_url: str | None = None
     advanced_logs_url: str | None = None
+    open_grafana_url: str | None = None
     metrics_error: str | None = None
     logs_error: str | None = None
     monitoring_state: str = "unknown"
     monitoring_status: str = "Unknown"
+    node_exporter_status: str = "unknown"
+    promtail_status: str = "unknown"
+    cadvisor_status: str = "unknown"
+    prometheus_target_health: str = "unknown"
     metrics_available: bool = False
     logs_available: bool = False
     node_exporter_detected: bool = False
@@ -56,6 +61,8 @@ class ServerMetricsRead(BaseModel):
     readiness_reasons: list[str] = Field(default_factory=list)
     remediation: list[str] = Field(default_factory=list)
     technical_details: list[str] = Field(default_factory=list)
+    last_validated_at: datetime | None = None
+    last_successful_check_at: datetime | None = None
     collected_at: datetime
 
 
@@ -65,6 +72,11 @@ class MonitoringOverviewRead(BaseModel):
     offline_servers: int
     observable_servers: int = 0
     degraded_servers: int = 0
+    monitored_servers: int = 0
+    partial_servers: int = 0
+    unmonitored_servers: int = 0
+    stale_servers: int = 0
+    unknown_servers: int = 0
     metrics_missing_servers: int = 0
     logs_missing_servers: int = 0
     stale_metrics_servers: int = 0
@@ -81,3 +93,9 @@ class PrometheusHealthRead(BaseModel):
     grafana_url: str | None = None
     loki_url: str | None = None
     providers: list[MonitoringProviderStatusRead] = Field(default_factory=list)
+
+
+class MonitoringValidationRead(BaseModel):
+    checked_servers: int
+    updated_servers: int
+    failed_servers: int = 0

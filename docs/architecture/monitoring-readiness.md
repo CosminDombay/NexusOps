@@ -1,92 +1,109 @@
 # Monitoring Readiness
 
-NexusOps monitoring is an observability readiness layer. It answers one operational question:
+NexusOps monitoring is a lightweight operational validation layer. It does not replace Prometheus, Loki, or Grafana.
 
-Is this managed node observable enough for operators to trust its telemetry?
+Grafana remains the dedicated observability interface. NexusOps only validates that managed Inventory nodes have expected monitoring components available and gives operators a Grafana jump link.
 
-It does not replace Prometheus, Loki, or Grafana. Those systems remain the advanced metrics, logs, and dashboard tools.
+## Scope
 
-## Readiness States
+NexusOps monitoring should do:
 
-Monitoring reduces node observability to five states:
+- validate monitoring availability
+- verify node-local exporter/service state
+- display persisted monitoring health state
+- provide Grafana jump links
 
-- Healthy: metrics and logs are available and fresh.
-- Partial: either metrics or logs are available, but not both.
-- Missing: telemetry is configured but unavailable.
-- Stale: Prometheus has a target, but recent metrics are not available.
-- Unknown: NexusOps lacks a canonical monitoring target or enough snapshot data.
+NexusOps monitoring should not do:
 
-The API still stores internal values such as `monitoring_ready`, `monitoring_partial`, `monitoring_missing`, and `stale_metrics`, but operator-facing UI should show the simplified state names.
+- embed Grafana panels
+- recreate Grafana dashboards
+- query Loki during page rendering
+- query Prometheus during page rendering
+- parse dashboards
+- render custom metrics charts
+- depend on the Grafana API during page rendering
 
-## 2026-05-23 Review Note
+## Snapshot Model
 
-The monitoring architecture is snapshot-first. A current working-tree change adds Prometheus target discovery and Grafana dashboard lookup helpers around overview rendering. Before merging that direction, keep the boundary clear:
+Monitoring state is persisted per managed node in `monitoring_snapshots`.
 
-- explicit refresh actions may query Prometheus, Loki, and Grafana, then persist runtime snapshot data
-- overview reads should prefer persisted snapshots and bounded database work
-- Grafana dashboard links should come from configured integration metadata or refresh-produced snapshot metadata, not repeated dashboard searches during normal page loads
+Each snapshot tracks:
 
-This keeps Monitoring useful on large inventories and prevents provider timeouts from making the overview page slow or flaky.
+- `node_exporter_status`
+- `promtail_status`
+- `cadvisor_status`
+- provider-level Prometheus health compatibility field
+- `last_validated_at`
+- `last_successful_check_at`
+- `stale_after`
+- `grafana_url`
+- validation details
 
-## Endpoint Metadata
+Node monitoring states are:
 
-Managed nodes can carry explicit monitoring endpoint metadata:
+- `monitored`
+- `partial`
+- `unmonitored`
+- `stale`
+- `unknown`
 
-- `monitoring_interface`: `lan`, `tailscale`, `localhost`, or `docker`
-- `monitoring_target`: canonical Prometheus instance target, for example `100.90.80.15:9100`
-- `monitoring_strategy`: `host`, `container`, or `host_container`
+## Node Validation
 
-NexusOps should not discover monitoring targets by hostname permutations or broad PromQL regex selectors during ordinary overview rendering. Reconciliation uses the canonical target exactly as stored, or values found during explicit refresh workflows.
+Per-node rows are based only on the local monitoring components NexusOps expects on managed nodes:
 
-## Host vs Container Observability
+- `node_exporter`
+- `promtail`
+- `cAdvisor`
 
-Host observability checks:
+Allowed validation methods:
 
-- node_exporter target exists
-- node_exporter scrape is reachable
-- promtail/log ingestion is visible
-- metrics are recent
+- TCP reachability checks
+- HTTP reachability checks for provider health
+- SSH `systemctl is-active` checks where Inventory SSH metadata is available
+- cAdvisor Docker fallback with `docker ps --format '{{.Names}} {{.Image}}' | grep -i -- 'cadvisor'`
 
-Container observability checks:
+NexusOps does not scrape metrics to decide node row health. It checks service availability and records the result.
 
-- Docker runtime is available when container telemetry is expected
-- cAdvisor target exists when configured
-- cAdvisor scrape is running
+## Provider Validation
 
-cAdvisor is container telemetry. It is not a mandatory host exporter, and host observability can be healthy without cAdvisor.
+Prometheus and Grafana are displayed above the node list as monitoring providers.
 
-## PromQL Rules
+Prometheus is a general monitoring infrastructure health check. It is not rendered as a per-node row signal.
 
-Prometheus queries must remain simple and exact:
+Grafana is primarily a configured jump-link provider. NexusOps generates URLs from integration config and node metadata without querying the Grafana API during rendering.
 
-- `up{instance="target"}`
-- `node_boot_time_seconds{instance="target"}`
+## Inventory Boundary
 
-Do not build `instance=~"..."` regex selectors or hostname discovery queries in NexusOps. Operators should configure the canonical scrape target instead.
+Monitoring reads managed Inventory nodes only.
 
-## Runtime Snapshot Integration
+Unmanaged provider-discovered devices belong in Infrastructure discovery. They should not appear in the managed Inventory list and should not be monitored by the Monitoring page until imported or otherwise marked managed.
 
-Monitoring overview reads persisted runtime snapshots. It does not perform live Prometheus or Loki reconciliation during rendering.
+## Staleness and Failure Handling
 
-Explicit monitoring refreshes may query telemetry providers, then update:
+If validation cannot reach monitoring infrastructure or a node component:
 
-- runtime snapshot monitoring state
-- readiness reasons
-- remediation guidance
-- technical details
-- freshness timestamps
+- preserve the last known snapshot
+- update the component/provider status from the validation attempt
+- mark snapshots stale after the configured window
+- avoid Inventory or frontend crashes
 
-This keeps pages responsive while preserving a clear refresh path.
+Provider outages should degrade monitoring state but must not block the Inventory, Infrastructure, Jobs, or Remote Access pages.
 
-## Operator Errors
+## Grafana Links
 
-Operator-facing UI should show normalized reasons such as:
+Grafana URLs are generated from:
 
-- monitoring target missing
-- metrics unavailable
-- node_exporter missing
-- logs missing
-- telemetry stale
-- cAdvisor not running
+- Grafana base URL integration config
+- dashboard path or UID templates
+- node metadata such as hostname, provider node, IP address, and monitoring target
 
-Raw HTTP, Loki, Prometheus, parser, or stack trace details may be retained as technical details, but should not be shown as primary operator guidance.
+This gives operators one action per node: Open Grafana.
+
+## Known Follow-Ups
+
+- Move monitoring validation into durable WorkflowRun-backed async execution.
+- Add bounded concurrency and retry jitter for validation jobs.
+- Persist per-node validation attempts as operational events.
+- Store structured failure reasons for TCP, SSH, systemctl, Docker, and provider checks.
+- Rename or deprecate legacy `prometheus_target_health` fields now that Prometheus is provider-level.
+- Clarify Grafana provider UI as configured jump-link availability or add optional background Grafana reachability checks.

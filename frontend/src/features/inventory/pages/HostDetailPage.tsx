@@ -14,8 +14,8 @@ import { listLinuxGroups, listLinuxUsers, listSSHKeys } from '../../identity/api
 import type { LinuxGroup, LinuxUser, SSHKey } from '../../identity/types/identity';
 import { listJobs } from '../../jobs/api/jobsApi';
 import type { Job } from '../../jobs/types/job';
-import { getServerMetrics, getPrometheusHealth } from '../../monitoring/api/monitoringApi';
-import type { PrometheusHealth, ServerMetrics } from '../../monitoring/types/monitoring';
+import { getServerMetrics } from '../../monitoring/api/monitoringApi';
+import type { ServerMetrics } from '../../monitoring/types/monitoring';
 import { runVmAction } from '../../proxmox/api/proxmoxApi';
 import type { ProxmoxVmAction } from '../../proxmox/types/proxmox';
 import { FileBrowserPanel } from '../../remote-access/components/FileBrowserPanel';
@@ -39,7 +39,6 @@ type LoadState = {
   network: HostNetwork | null;
   docker: HostDocker | null;
   metrics: ServerMetrics | null;
-  prometheus: PrometheusHealth | null;
   deployments: Deployment[];
   jobs: Job[];
   workflows: WorkflowRun[];
@@ -57,7 +56,6 @@ const initialState: LoadState = {
   network: null,
   docker: null,
   metrics: null,
-  prometheus: null,
   deployments: [],
   jobs: [],
   workflows: [],
@@ -92,13 +90,12 @@ export function HostDetailPage() {
       return;
     }
 
-    const [system, network, docker, metrics, prometheus, deployments, jobs, workflows, automations, users, groups, sshKeys] =
+    const [system, network, docker, metrics, deployments, jobs, workflows, automations, users, groups, sshKeys] =
       await Promise.all([
         settle(() => getServerSystem(id)),
         settle(() => getServerNetwork(id)),
         settle(() => getServerDocker(id)),
         settle(() => getServerMetrics(id)),
-        settle(() => getPrometheusHealth()),
         settle(() => listDeployments()),
         settle(() => listJobs()),
         settle(() => listWorkflows()),
@@ -114,7 +111,6 @@ export function HostDetailPage() {
       network: network.ok ? network.value : null,
       docker: docker.ok ? docker.value : null,
       metrics: metrics.ok ? metrics.value : null,
-      prometheus: prometheus.ok ? prometheus.value : null,
       deployments: deployments.ok ? deployments.value.filter((item) => deploymentTouchesServer(item, id)) : [],
       jobs: jobs.ok ? jobs.value.filter((job) => job.target_server_id === id).slice(0, 8) : [],
       workflows: workflows.ok ? workflows.value.filter((workflow) => workflowTouchesServer(workflow, id)).slice(0, 8) : [],
@@ -124,7 +120,7 @@ export function HostDetailPage() {
       sshKeys: sshKeys.ok ? sshKeys.value : [],
     });
     setErrors(
-      [system, network, docker, metrics, prometheus, deployments, jobs, workflows, automations, users, groups, sshKeys]
+      [system, network, docker, metrics, deployments, jobs, workflows, automations, users, groups, sshKeys]
         .filter((result) => !result.ok)
         .map((result) => (result.ok ? '' : result.error)),
     );
@@ -366,20 +362,19 @@ export function HostDetailPage() {
         <aside className="space-y-6">
           <Panel title="Monitoring">
             <div className="space-y-2">
-              <Badge tone={state.metrics?.monitoring_state === 'monitoring_ready' ? 'success' : 'warning'}>
+              <Badge tone={state.metrics?.monitoring_state === 'monitored' ? 'success' : 'warning'}>
                 {formatReadiness(state.metrics?.monitoring_state ?? monitoringReadiness(state))}
               </Badge>
               <Badge tone={state.metrics?.metrics_available ? 'success' : 'warning'}>metrics {state.metrics?.metrics_available ? 'available' : 'missing'}</Badge>
               <Badge tone={state.metrics?.logs_available ? 'success' : 'warning'}>logs {state.metrics?.logs_available ? 'available' : 'missing'}</Badge>
-              <Badge tone={state.prometheus?.reachable ? 'success' : 'warning'}>{state.prometheus?.reachable ? 'Prometheus reachable' : 'Prometheus unavailable'}</Badge>
               <Badge tone={exporterState.node ? 'success' : 'muted'}>node_exporter {exporterState.node ? 'detected' : 'not detected'}</Badge>
               <Badge tone={exporterState.promtail ? 'success' : 'muted'}>promtail {exporterState.promtail ? 'detected' : 'not detected'}</Badge>
               <Badge tone={exporterState.cadvisor ? 'success' : 'muted'}>cadvisor {exporterState.cadvisor ? 'detected' : 'not detected'}</Badge>
               {state.metrics?.stale_metrics ? <Badge tone="warning">stale metrics</Badge> : null}
             </div>
-            {state.metrics?.grafana_url ? (
-              <a className="mt-4 inline-flex items-center gap-2 text-sm font-semibold text-zinc-800 hover:text-zinc-950" href={state.metrics.grafana_url} target="_blank" rel="noreferrer">
-                Open advanced metrics <ExternalLink className="h-4 w-4" aria-hidden="true" />
+            {state.metrics?.open_grafana_url ? (
+              <a className="mt-4 inline-flex items-center gap-2 text-sm font-semibold text-zinc-800 hover:text-zinc-950" href={state.metrics.open_grafana_url} target="_blank" rel="noreferrer">
+                Open Grafana <ExternalLink className="h-4 w-4" aria-hidden="true" />
               </a>
             ) : null}
           </Panel>
@@ -861,7 +856,7 @@ function nodeReadiness(server: Server, state: LoadState): string {
   }
   const metadataReadiness = String(server.provider_metadata.operational_readiness ?? '').trim();
   if (metadataReadiness) {
-    if (!state.prometheus?.reachable && metadataReadiness === 'booted') {
+    if (state.metrics?.monitoring_state === 'unmonitored' && metadataReadiness === 'booted') {
       return 'monitoring_missing';
     }
     return metadataReadiness;
@@ -873,7 +868,7 @@ function nodeReadiness(server: Server, state: LoadState): string {
     return 'ip_missing';
   }
   if (state.system || state.network) {
-    return state.prometheus?.reachable === false ? 'monitoring_missing' : 'healthy';
+    return state.metrics?.monitoring_state === 'unmonitored' ? 'monitoring_missing' : 'healthy';
   }
   if (server.last_health_status === 'unreachable') {
     return 'ssh_unreachable';
@@ -898,10 +893,7 @@ function sshReadiness(server: Server, state: LoadState): string {
 }
 
 function monitoringReadiness(state: LoadState): string {
-  if (!state.prometheus) {
-    return 'unknown';
-  }
-  return state.prometheus.reachable ? 'prometheus_reachable' : 'monitoring_missing';
+  return state.metrics?.monitoring_state ?? 'unknown';
 }
 
 function formatReadiness(value: string): string {

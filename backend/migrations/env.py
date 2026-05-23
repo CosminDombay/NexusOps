@@ -21,10 +21,11 @@ from backend.app.modules.identity.models import (
     SSHKey,
 )
 from backend.app.modules.jobs.models import CustomOperationalAction, Job
-from backend.app.modules.monitoring.models import MetricSample
+from backend.app.modules.monitoring.models import MetricSample, MonitoringSnapshot
 from backend.app.modules.packages.models import PackageDefinitionRecord, PackageInstallation
 from backend.app.modules.profiles.models import InfrastructureProfileRecord, StandardizationProfile
 from backend.app.modules.provisioning.models import ProvisioningBatch, ProvisioningRequest, VirtualMachine
+from backend.app.modules.runtime_state.models import NodeRuntimeSnapshot, RuntimeRefreshEvent, RuntimeRefreshStatus
 from backend.app.modules.variables.models import Variable
 
 config = context.config
@@ -50,12 +51,16 @@ _models = (
     LinuxGroup,
     LinuxUser,
     MetricSample,
+    MonitoringSnapshot,
+    NodeRuntimeSnapshot,
     PackageDefinitionRecord,
     PackageInstallation,
     PermissionTemplate,
     InfrastructureProfileRecord,
     ProvisioningRequest,
     ProvisioningBatch,
+    RuntimeRefreshEvent,
+    RuntimeRefreshStatus,
     Server,
     StandardizationProfile,
     SSHKey,

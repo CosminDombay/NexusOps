@@ -407,6 +407,7 @@ class InventoryService:
         cluster: str | None = None,
         search: str | None = None,
         include_inactive: bool = False,
+        include_unmanaged: bool = False,
     ) -> list[Server]:
         servers = await self.repository.list(
             environment=environment,
@@ -415,6 +416,7 @@ class InventoryService:
             cluster=cluster,
             search=search,
             include_inactive=include_inactive,
+            include_unmanaged=include_unmanaged,
         )
         return await self.runtime_snapshots.attach_snapshots(servers)
 

@@ -7,10 +7,12 @@ from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
 from sqlalchemy.exc import SQLAlchemyError
 
+from backend.app.core.config import settings
 from backend.app.db.session import AsyncSessionLocal
 from backend.app.modules.automations.models import Automation, AutomationScheduleType
 from backend.app.modules.automations.repository import AutomationRepository
 from backend.app.modules.automations.tasks import execute_automation_workflow
+from backend.app.modules.monitoring.tasks import validate_monitoring_snapshots
 from backend.app.modules.workflows.models import WorkflowTriggerSource
 from backend.app.workers.queue.service import task_queue
 
@@ -23,6 +25,7 @@ class SchedulerService:
 
     async def start(self) -> None:
         await self.reload_automations()
+        self.register_monitoring_validation()
         self.scheduler.start()
         logger.info("scheduler_started")
 
@@ -34,6 +37,7 @@ class SchedulerService:
 
     async def reload_automations(self) -> None:
         self.scheduler.remove_all_jobs()
+        self.register_monitoring_validation()
         try:
             async with AsyncSessionLocal() as session:
                 automations = await AutomationRepository(session).list_enabled()
@@ -58,6 +62,19 @@ class SchedulerService:
         )
         job = self.scheduler.get_job(f"automation:{automation.id}")
         automation.next_run_at = self._job_next_run_time(job, trigger)
+
+    def register_monitoring_validation(self) -> None:
+        self.scheduler.add_job(
+            self.dispatch_monitoring_validation,
+            trigger=IntervalTrigger(seconds=settings.monitoring_validation_interval_seconds),
+            id="monitoring:validation",
+            replace_existing=True,
+            coalesce=True,
+            max_instances=1,
+        )
+
+    async def dispatch_monitoring_validation(self) -> None:
+        task_queue.submit(validate_monitoring_snapshots())
 
     async def dispatch_automation(self, automation_id: UUID) -> None:
         from backend.app.modules.automations.factory import build_automation_service
