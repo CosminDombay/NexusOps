@@ -1,6 +1,8 @@
 from enum import StrEnum
 
-from sqlalchemy import Boolean, Enum, JSON, String
+from datetime import datetime
+
+from sqlalchemy import Boolean, DateTime, Enum, JSON, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from backend.app.db.base import Base, TimestampMixin, UuidPrimaryKeyMixin
@@ -20,6 +22,14 @@ class IntegrationProviderType(StrEnum):
     LOKI = "loki"
     TAILSCALE = "tailscale"
     CUSTOM = "custom"
+
+
+class IntegrationState(StrEnum):
+    CONNECTED = "connected"
+    DISCONNECTED = "disconnected"
+    ERROR = "error"
+    DISABLED = "disabled"
+    SYNCING = "syncing"
 
 
 class Integration(Base, UuidPrimaryKeyMixin, TimestampMixin):
@@ -46,5 +56,17 @@ class Integration(Base, UuidPrimaryKeyMixin, TimestampMixin):
         index=True,
     )
     enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False, index=True)
+    state: Mapped[IntegrationState] = mapped_column(
+        Enum(
+            IntegrationState,
+            name="integration_state",
+            values_callable=lambda enum: [member.value for member in enum],
+        ),
+        default=IntegrationState.DISCONNECTED,
+        nullable=False,
+        index=True,
+    )
     config: Mapped[dict[str, object]] = mapped_column(JSON, default=dict, nullable=False)
     credential_refs: Mapped[dict[str, str]] = mapped_column(JSON, default=dict, nullable=False)
+    last_successful_sync: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)

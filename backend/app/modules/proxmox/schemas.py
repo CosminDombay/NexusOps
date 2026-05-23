@@ -4,6 +4,8 @@ from backend.app.modules.runtime_state.schemas import NodeRuntimeState
 
 
 class ProxmoxNodeRead(BaseModel):
+    integration_id: str | None = None
+    integration_name: str | None = None
     name: str
     status: str = "unknown"
     management_ip: str | None = None
@@ -26,6 +28,8 @@ class ProxmoxNodeRead(BaseModel):
 
 
 class ProxmoxVmRead(BaseModel):
+    integration_id: str | None = None
+    integration_name: str | None = None
     vm_id: int
     name: str
     node: str

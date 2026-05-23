@@ -38,8 +38,35 @@ class ServerRepository(BaseRepository[Server]):
         )
         return result.scalar_one_or_none()
 
+    async def get_by_provider_external_id_for_integration(
+        self,
+        provider: str,
+        external_id: str,
+        integration_id: UUID | None,
+    ) -> Server | None:
+        query = select(Server).where(Server.provider == provider, Server.external_id == external_id)
+        if integration_id is None:
+            query = query.where(Server.integration_id.is_(None))
+        else:
+            query = query.where(Server.integration_id == integration_id)
+        result = await self.session.execute(query)
+        return result.scalar_one_or_none()
+
     async def list_by_provider(self, provider: str) -> list[Server]:
         result = await self.session.execute(select(Server).where(Server.provider == provider))
+        return list(result.scalars().all())
+
+    async def list_by_provider_integration(
+        self,
+        provider: str,
+        integration_id: UUID | None,
+    ) -> list[Server]:
+        query = select(Server).where(Server.provider == provider)
+        if integration_id is None:
+            query = query.where(Server.integration_id.is_(None))
+        else:
+            query = query.where(Server.integration_id == integration_id)
+        result = await self.session.execute(query)
         return list(result.scalars().all())
 
     async def list(
@@ -47,6 +74,8 @@ class ServerRepository(BaseRepository[Server]):
         *,
         environment: ServerEnvironment | None = None,
         provider: str | None = None,
+        integration_id: UUID | None = None,
+        cluster: str | None = None,
         search: str | None = None,
         include_inactive: bool = False,
     ) -> list[Server]:
@@ -57,6 +86,12 @@ class ServerRepository(BaseRepository[Server]):
 
         if provider:
             query = query.where(Server.provider == provider)
+
+        if integration_id is not None:
+            query = query.where(Server.integration_id == integration_id)
+
+        if cluster:
+            query = query.where(Server.provider_node == cluster)
 
         if search:
             pattern = f"%{search}%"

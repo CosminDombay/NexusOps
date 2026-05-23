@@ -41,10 +41,13 @@ export function InfrastructurePage() {
       }
     }
 
-    void runAction(vm.vm_id, action);
+    void runAction(vm.vm_id, action, vm.integration_id);
   }
 
   function handleImportVm(vm: ProxmoxVm) {
+    if (!vm.integration_id) {
+      return;
+    }
     const ipAddress = window.prompt(`Inventory IP address for this ${vm.type === 'lxc' ? 'LXC' : 'VM'}`, vm.ip_address ?? '');
     if (!ipAddress) {
       return;
@@ -55,6 +58,7 @@ export function InfrastructurePage() {
     }
 
     void importVm({
+      integration_id: vm.integration_id,
       vm_id: vm.vm_id,
       node: vm.node,
       vm_type: vm.type,

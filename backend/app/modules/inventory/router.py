@@ -4,12 +4,14 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.app.adapters.proxmox import HttpProxmoxAdapter
+from backend.app.adapters.proxmox import ProxmoxConfigurationError, ProxmoxConnectionError
 from backend.app.adapters.ssh import ParamikoSshAdapter
 from backend.app.db.session import get_db_session
 from backend.app.modules.auth.security.dependencies import require_operator
 from backend.app.modules.credentials.repository import CredentialRepository
 from backend.app.modules.credentials.service import CredentialService
+from backend.app.modules.integrations.repository import IntegrationRepository
+from backend.app.modules.integrations.service import IntegrationNotFoundError, IntegrationService
 from backend.app.modules.inventory.discovery import HostDiscoveryError, HostDiscoveryService
 from backend.app.modules.inventory.models import ServerEnvironment
 from backend.app.modules.inventory.health import InventoryHealthService
@@ -62,12 +64,16 @@ async def list_servers(
     service: Annotated[InventoryService, Depends(get_inventory_service)],
     environment: ServerEnvironment | None = None,
     provider: str | None = None,
+    integration_id: UUID | None = None,
+    cluster: str | None = None,
     include_inactive: bool = False,
     search: Annotated[str | None, Query(min_length=1, max_length=255)] = None,
 ) -> list[ServerRead]:
     return await service.list_servers(
         environment=environment,
         provider=provider,
+        integration_id=integration_id,
+        cluster=cluster,
         search=search,
         include_inactive=include_inactive,
     )
@@ -199,10 +205,22 @@ async def create_server(
 )
 async def import_proxmox_vm(
     payload: ProxmoxInventoryImport,
+    session: Annotated[AsyncSession, Depends(get_db_session)],
     service: Annotated[InventoryService, Depends(get_inventory_service)],
 ) -> ServerRead:
-    proxmox_service = ProxmoxService(HttpProxmoxAdapter())
+    integration_service = IntegrationService(
+        IntegrationRepository(session),
+        credential_service=CredentialService(repository=CredentialRepository(session)),
+    )
     try:
+        integration = await IntegrationRepository(session).get_by_id(payload.integration_id)
+        if integration is None:
+            raise IntegrationNotFoundError("Integration not found")
+        proxmox_service = ProxmoxService(
+            await integration_service.get_proxmox_adapter(payload.integration_id),
+            integration_id=payload.integration_id,
+            integration_name=integration.name,
+        )
         discovered_vms = await proxmox_service.list_vms()
         discovered_vm = next(
             (
@@ -217,6 +235,11 @@ async def import_proxmox_vm(
         return await service.import_proxmox_vm(payload, discovered_vm=discovered_vm)
     except InventoryConflictError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    except IntegrationNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except (ProxmoxConfigurationError, ProxmoxConnectionError) as exc:
+        await service.mark_integration_resources_disconnected(payload.integration_id, error=str(exc))
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
 
 
 @router.post(
@@ -225,11 +248,33 @@ async def import_proxmox_vm(
     dependencies=[Depends(require_operator)],
 )
 async def reconcile_proxmox_inventory(
+    integration_id: UUID,
+    session: Annotated[AsyncSession, Depends(get_db_session)],
     service: Annotated[InventoryService, Depends(get_inventory_service)],
 ) -> list[ServerRead]:
-    proxmox_service = ProxmoxService(HttpProxmoxAdapter())
-    vms = await proxmox_service.list_vms()
-    return await service.reconcile_proxmox_inventory(vms)
+    integration_service = IntegrationService(
+        IntegrationRepository(session),
+        credential_service=CredentialService(repository=CredentialRepository(session)),
+    )
+    try:
+        integration = await IntegrationRepository(session).get_by_id(integration_id)
+        if integration is None:
+            raise IntegrationNotFoundError("Integration not found")
+        await integration_service.mark_integration_syncing(integration)
+        proxmox_service = ProxmoxService(
+            await integration_service.get_proxmox_adapter(integration_id),
+            integration_id=integration_id,
+            integration_name=integration.name,
+        )
+        vms = await proxmox_service.list_vms()
+        result = await service.reconcile_proxmox_inventory(vms, integration_id=integration_id)
+        await integration_service.mark_integration_connected(integration)
+        return result
+    except IntegrationNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except (ProxmoxConfigurationError, ProxmoxConnectionError) as exc:
+        await service.mark_integration_resources_disconnected(integration_id, error=str(exc))
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
 
 
 @router.put(

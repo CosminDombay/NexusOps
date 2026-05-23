@@ -1,6 +1,8 @@
 import type { NodeRuntimeState } from '../../runtime-state/types/runtimeState';
 
 export type ProxmoxNode = {
+  integration_id: string | null;
+  integration_name: string | null;
   name: string;
   status: string;
   management_ip: string | null;
@@ -17,12 +19,14 @@ export type ProxmoxNode = {
   inventory_server_id: string | null;
   inventory_hostname: string | null;
   inventory_lifecycle_state: string | null;
-  inventory_sync_status: 'unknown' | 'synced' | 'unmanaged' | 'orphaned' | 'mismatch' | 'archived';
+  inventory_sync_status: 'unknown' | 'synced' | 'unmanaged' | 'orphaned' | 'mismatch' | 'stale' | 'disconnected' | 'archived';
   capabilities: string[];
   runtime_state: NodeRuntimeState | null;
 };
 
 export type ProxmoxVm = {
+  integration_id: string | null;
+  integration_name: string | null;
   vm_id: number;
   name: string;
   node: string;
@@ -44,7 +48,7 @@ export type ProxmoxVm = {
   inventory_server_id: string | null;
   inventory_hostname: string | null;
   inventory_lifecycle_state: string | null;
-  inventory_sync_status: 'unknown' | 'synced' | 'unmanaged' | 'orphaned' | 'mismatch' | 'archived';
+  inventory_sync_status: 'unknown' | 'synced' | 'unmanaged' | 'orphaned' | 'mismatch' | 'stale' | 'disconnected' | 'archived';
   inventory_notes: string[];
   runtime_state: NodeRuntimeState | null;
 };

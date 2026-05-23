@@ -10,6 +10,7 @@ import {
   createIntegration,
   deleteIntegration,
   listIntegrations,
+  syncProxmoxGuestsForIntegration,
   syncProxmoxHostsForIntegration,
   testIntegration,
   updateIntegration,
@@ -37,6 +38,10 @@ type FormState = {
   authMode: AuthMode;
   verifySsl: boolean;
   timeoutSeconds: string;
+  nodeExporterDashboardUrl: string;
+  cadvisorDashboardUrl: string;
+  grafanaDatasource: string;
+  grafanaOrgId: string;
   credentialRefs: Record<string, string>;
   advancedOpen: boolean;
   advancedJson: string;
@@ -58,6 +63,10 @@ const presets: Record<
     authMode: 'username_token',
     verifySsl: false,
     timeoutSeconds: '15',
+    nodeExporterDashboardUrl: '',
+    cadvisorDashboardUrl: '',
+    grafanaDatasource: 'prometheus',
+    grafanaOrgId: '1',
   },
   prometheus: {
     kind: 'prometheus',
@@ -71,6 +80,10 @@ const presets: Record<
     authMode: 'url_only',
     verifySsl: true,
     timeoutSeconds: '10',
+    nodeExporterDashboardUrl: '',
+    cadvisorDashboardUrl: '',
+    grafanaDatasource: 'prometheus',
+    grafanaOrgId: '1',
   },
   grafana: {
     kind: 'grafana',
@@ -84,6 +97,10 @@ const presets: Record<
     authMode: 'token',
     verifySsl: true,
     timeoutSeconds: '10',
+    nodeExporterDashboardUrl: '',
+    cadvisorDashboardUrl: '',
+    grafanaDatasource: 'prometheus',
+    grafanaOrgId: '1',
   },
   loki: {
     kind: 'loki',
@@ -97,6 +114,10 @@ const presets: Record<
     authMode: 'token',
     verifySsl: true,
     timeoutSeconds: '10',
+    nodeExporterDashboardUrl: '',
+    cadvisorDashboardUrl: '',
+    grafanaDatasource: 'prometheus',
+    grafanaOrgId: '1',
   },
   tailscale: {
     kind: 'tailscale',
@@ -110,6 +131,10 @@ const presets: Record<
     authMode: 'token',
     verifySsl: true,
     timeoutSeconds: '10',
+    nodeExporterDashboardUrl: '',
+    cadvisorDashboardUrl: '',
+    grafanaDatasource: 'prometheus',
+    grafanaOrgId: '1',
   },
 };
 
@@ -214,11 +239,15 @@ export function IntegrationsPage() {
 
   async function runHostSync(integration: Integration) {
     try {
-      const result = await syncProxmoxHostsForIntegration(integration.id);
+      const [hostResult, guestResult] = await Promise.all([
+        syncProxmoxHostsForIntegration(integration.id),
+        syncProxmoxGuestsForIntegration(integration.id),
+      ]);
       setSyncMessages((current) => ({
         ...current,
-        [integration.id]: `${result.imported_count} imported, ${result.updated_count} updated, ${result.skipped_count} skipped from ${result.discovered_count} discovered Proxmox host(s).`,
+        [integration.id]: `${hostResult.imported_count + guestResult.imported_count} imported, ${hostResult.updated_count + guestResult.updated_count} updated, ${hostResult.skipped_count + guestResult.skipped_count} skipped from ${hostResult.discovered_count} host(s) and ${guestResult.discovered_count} guest(s).`,
       }));
+      await refresh();
     } catch (requestError) {
       setActionError(getApiErrorMessage(requestError));
     }
@@ -227,7 +256,7 @@ export function IntegrationsPage() {
   async function remove(integration: Integration) {
     if (
       !window.confirm(
-        `Delete integration ${integration.name}? Provider connections using it will fall back to environment configuration or become unavailable.`,
+        `Delete integration ${integration.name}? Inventory records discovered from it will remain visible as disconnected.`,
       )
     ) {
       return;
@@ -278,6 +307,18 @@ export function IntegrationsPage() {
       tokenId: String(integration.config.token_id ?? ''),
       verifySsl: integration.config.verify_ssl !== false,
       timeoutSeconds: String(integration.config.timeout_seconds ?? presets[kind].timeoutSeconds),
+      nodeExporterDashboardUrl: String(
+        integration.config.node_exporter_dashboard_url ??
+          integration.config.node_exporter_dashboard_path ??
+          '',
+      ),
+      cadvisorDashboardUrl: String(
+        integration.config.cadvisor_dashboard_url ??
+          integration.config.cadvisor_dashboard_path ??
+          '',
+      ),
+      grafanaDatasource: String(integration.config.datasource ?? integration.config.grafana_datasource ?? 'prometheus'),
+      grafanaOrgId: String(integration.config.org_id ?? integration.config.grafana_org_id ?? '1'),
       credentialRefs,
     });
     setIsAddOpen(true);
@@ -338,9 +379,11 @@ export function IntegrationsPage() {
                     </div>
                     <p className="mt-1 text-sm text-zinc-500">{formatType(integration.type)}</p>
                   </div>
-                  <Status enabled={integration.enabled} />
+                  <Status enabled={integration.enabled} state={integration.state} />
                 </div>
                 <dl className="mt-4 space-y-2 text-sm">
+                  <Info label="State" value={formatType(integration.state)} />
+                  <Info label="Last sync" value={formatTimestamp(integration.last_successful_sync)} />
                   <Info
                     label="URL"
                     value={String(
@@ -363,6 +406,11 @@ export function IntegrationsPage() {
                     value={`${String(integration.config.timeout_seconds ?? 'default')}s`}
                   />
                 </dl>
+                {integration.last_error ? (
+                  <p className="mt-3 rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700">
+                    {integration.last_error}
+                  </p>
+                ) : null}
                 {Object.keys(integration.credential_refs ?? {}).length ? (
                   <div className="mt-3 flex flex-wrap gap-2">
                     {Object.keys(integration.credential_refs).map((key) => (
@@ -410,7 +458,7 @@ export function IntegrationsPage() {
                       onClick={() => void runHostSync(integration)}
                     >
                       <ServerIcon className="h-4 w-4" aria-hidden="true" />
-                      Sync hosts
+                      Sync
                     </button>
                   ) : null}
                   <button
@@ -538,6 +586,30 @@ export function IntegrationsPage() {
             value={form.timeoutSeconds}
             onChange={(timeoutSeconds) => setForm({ ...form, timeoutSeconds })}
           />
+          {form.kind === 'grafana' ? (
+            <>
+              <TextInput
+                label="Node-Exporter dashboard URL"
+                value={form.nodeExporterDashboardUrl}
+                onChange={(nodeExporterDashboardUrl) => setForm({ ...form, nodeExporterDashboardUrl })}
+              />
+              <TextInput
+                label="cAdvisor dashboard URL"
+                value={form.cadvisorDashboardUrl}
+                onChange={(cadvisorDashboardUrl) => setForm({ ...form, cadvisorDashboardUrl })}
+              />
+              <TextInput
+                label="Grafana datasource"
+                value={form.grafanaDatasource}
+                onChange={(grafanaDatasource) => setForm({ ...form, grafanaDatasource })}
+              />
+              <TextInput
+                label="Grafana org ID"
+                value={form.grafanaOrgId}
+                onChange={(grafanaOrgId) => setForm({ ...form, grafanaOrgId })}
+              />
+            </>
+          ) : null}
         </div>
 
         <details
@@ -596,7 +668,19 @@ function buildConfig(form: FormState): Record<string, unknown> {
     return { ...base, api_url: form.url, token_id: form.tokenId || form.username };
   }
   if (form.kind === 'grafana') {
-    return { ...base, base_url: form.url };
+    const orgId = Number(form.grafanaOrgId);
+    return {
+      ...base,
+      base_url: form.url,
+      ...(form.nodeExporterDashboardUrl.trim()
+        ? { node_exporter_dashboard_url: form.nodeExporterDashboardUrl.trim() }
+        : {}),
+      ...(form.cadvisorDashboardUrl.trim()
+        ? { cadvisor_dashboard_url: form.cadvisorDashboardUrl.trim() }
+        : {}),
+      ...(form.grafanaDatasource.trim() ? { datasource: form.grafanaDatasource.trim() } : {}),
+      ...(Number.isFinite(orgId) ? { org_id: orgId } : {}),
+    };
   }
   if (form.kind === 'loki') {
     return { ...base, base_url: form.url };
@@ -669,17 +753,22 @@ function CredentialSelect({
   );
 }
 
-function Status({ enabled }: { enabled: boolean }) {
-  const Icon = enabled ? CheckCircle2 : XCircle;
-  const className = enabled
+function Status({ enabled, state }: { enabled: boolean; state: Integration['state'] }) {
+  const active = enabled && state === 'connected';
+  const Icon = active ? CheckCircle2 : XCircle;
+  const className = active
     ? 'text-emerald-700 bg-emerald-50 ring-emerald-200'
-    : 'text-zinc-600 bg-zinc-100 ring-zinc-200';
+    : state === 'syncing'
+      ? 'text-cyan-700 bg-cyan-50 ring-cyan-200'
+      : state === 'error' || state === 'disconnected'
+        ? 'text-rose-700 bg-rose-50 ring-rose-200'
+        : 'text-zinc-600 bg-zinc-100 ring-zinc-200';
   return (
     <span
       className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold ring-1 ring-inset ${className}`}
     >
       <Icon className="h-3.5 w-3.5" aria-hidden="true" />
-      {enabled ? 'Enabled' : 'Disabled'}
+      {enabled ? formatType(state) : 'Disabled'}
     </span>
   );
 }
@@ -695,4 +784,14 @@ function Info({ label, value }: { label: string; value: string }) {
 
 function formatType(value: string): string {
   return value.replace(/_/g, ' ').replace(/\b\w/g, (letter: string) => letter.toUpperCase());
+}
+
+function formatTimestamp(value: string | null): string {
+  if (!value) {
+    return 'Never';
+  }
+  return new Intl.DateTimeFormat(undefined, {
+    dateStyle: 'short',
+    timeStyle: 'short',
+  }).format(new Date(value));
 }

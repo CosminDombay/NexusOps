@@ -4,12 +4,8 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.app.common.constants import (
-    InventoryHealthStatus,
-    InventoryLifecycleState,
-    InventorySyncStatus,
-    ManagementState,
-)
+from backend.app.common.constants import InventoryHealthStatus, InventorySyncStatus
+from backend.app.adapters.proxmox import ProxmoxConfigurationError, ProxmoxConnectionError
 from backend.app.db.session import get_db_session
 from backend.app.modules.credentials.repository import CredentialRepository
 from backend.app.modules.credentials.service import CredentialService
@@ -22,7 +18,8 @@ from backend.app.modules.integrations.schemas import (
 )
 from backend.app.modules.integrations.service import IntegrationNotFoundError, IntegrationService
 from backend.app.modules.inventory.repository import ServerRepository
-from backend.app.modules.proxmox.schemas import ProxmoxHostSyncRead
+from backend.app.modules.inventory.service import InventoryService
+from backend.app.modules.proxmox.schemas import ProxmoxGuestSyncRead, ProxmoxHostSyncRead
 from backend.app.modules.proxmox.service import ProxmoxService
 
 router = APIRouter()
@@ -96,30 +93,64 @@ async def sync_proxmox_hosts(
     session: Annotated[AsyncSession, Depends(get_db_session)],
     service: Annotated[IntegrationService, Depends(get_integration_service)],
 ) -> ProxmoxHostSyncRead:
+    integration = await IntegrationRepository(session).get_by_id(integration_id)
+    if integration is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Integration not found")
     try:
+        await service.mark_integration_syncing(integration)
         adapter = await service.get_proxmox_adapter(integration_id)
+        result = await ProxmoxService(
+            adapter,
+            server_repository=ServerRepository(session),
+            integration_id=integration_id,
+            integration_name=integration.name,
+        ).sync_hosts()
+        await service.mark_integration_connected(integration)
+        return result
     except IntegrationNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
-    return await ProxmoxService(
-        adapter,
-        server_repository=ServerRepository(session),
-        integration_id=str(integration_id),
-    ).sync_hosts()
+    except (ProxmoxConfigurationError, ProxmoxConnectionError) as exc:
+        await service.mark_integration_error(integration, str(exc))
+        await InventoryService(ServerRepository(session)).mark_integration_resources_disconnected(integration_id, error=str(exc))
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
+
+
+@router.post("/{integration_id}/sync/proxmox-guests", response_model=ProxmoxGuestSyncRead)
+async def sync_proxmox_guests(
+    integration_id: UUID,
+    session: Annotated[AsyncSession, Depends(get_db_session)],
+    service: Annotated[IntegrationService, Depends(get_integration_service)],
+) -> ProxmoxGuestSyncRead:
+    integration = await IntegrationRepository(session).get_by_id(integration_id)
+    if integration is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Integration not found")
+    try:
+        await service.mark_integration_syncing(integration)
+        adapter = await service.get_proxmox_adapter(integration_id)
+        result = await ProxmoxService(
+            adapter,
+            server_repository=ServerRepository(session),
+            integration_id=integration_id,
+            integration_name=integration.name,
+        ).sync_guests()
+        await service.mark_integration_connected(integration)
+        return result
+    except IntegrationNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except (ProxmoxConfigurationError, ProxmoxConnectionError) as exc:
+        await service.mark_integration_error(integration, str(exc))
+        await InventoryService(ServerRepository(session)).mark_integration_resources_disconnected(integration_id, error=str(exc))
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
 
 
 async def _decommission_integration_hosts(session: AsyncSession, integration_id: UUID) -> None:
     repository = ServerRepository(session)
-    for server in await repository.list_by_provider("proxmox"):
-        if str((server.provider_metadata or {}).get("integration_id")) != str(integration_id):
-            continue
-        server.managed = False
-        server.management_state = ManagementState.RETIRED
-        server.lifecycle_state = InventoryLifecycleState.DECOMMISSIONED
-        server.sync_status = InventorySyncStatus.ARCHIVED
-        server.sync_state = InventorySyncStatus.ARCHIVED
-        server.last_health_status = InventoryHealthStatus.ARCHIVED
+    for server in await repository.list_by_provider_integration("proxmox", integration_id):
+        server.sync_status = InventorySyncStatus.DISCONNECTED
+        server.sync_state = InventorySyncStatus.DISCONNECTED
+        server.last_health_status = InventoryHealthStatus.SYNC_ERROR
         server.provider_metadata = {
             **server.provider_metadata,
-            "decommissioned_by_integration_delete": True,
+            "disconnected_by_integration_delete": True,
         }
     await session.commit()

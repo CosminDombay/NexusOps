@@ -18,7 +18,7 @@ type UseProxmoxDashboardResult = {
   actionByVmId: Record<number, ProxmoxVmAction | undefined>;
   notification: ProxmoxNotification | null;
   refreshDashboard: () => Promise<void>;
-  runAction: (vmId: number, action: ProxmoxVmAction) => Promise<void>;
+  runAction: (vmId: number, action: ProxmoxVmAction, integrationId?: string | null) => Promise<void>;
   importVm: (payload: ImportProxmoxVmPayload) => Promise<void>;
   reconcileInventory: () => Promise<void>;
   syncHosts: () => Promise<void>;
@@ -54,12 +54,12 @@ export function useProxmoxDashboard(): UseProxmoxDashboardResult {
   }, [refreshDashboard]);
 
   const runAction = useCallback(
-    async (vmId: number, action: ProxmoxVmAction) => {
+    async (vmId: number, action: ProxmoxVmAction, integrationId?: string | null) => {
       setActionByVmId((current) => ({ ...current, [vmId]: action }));
       setNotification(null);
 
       try {
-        const response = await runVmAction(vmId, action);
+        const response = await runVmAction(vmId, action, integrationId);
         setNotification({ tone: 'success', message: response.message });
         await refreshDashboard();
       } catch (caughtError) {
@@ -94,13 +94,16 @@ export function useProxmoxDashboard(): UseProxmoxDashboardResult {
     setNotification(null);
 
     try {
-      await reconcileProxmoxInventory();
+      const integrationIds = Array.from(
+        new Set((dashboard?.vms ?? []).map((vm) => vm.integration_id).filter((value): value is string => Boolean(value))),
+      );
+      await Promise.all(integrationIds.map((integrationId) => reconcileProxmoxInventory(integrationId)));
       setNotification({ tone: 'success', message: 'Inventory reconciliation completed.' });
       await refreshDashboard();
     } catch (caughtError) {
       setNotification({ tone: 'error', message: getApiErrorMessage(caughtError) });
     }
-  }, [refreshDashboard]);
+  }, [dashboard?.vms, refreshDashboard]);
 
   const syncHosts = useCallback(async () => {
     setNotification(null);

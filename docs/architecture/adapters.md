@@ -120,14 +120,16 @@ Services depend on adapter contracts rather than concrete infrastructure details
 Current Proxmox flow:
 
 ```text
-FastAPI router -> ProxmoxService -> ProxmoxAdapter -> Proxmox API
+FastAPI router -> Integration record -> ProxmoxService -> ProxmoxAdapter -> Proxmox API
 ```
 
 Inventory synchronization keeps provider discovery separate from orchestration authority:
 
 ```text
-ProxmoxAdapter discovers hypervisor/VM/LXC -> ProxmoxService normalizes provider objects -> InventoryService/ServerRepository matches, imports, or reconciles managed nodes -> Jobs execute only against Inventory records
+ProxmoxAdapter discovers hypervisor/VM/LXC for one integration -> ProxmoxService normalizes provider objects -> InventoryService/ServerRepository matches, imports, or reconciles managed nodes scoped by integration_id -> Jobs execute only against Inventory records
 ```
+
+The adapter layer does not read Proxmox runtime credentials directly from environment settings. Startup bootstrap may create the first persisted integration from local environment values, then discovery and synchronization resolve adapters from database integration records.
 
 Current Jobs/SSH flow:
 

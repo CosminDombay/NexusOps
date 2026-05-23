@@ -1,5 +1,7 @@
 from datetime import UTC, datetime
+from dataclasses import dataclass
 from typing import Any
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from uuid import UUID
 
 import httpx
@@ -24,12 +26,28 @@ from backend.app.modules.runtime_state.repository import (
 from backend.app.modules.runtime_state.snapshots import RuntimeSnapshotService
 
 
+@dataclass(frozen=True)
+class PrometheusTarget:
+    instance: str
+    job: str | None
+    health: str
+    scrape_url: str | None = None
+
+
+@dataclass(frozen=True)
+class PrometheusDiscovery:
+    targets: list[PrometheusTarget]
+    nodename_instances: dict[str, str]
+
+
 class MonitoringService:
     """Observability readiness validation backed by runtime snapshots."""
 
     def __init__(self, server_repository: ServerRepository, integration_service: IntegrationService) -> None:
         self.server_repository = server_repository
         self.integration_service = integration_service
+        self._grafana_dashboard_path_cache: dict[str, str | None] = {}
+        self._prometheus_discovery_cache: dict[UUID, PrometheusDiscovery] = {}
         self.runtime_snapshots = RuntimeSnapshotService(
             NodeRuntimeSnapshotRepository(server_repository.session),
             status_repository=RuntimeRefreshStatusRepository(server_repository.session),
@@ -60,10 +78,14 @@ class MonitoringService:
             raise ServerNotFoundError("Server not found")
         configs = await self._provider_configs()
         prometheus_config = configs.get(IntegrationProviderType.PROMETHEUS)
-        monitoring_target = self._monitoring_target(server)
+        technical_details: list[str] = []
+        monitoring_target = await self._resolve_monitoring_target(
+            server,
+            prometheus_config,
+            technical_details,
+        )
         monitoring_targets = [monitoring_target] if monitoring_target else []
         metrics = self._operational_summary(server)
-        technical_details: list[str] = []
         readiness = await self._node_observability_readiness(
             server,
             monitoring_target,
@@ -90,7 +112,16 @@ class MonitoringService:
             grafana_url=self._grafana_url(configs.get(IntegrationProviderType.GRAFANA)),
             prometheus_url=self._prometheus_url(prometheus_config, monitoring_targets),
             loki_url=self._loki_url(configs.get(IntegrationProviderType.LOKI)),
-            advanced_metrics_url=self._grafana_url(configs.get(IntegrationProviderType.GRAFANA)),
+            advanced_metrics_url=await self._node_exporter_dashboard_url(
+                configs.get(IntegrationProviderType.GRAFANA),
+                server,
+                monitoring_target,
+            ),
+            container_metrics_url=await self._cadvisor_dashboard_url(
+                configs.get(IntegrationProviderType.GRAFANA),
+                server,
+                _optional_str(readiness.get("cadvisor_target")),
+            ),
             advanced_logs_url=self._grafana_url(configs.get(IntegrationProviderType.GRAFANA)),
             metrics_error=None,
             **readiness,
@@ -108,6 +139,8 @@ class MonitoringService:
         server_metrics = []
         for server in servers:
             snapshot = snapshot_map.get(server.id)
+            if self._should_refresh_monitoring_snapshot(snapshot, getattr(server, "runtime_state", None)):
+                snapshot = await self._refresh_server_monitoring_snapshot(server, configs)
             runtime_state = getattr(server, "runtime_state", None)
             metrics = snapshot.metrics if snapshot is not None and isinstance(snapshot.metrics, dict) else {}
             observability = (
@@ -145,7 +178,16 @@ class MonitoringService:
                     grafana_url=self._grafana_url(configs.get(IntegrationProviderType.GRAFANA)),
                     prometheus_url=self._prometheus_url(configs.get(IntegrationProviderType.PROMETHEUS), monitoring_targets),
                     loki_url=self._loki_url(configs.get(IntegrationProviderType.LOKI)),
-                    advanced_metrics_url=self._grafana_url(configs.get(IntegrationProviderType.GRAFANA)),
+                    advanced_metrics_url=await self._node_exporter_dashboard_url(
+                        configs.get(IntegrationProviderType.GRAFANA),
+                        server,
+                        monitoring_targets[0] if monitoring_targets else None,
+                    ),
+                    container_metrics_url=await self._cadvisor_dashboard_url(
+                        configs.get(IntegrationProviderType.GRAFANA),
+                        server,
+                        _optional_str(observability.get("cadvisor_target")),
+                    ),
                     advanced_logs_url=self._grafana_url(configs.get(IntegrationProviderType.GRAFANA)),
                     metrics_error=None,
                     logs_error=None,
@@ -180,6 +222,46 @@ class MonitoringService:
             stale_metrics_servers=sum(1 for server in server_metrics if server.stale_metrics),
             providers=providers,
             servers=server_metrics,
+        )
+
+    @staticmethod
+    def _should_refresh_monitoring_snapshot(snapshot: object | None, runtime_state: object | None) -> bool:
+        if snapshot is None:
+            return True
+        monitoring_targets = getattr(snapshot, "monitoring_targets", None)
+        observability = getattr(snapshot, "observability", None)
+        monitoring_state = getattr(runtime_state, "monitoring_state", None)
+        return (
+            not monitoring_targets
+            or not isinstance(observability, dict)
+            or not observability
+            or monitoring_state in {None, "unknown"}
+        )
+
+    async def _refresh_server_monitoring_snapshot(
+        self,
+        server: Server,
+        configs: dict[IntegrationProviderType, ProviderConnectionConfig | None],
+    ):
+        technical_details: list[str] = []
+        monitoring_target = await self._resolve_monitoring_target(
+            server,
+            configs.get(IntegrationProviderType.PROMETHEUS),
+            technical_details,
+        )
+        monitoring_targets = [monitoring_target] if monitoring_target else []
+        readiness = await self._node_observability_readiness(
+            server,
+            monitoring_target,
+            configs,
+            technical_details=technical_details,
+        )
+        return await self.runtime_snapshots.refresh_monitoring_snapshot(
+            server,
+            monitoring_targets=monitoring_targets,
+            metrics=self._operational_summary(server),
+            observability=readiness,
+            metrics_error=None,
         )
 
     async def _snapshot_provider_statuses(
@@ -304,7 +386,15 @@ class MonitoringService:
     ) -> dict[str, object]:
         prometheus_config = configs.get(IntegrationProviderType.PROMETHEUS)
         loki_config = configs.get(IntegrationProviderType.LOKI)
+        cadvisor_target = await self._resolve_container_monitoring_target(
+            server,
+            monitoring_target,
+            prometheus_config,
+            technical_details,
+        )
         strategy = self._monitoring_strategy(server)
+        if strategy == "host" and cadvisor_target:
+            strategy = "host_container"
         scrape_health = await self._prometheus_target_health(monitoring_target, prometheus_config, technical_details)
         metrics_recent = await self._prometheus_metrics_recent(monitoring_target, prometheus_config, technical_details)
         metrics_available = scrape_health == "up"
@@ -315,7 +405,6 @@ class MonitoringService:
         promtail_reachable = logs_available
         promtail_detected = logs_available
         docker_runtime_available = self._metadata_bool(server, "docker_runtime_available")
-        cadvisor_target = self._container_monitoring_target(server)
         cadvisor_running = await self._prometheus_cadvisor_running(cadvisor_target, prometheus_config, technical_details)
         cadvisor_detected = cadvisor_running or bool(cadvisor_target)
 
@@ -368,6 +457,7 @@ class MonitoringService:
             "node_exporter_reachable": node_exporter_reachable,
             "cadvisor_detected": cadvisor_detected,
             "cadvisor_running": cadvisor_running,
+            "cadvisor_target": cadvisor_target,
             "docker_runtime_available": docker_runtime_available,
             "promtail_detected": promtail_detected,
             "promtail_reachable": promtail_reachable,
@@ -478,6 +568,155 @@ class MonitoringService:
             technical_details.append(f"loki_log_check: {exc}")
             return False
 
+    async def _resolve_monitoring_target(
+        self,
+        server: Server,
+        config: ProviderConnectionConfig | None,
+        technical_details: list[str],
+    ) -> str | None:
+        configured_target = self._monitoring_target(server)
+        if configured_target:
+            return configured_target
+        discovered = await self._discover_node_exporter_target(server, config, technical_details)
+        if discovered:
+            return discovered
+        return None
+
+    async def _resolve_container_monitoring_target(
+        self,
+        server: Server,
+        monitoring_target: str | None,
+        config: ProviderConnectionConfig | None,
+        technical_details: list[str],
+    ) -> str | None:
+        configured_target = self._container_monitoring_target(server)
+        if configured_target:
+            return configured_target
+        if config is None or not monitoring_target:
+            return None
+        discovery = await self._prometheus_discovery(config, technical_details)
+        node_host = _target_host(monitoring_target)
+        if not node_host:
+            return None
+        cadvisor = next(
+            (
+                target.instance
+                for target in discovery.targets
+                if target.job == "cadvisor"
+                and target.health == "up"
+                and _target_host(target.instance) == node_host
+            ),
+            None,
+        )
+        return cadvisor
+
+    async def _discover_node_exporter_target(
+        self,
+        server: Server,
+        config: ProviderConnectionConfig | None,
+        technical_details: list[str],
+    ) -> str | None:
+        if config is None:
+            return None
+        discovery = await self._prometheus_discovery(config, technical_details)
+        nodename_match = discovery.nodename_instances.get(server.hostname)
+        if nodename_match:
+            return nodename_match
+        ip_match = next(
+            (
+                target.instance
+                for target in discovery.targets
+                if target.job == "node"
+                and target.health == "up"
+                and _target_host(target.instance) == server.ip_address
+            ),
+            None,
+        )
+        return ip_match
+
+    async def _prometheus_discovery(
+        self,
+        config: ProviderConnectionConfig,
+        technical_details: list[str],
+    ) -> PrometheusDiscovery:
+        cached = self._prometheus_discovery_cache.get(config.integration_id)
+        if cached is not None:
+            return cached
+
+        targets: list[PrometheusTarget] = []
+        nodename_instances: dict[str, str] = {}
+        try:
+            async with httpx.AsyncClient(timeout=config.timeout_seconds, verify=config.verify_ssl) as client:
+                response = await client.get(
+                    f"{config.base_url}/api/v1/targets",
+                    params={"state": "active"},
+                    headers=config.headers,
+                )
+                response.raise_for_status()
+                targets = self._parse_prometheus_targets(response.json())
+
+                response = await client.get(
+                    f"{config.base_url}/api/v1/query",
+                    params={"query": "node_uname_info"},
+                    headers=config.headers,
+                )
+                response.raise_for_status()
+                nodename_instances = self._parse_nodename_instances(response.json())
+        except Exception as exc:
+            technical_details.append(f"prometheus_target_discovery: {exc}")
+
+        discovery = PrometheusDiscovery(targets=targets, nodename_instances=nodename_instances)
+        self._prometheus_discovery_cache[config.integration_id] = discovery
+        return discovery
+
+    @staticmethod
+    def _parse_prometheus_targets(payload: dict[str, Any]) -> list[PrometheusTarget]:
+        raw_targets = payload.get("data", {}).get("activeTargets", [])
+        if not isinstance(raw_targets, list):
+            return []
+        targets: list[PrometheusTarget] = []
+        for raw_target in raw_targets:
+            if not isinstance(raw_target, dict):
+                continue
+            labels = raw_target.get("labels")
+            discovered_labels = raw_target.get("discoveredLabels")
+            if not isinstance(labels, dict):
+                labels = {}
+            if not isinstance(discovered_labels, dict):
+                discovered_labels = {}
+            instance = labels.get("instance") or discovered_labels.get("__address__")
+            if not isinstance(instance, str) or not instance.strip():
+                continue
+            job = labels.get("job") or discovered_labels.get("job")
+            scrape_pool = raw_target.get("scrapePool")
+            targets.append(
+                PrometheusTarget(
+                    instance=instance.strip(),
+                    job=job.strip() if isinstance(job, str) and job.strip() else _optional_str(scrape_pool),
+                    health=_optional_str(raw_target.get("health")) or "unknown",
+                    scrape_url=_optional_str(raw_target.get("scrapeUrl")),
+                )
+            )
+        return targets
+
+    @staticmethod
+    def _parse_nodename_instances(payload: dict[str, Any]) -> dict[str, str]:
+        result = payload.get("data", {}).get("result", [])
+        if not isinstance(result, list):
+            return {}
+        nodenames: dict[str, str] = {}
+        for item in result:
+            if not isinstance(item, dict):
+                continue
+            metric = item.get("metric")
+            if not isinstance(metric, dict):
+                continue
+            nodename = metric.get("nodename")
+            instance = metric.get("instance")
+            if isinstance(nodename, str) and nodename.strip() and isinstance(instance, str) and instance.strip():
+                nodenames[nodename.strip()] = instance.strip()
+        return nodenames
+
     def _static_monitoring_targets(self, server: Server) -> list[str]:
         target = self._monitoring_target(server)
         return [target] if target else []
@@ -584,6 +823,18 @@ class MonitoringService:
             return None
 
     @staticmethod
+    def _first_metric_label(payload: dict[str, Any], label: str) -> str | None:
+        result = payload.get("data", {}).get("result", [])
+        for item in result:
+            metric = item.get("metric", {})
+            if not isinstance(metric, dict):
+                continue
+            value = metric.get(label)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+        return None
+
+    @staticmethod
     def _grafana_url(config: ProviderConnectionConfig | None) -> str | None:
         if config is None:
             return None
@@ -602,6 +853,237 @@ class MonitoringService:
         if config is None:
             return None
         return config.base_url
+
+    async def _node_exporter_dashboard_url(
+        self,
+        config: ProviderConnectionConfig | None,
+        server: Server,
+        monitoring_target: str | None,
+    ) -> str | None:
+        if config is None:
+            return None
+        path = self._dashboard_path(
+            config,
+            server,
+            (
+                "node_exporter_dashboard_path",
+                "node_exporter_dashboard_url",
+                "grafana_node_exporter_dashboard_path",
+                "grafana_node_exporter_dashboard_url",
+                "node_dashboard_path",
+                "node_dashboard_url",
+            ),
+        )
+        if not path:
+            path = await self._discover_grafana_dashboard_path(
+                config,
+                ("Node-Exporter", "Node Exporter", "node-exporter"),
+            )
+        if not path:
+            return None
+        query = {
+            "orgId": self._dashboard_org_id(config, server),
+            "from": self._dashboard_from(config, server, "now-24h"),
+            "to": "now",
+            "timezone": "browser",
+            "var-datasource": self._dashboard_datasource(config, server),
+            "var-job": self._dashboard_job(server),
+            "var-nodename": self._dashboard_nodename(server),
+        }
+        if monitoring_target:
+            query["var-instance"] = monitoring_target
+        return self._grafana_dashboard_link(config.base_url, path, query)
+
+    async def _cadvisor_dashboard_url(
+        self,
+        config: ProviderConnectionConfig | None,
+        server: Server,
+        cadvisor_target: str | None = None,
+    ) -> str | None:
+        if config is None:
+            return None
+        path = self._dashboard_path(
+            config,
+            server,
+            (
+                "cadvisor_dashboard_path",
+                "cadvisor_dashboard_url",
+                "grafana_cadvisor_dashboard_path",
+                "grafana_cadvisor_dashboard_url",
+                "container_dashboard_path",
+                "container_dashboard_url",
+            ),
+        )
+        if not path:
+            path = await self._discover_grafana_dashboard_path(
+                config,
+                ("Cadvisor", "cAdvisor", "cadvisor"),
+            )
+        if not path:
+            return None
+        cadvisor_target = cadvisor_target or self._container_monitoring_target(server)
+        query = {
+            "orgId": self._dashboard_org_id(config, server),
+            "from": self._dashboard_from(config, server, "now-6h"),
+            "to": "now",
+            "timezone": "browser",
+            "var-container": "All",
+        }
+        if cadvisor_target:
+            query["var-host"] = cadvisor_target
+        return self._grafana_dashboard_link(config.base_url, path, query)
+
+    async def _discover_grafana_dashboard_path(
+        self,
+        config: ProviderConnectionConfig,
+        queries: tuple[str, ...],
+    ) -> str | None:
+        cache_key = f"{config.integration_id}:{'|'.join(queries)}"
+        if cache_key in self._grafana_dashboard_path_cache:
+            return self._grafana_dashboard_path_cache[cache_key]
+        for query in queries:
+            try:
+                async with httpx.AsyncClient(timeout=config.timeout_seconds, verify=config.verify_ssl) as client:
+                    response = await client.get(
+                        f"{config.base_url}/api/search",
+                        params={"type": "dash-db", "query": query},
+                        headers=config.headers,
+                    )
+                    response.raise_for_status()
+                    path = self._first_dashboard_url(response.json())
+                    if path:
+                        self._grafana_dashboard_path_cache[cache_key] = path
+                        return path
+            except Exception:
+                continue
+        self._grafana_dashboard_path_cache[cache_key] = None
+        return None
+
+    @staticmethod
+    def _first_dashboard_url(payload: object) -> str | None:
+        if not isinstance(payload, list):
+            return None
+        for item in payload:
+            if not isinstance(item, dict):
+                continue
+            url = item.get("url")
+            if isinstance(url, str) and url.strip():
+                return url.strip()
+            uid = item.get("uid")
+            uri = item.get("uri")
+            if isinstance(uid, str) and uid.strip() and isinstance(uri, str) and uri.startswith("db/"):
+                slug = uri.removeprefix("db/")
+                return f"/d/{uid.strip()}/{slug}"
+        return None
+
+    @staticmethod
+    def _dashboard_path(
+        config: ProviderConnectionConfig,
+        server: Server,
+        keys: tuple[str, ...],
+    ) -> str | None:
+        metadata = server.provider_metadata if isinstance(server.provider_metadata, dict) else {}
+        for key in keys:
+            value = metadata.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+        # ProviderConnectionConfig intentionally contains only normalized connection data.
+        # Dashboard path hints are optional pass-through values stored on the integration model.
+        config_source = getattr(config, "raw_config", None)
+        if isinstance(config_source, dict):
+            for key in keys:
+                value = config_source.get(key)
+                if isinstance(value, str) and value.strip():
+                    return value.strip()
+        return None
+
+    @staticmethod
+    def _dashboard_org_id(config: ProviderConnectionConfig, server: Server) -> str:
+        metadata = server.provider_metadata if isinstance(server.provider_metadata, dict) else {}
+        value = metadata.get("grafana_org_id")
+        if isinstance(value, int | str) and str(value).strip():
+            return str(value).strip()
+        config_source = getattr(config, "raw_config", None)
+        if isinstance(config_source, dict):
+            configured = config_source.get("org_id") or config_source.get("grafana_org_id")
+            if isinstance(configured, int | str) and str(configured).strip():
+                return str(configured).strip()
+        return "1"
+
+    @staticmethod
+    def _dashboard_from(
+        config: ProviderConnectionConfig,
+        server: Server,
+        default_value: str,
+    ) -> str:
+        metadata = server.provider_metadata if isinstance(server.provider_metadata, dict) else {}
+        value = metadata.get("grafana_from")
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+        config_source = getattr(config, "raw_config", None)
+        if isinstance(config_source, dict):
+            configured = config_source.get("default_from")
+            if isinstance(configured, str) and configured.strip():
+                return configured.strip()
+        return default_value
+
+    @staticmethod
+    def _dashboard_datasource(config: ProviderConnectionConfig, server: Server) -> str:
+        metadata = server.provider_metadata if isinstance(server.provider_metadata, dict) else {}
+        value = metadata.get("grafana_datasource")
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+        config_source = getattr(config, "raw_config", None)
+        if isinstance(config_source, dict):
+            configured = config_source.get("datasource") or config_source.get("grafana_datasource")
+            if isinstance(configured, str) and configured.strip():
+                return configured.strip()
+        return "prometheus"
+
+    @staticmethod
+    def _dashboard_job(server: Server) -> str:
+        metadata = server.provider_metadata if isinstance(server.provider_metadata, dict) else {}
+        value = metadata.get("node_exporter_job") or metadata.get("prometheus_job")
+        return value.strip() if isinstance(value, str) and value.strip() else "node"
+
+    @staticmethod
+    def _dashboard_nodename(server: Server) -> str:
+        metadata = server.provider_metadata if isinstance(server.provider_metadata, dict) else {}
+        value = metadata.get("grafana_nodename") or metadata.get("prometheus_nodename")
+        return value.strip() if isinstance(value, str) and value.strip() else server.hostname
+
+    @staticmethod
+    def _grafana_dashboard_link(
+        base_url: str,
+        path: str,
+        query: dict[str, object],
+    ) -> str:
+        normalized_path = path if path.startswith("/") else f"/{path}"
+        if path.startswith(("http://", "https://")):
+            parsed = urlsplit(path)
+            existing_query = dict(parse_qsl(parsed.query, keep_blank_values=True))
+            existing_query.update(
+                {
+                    key: value
+                    for key, value in query.items()
+                    if value is not None and str(value).strip()
+                }
+            )
+            return urlunsplit(
+                (
+                    parsed.scheme,
+                    parsed.netloc,
+                    parsed.path,
+                    urlencode(existing_query),
+                    parsed.fragment,
+                )
+            )
+        normalized_query = {
+            key: value
+            for key, value in query.items()
+            if value is not None and str(value).strip()
+        }
+        return f"{base_url}{normalized_path}?{urlencode(normalized_query)}"
 
 
 def _provider_status(
@@ -622,3 +1104,11 @@ def _optional_float(value: object) -> float | None:
 
 def _optional_str(value: object) -> str | None:
     return value if isinstance(value, str) and value else None
+
+
+def _target_host(instance: str) -> str | None:
+    if not instance:
+        return None
+    if instance.startswith("[") and "]" in instance:
+        return instance[1 : instance.index("]")]
+    return instance.rsplit(":", 1)[0] if ":" in instance else instance

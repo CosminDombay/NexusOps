@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Database, Network, Plus, ServerIcon } from 'lucide-react';
 
 import { ContextDrawer } from '../../../components/ContextDrawer';
@@ -6,9 +6,12 @@ import { PageHeader } from '../../../components/layout/PageHeader';
 import { CreateServerForm } from '../components/CreateServerForm';
 import { ServerList } from '../components/ServerList';
 import { useServers } from '../hooks/useServers';
+import { listIntegrations } from '../../settings/api/integrationsApi';
+import type { Integration } from '../../settings/types/integration';
 
 export function InventoryDashboardPage() {
   const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const [integrations, setIntegrations] = useState<Integration[]>([]);
   const {
     servers,
     isLoading,
@@ -20,6 +23,10 @@ export function InventoryDashboardPage() {
     isRunningVmLifecycleAction,
     includeInactive,
     setIncludeInactive,
+    integrationFilter,
+    setIntegrationFilter,
+    clusterFilter,
+    setClusterFilter,
     refreshServers,
     addServer,
     editServer,
@@ -34,8 +41,29 @@ export function InventoryDashboardPage() {
     clearMutationError,
   } = useServers();
 
+  useEffect(() => {
+    listIntegrations()
+      .then((items) =>
+        setIntegrations(
+          items.filter((integration) => integration.type === 'infrastructure_provider'),
+        ),
+      )
+      .catch(() => setIntegrations([]));
+  }, []);
+
   const onlineServers = servers.filter((server) => server.last_health_status === 'online').length;
   const productionServers = servers.filter((server) => server.environment === 'production').length;
+  const clusterOptions = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          servers
+            .map((server) => server.provider_node)
+            .filter((value): value is string => Boolean(value)),
+        ),
+      ).sort(),
+    [servers],
+  );
 
   return (
     <div className="space-y-6">
@@ -50,8 +78,34 @@ export function InventoryDashboardPage() {
         <MetricCard icon={Database} label="Production" value={productionServers.toString()} />
       </div>
 
-      <div className="flex justify-end">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
         <div className="flex flex-wrap gap-2">
+          <select
+            className="rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm font-semibold text-zinc-700 shadow-sm"
+            value={integrationFilter}
+            onChange={(event) => setIntegrationFilter(event.target.value)}
+          >
+            <option value="">All integrations</option>
+            {integrations.map((integration) => (
+              <option key={integration.id} value={integration.id}>
+                {integration.name}
+              </option>
+            ))}
+          </select>
+          <select
+            className="rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm font-semibold text-zinc-700 shadow-sm"
+            value={clusterFilter}
+            onChange={(event) => setClusterFilter(event.target.value)}
+          >
+            <option value="">All clusters/groups</option>
+            {clusterOptions.map((cluster) => (
+              <option key={cluster} value={cluster}>
+                {cluster}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="flex flex-wrap justify-end gap-2">
           <label className="inline-flex items-center gap-2 rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm font-semibold text-zinc-700 shadow-sm">
             <input
               checked={includeInactive}

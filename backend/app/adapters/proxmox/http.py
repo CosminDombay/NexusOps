@@ -39,11 +39,9 @@ class HttpProxmoxAdapter(ProxmoxAdapter):
         verify_ssl: bool | None = None,
         timeout_seconds: int | None = None,
     ) -> None:
-        self.api_url = (api_url or settings.proxmox_api_url or "").rstrip("/") + "/"
-        self.token_id = token_id if token_id is not None else settings.proxmox_token_id
-        self.token_secret = (
-            token_secret if token_secret is not None else settings.proxmox_token_secret
-        )
+        self.api_url = (api_url or "").rstrip("/") + "/"
+        self.token_id = token_id
+        self.token_secret = token_secret
         self.verify_ssl = settings.proxmox_verify_ssl if verify_ssl is None else verify_ssl
         self.timeout_seconds = timeout_seconds or settings.proxmox_timeout_seconds
 

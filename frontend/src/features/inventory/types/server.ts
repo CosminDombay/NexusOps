@@ -22,7 +22,15 @@ export type InventoryLifecycleState =
   | 'archived'
   | 'decommissioned';
 
-export type InventorySyncStatus = 'unknown' | 'synced' | 'unmanaged' | 'orphaned' | 'mismatch' | 'archived';
+export type InventorySyncStatus =
+  | 'unknown'
+  | 'synced'
+  | 'unmanaged'
+  | 'orphaned'
+  | 'mismatch'
+  | 'stale'
+  | 'disconnected'
+  | 'archived';
 
 export type InventoryHealthStatus = 'online' | 'unreachable' | 'unknown' | 'provisioning' | 'archived' | 'sync_error';
 
@@ -44,6 +52,8 @@ export type Server = {
   provider: string;
   external_id: string | null;
   source: string;
+  integration_id: string | null;
+  source_type: string;
   managed: boolean;
   management_state: ManagementState;
   lifecycle_state: InventoryLifecycleState;
@@ -55,8 +65,11 @@ export type Server = {
   monitoring_target: string | null;
   monitoring_strategy: string | null;
   provider_metadata: Record<string, unknown>;
+  sync_metadata: Record<string, unknown>;
   capabilities: string[];
   last_seen_at: string | null;
+  last_sync_at: string | null;
+  stale_since: string | null;
   last_health_check_at: string | null;
   last_health_status: InventoryHealthStatus;
   last_health_error: string | null;
@@ -81,6 +94,8 @@ export type CreateServerPayload = {
   credential_id?: string | null;
   external_id?: string | null;
   source?: string;
+  integration_id?: string | null;
+  source_type?: string;
   managed?: boolean;
   management_state?: ManagementState;
   lifecycle_state?: InventoryLifecycleState;
@@ -92,6 +107,7 @@ export type CreateServerPayload = {
   monitoring_target?: string | null;
   monitoring_strategy?: string | null;
   provider_metadata?: Record<string, unknown>;
+  sync_metadata?: Record<string, unknown>;
   capabilities?: string[];
 };
 
@@ -100,6 +116,7 @@ export type UpdateServerPayload = Partial<CreateServerPayload> & {
 };
 
 export type ImportProxmoxVmPayload = CreateServerPayload & {
+  integration_id: string;
   vm_id: number;
   node: string;
   vm_type: string;

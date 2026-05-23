@@ -96,6 +96,8 @@ class InventorySyncStatus(StrEnum):
     UNMANAGED = "unmanaged"
     ORPHANED = "orphaned"
     MISMATCH = "mismatch"
+    STALE = "stale"
+    DISCONNECTED = "disconnected"
     ARCHIVED = "archived"
 
 
@@ -155,6 +157,8 @@ STATE_LABELS = {
     InventorySyncStatus.UNMANAGED: "Unmanaged",
     InventorySyncStatus.ORPHANED: "Orphaned",
     InventorySyncStatus.MISMATCH: "Mismatch",
+    InventorySyncStatus.STALE: "Stale",
+    InventorySyncStatus.DISCONNECTED: "Disconnected",
     InventorySyncStatus.ARCHIVED: "Archived",
     InventoryHealthStatus.ONLINE: "Online",
     InventoryHealthStatus.UNREACHABLE: "Unreachable",

@@ -1,5 +1,5 @@
 import { apiClient } from '../../../lib/api/client';
-import type { ProxmoxHostSyncResult } from '../../proxmox/types/proxmox';
+import type { ProxmoxGuestSyncResult, ProxmoxHostSyncResult } from '../../proxmox/types/proxmox';
 import type { Integration, IntegrationPayload, IntegrationTestResult } from '../types/integration';
 
 export async function listIntegrations(): Promise<Integration[]> {
@@ -28,5 +28,10 @@ export async function testIntegration(integrationId: string): Promise<Integratio
 
 export async function syncProxmoxHostsForIntegration(integrationId: string): Promise<ProxmoxHostSyncResult> {
   const response = await apiClient.post<ProxmoxHostSyncResult>(`/integrations/${integrationId}/sync/proxmox-hosts`);
+  return response.data;
+}
+
+export async function syncProxmoxGuestsForIntegration(integrationId: string): Promise<ProxmoxGuestSyncResult> {
+  const response = await apiClient.post<ProxmoxGuestSyncResult>(`/integrations/${integrationId}/sync/proxmox-guests`);
   return response.data;
 }

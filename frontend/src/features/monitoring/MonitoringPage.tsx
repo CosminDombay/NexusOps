@@ -71,26 +71,15 @@ export function MonitoringPage() {
 
       <section className="rounded-lg border border-zinc-200 bg-white shadow-sm">
         <div className="border-b border-zinc-200 px-5 py-4">
-          <h3 className="text-base font-semibold text-zinc-950">Infrastructure Observability Board</h3>
+          <h3 className="text-base font-semibold text-zinc-950">Infrastructure Observability</h3>
           <p className="mt-1 text-sm text-zinc-500">
-            NexusOps derives readiness from telemetry availability. Grafana is available only as optional advanced tooling.
+            Snapshot-driven node readiness for host metrics, logs, and optional container telemetry.
           </p>
         </div>
-        <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-zinc-200 text-sm">
-            <thead className="bg-zinc-50">
-              <tr>
-                {['Node', 'Readiness', 'Metrics', 'Logs', 'Exporters', 'Scrape', 'Staleness', 'Signals'].map((heading) => (
-                  <th key={heading} className="px-5 py-3 text-left text-xs font-semibold uppercase text-zinc-500">{heading}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-zinc-100">
-              {(overview?.servers ?? []).map((server) => (
-                <ObservabilityRow key={server.server_id} server={server} />
-              ))}
-            </tbody>
-          </table>
+        <div className="divide-y divide-zinc-100">
+          {(overview?.servers ?? []).map((server) => (
+            <ObservabilityRow key={server.server_id} server={server} />
+          ))}
           {isLoading ? <p className="p-5 text-sm text-zinc-500">Checking telemetry readiness...</p> : null}
           {!isLoading && overview?.servers.length === 0 ? <p className="p-5 text-sm text-zinc-500">No inventory nodes available.</p> : null}
         </div>
@@ -128,61 +117,153 @@ function ProviderReadinessCard({ provider }: { provider: MonitoringProviderStatu
 }
 
 function ObservabilityRow({ server }: { server: ServerMetrics }) {
+  const primaryReason = primaryReadinessReason(server);
+  const summary = summarizeSignals(server);
+
   return (
-    <tr>
-      <td className="px-5 py-4">
-        <div className="font-medium text-zinc-950">{server.hostname}</div>
-        <div className="font-mono text-xs text-zinc-500">{server.ip_address}</div>
-        {server.monitoring_targets.length ? (
-          <div className="mt-1 max-w-52 truncate font-mono text-[11px] text-zinc-400" title={server.monitoring_targets.join(', ')}>
-            {server.monitoring_interface ?? 'target'}: {server.monitoring_targets[0]}
+    <article className="px-5 py-4">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <h4 className="text-sm font-semibold text-zinc-950">{server.hostname}</h4>
+            <StatusPill tone={readinessTone(server.monitoring_status)}>{server.monitoring_status}</StatusPill>
           </div>
+          <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-zinc-500">
+            <span className="font-mono">{server.ip_address}</span>
+            <span>{server.monitoring_interface ?? 'no interface'}</span>
+            <span>{server.monitoring_strategy}</span>
+          </div>
+          {server.monitoring_targets.length ? (
+            <div className="mt-1 truncate font-mono text-xs text-zinc-400" title={server.monitoring_targets[0]}>
+              {server.monitoring_targets[0]}
+            </div>
+          ) : null}
+        </div>
+
+        <div className="flex flex-wrap gap-2">
+          <MetricLink label="Prometheus" href={server.prometheus_url} />
+          <MetricLink label="Node-Exporter" href={server.advanced_metrics_url} />
+          <MetricLink label="cAdvisor" href={server.container_metrics_url} />
+          <MetricLink label="Logs" href={server.advanced_logs_url} />
+        </div>
+      </div>
+
+      {server.metrics_available && !server.advanced_metrics_url ? (
+        <div className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+          Host metrics are detected, but no Grafana Node-Exporter dashboard URL is configured or discoverable.
+        </div>
+      ) : null}
+      {server.cadvisor_running && !server.container_metrics_url ? (
+        <div className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+          cAdvisor is detected, but no Grafana cAdvisor dashboard URL is configured or discoverable.
+        </div>
+      ) : null}
+
+      <div className="mt-4 grid gap-3 md:grid-cols-3">
+        <SignalCard
+          title="Host Metrics"
+          state={server.metrics_available ? 'Ready' : 'Missing'}
+          tone={server.metrics_available ? 'success' : 'danger'}
+          detail={`node_exporter ${server.node_exporter_reachable ? 'reachable' : 'not reachable'} / scrape ${formatReason(server.scrape_target_health)}`}
+        />
+        <SignalCard
+          title="Logs"
+          state={server.logs_available ? 'Ready' : 'Missing'}
+          tone={server.logs_available ? 'success' : 'warning'}
+          detail={server.promtail_reachable ? 'promtail reachable' : 'log ingestion unavailable'}
+        />
+        <SignalCard
+          title="Containers"
+          state={server.monitoring_strategy === 'host' ? 'Optional' : server.cadvisor_running ? 'Ready' : 'Missing'}
+          tone={server.monitoring_strategy === 'host' ? 'muted' : server.cadvisor_running ? 'success' : 'warning'}
+          detail={server.monitoring_strategy === 'host' ? 'cAdvisor not required' : `Docker ${server.docker_runtime_available ? 'available' : 'not confirmed'}`}
+        />
+      </div>
+
+      <div className="mt-3 flex flex-col gap-2 text-xs text-zinc-500 lg:flex-row lg:items-center lg:justify-between">
+        <div>
+          <span>{summary}</span>
+          {primaryReason ? <span className="ml-2 text-amber-600">{primaryReason}</span> : null}
+          {server.remediation.length ? <span className="ml-2">{server.remediation[0]}</span> : null}
+        </div>
+
+        {server.technical_details.length ? (
+          <details className="max-w-full lg:max-w-xl">
+            <summary className="cursor-pointer text-xs font-semibold text-zinc-400 hover:text-zinc-200">
+              Show technical details
+            </summary>
+            <div className="mt-2 max-h-28 overflow-auto rounded-md border border-zinc-200 bg-zinc-50 p-2 font-mono text-[11px] leading-relaxed text-zinc-400">
+              {server.technical_details.slice(0, 4).map((detail) => (
+                <div key={detail} className="break-words">{detail}</div>
+              ))}
+            </div>
+          </details>
         ) : null}
-      </td>
-      <td className="px-5 py-4"><RuntimeBadge value={server.monitoring_status} /></td>
-      <td className="px-5 py-4">
-        <StatusPill tone={server.metrics_available ? 'success' : 'danger'}>
-          {server.metrics_available ? 'Available' : 'Missing'}
-        </StatusPill>
-      </td>
-      <td className="px-5 py-4">
-        <StatusPill tone={server.logs_available ? 'success' : 'warning'}>
-          {server.logs_available ? 'Available' : 'Missing'}
-        </StatusPill>
-      </td>
-      <td className="px-5 py-4">
-        <div className="flex flex-wrap gap-1.5">
-          <StatusPill tone={server.node_exporter_detected ? 'success' : 'warning'}>node</StatusPill>
-          <StatusPill tone={server.cadvisor_running ? 'success' : server.monitoring_strategy === 'host' ? 'muted' : 'warning'}>cadvisor</StatusPill>
-          <StatusPill tone={server.promtail_detected ? 'success' : 'warning'}>promtail</StatusPill>
-        </div>
-      </td>
-      <td className="px-5 py-4"><RuntimeBadge value={server.scrape_target_health} /></td>
-      <td className="px-5 py-4">
-        <StatusPill tone={server.stale_metrics ? 'warning' : 'success'}>
-          {server.stale_metrics ? 'Stale' : 'Fresh'}
-        </StatusPill>
-      </td>
-      <td className="px-5 py-4">
-        <div className="max-w-md space-y-1">
-          <div className="text-xs text-zinc-500">
-            CPU {formatPercent(server.cpu_usage_percent)} / Mem {formatPercent(server.memory_usage_percent)} / Disk {formatPercent(server.disk_usage_percent)}
-          </div>
-          {server.readiness_reasons.length ? (
-            <div className="text-xs text-amber-700">{server.readiness_reasons.slice(0, 3).map(formatReason).join(', ')}</div>
-          ) : null}
-          {server.remediation.length ? (
-            <div className="text-xs text-zinc-500">{server.remediation[0]}</div>
-          ) : null}
-          <div className="flex flex-wrap gap-2">
-            <MetricLink label="Prometheus" href={server.prometheus_url} />
-            <MetricLink label="Advanced metrics" href={server.advanced_metrics_url} />
-            <MetricLink label="Advanced logs" href={server.advanced_logs_url} />
-          </div>
-        </div>
-      </td>
-    </tr>
+      </div>
+    </article>
   );
+}
+
+function SignalCard({
+  title,
+  state,
+  detail,
+  tone,
+}: {
+  title: string;
+  state: string;
+  detail: string;
+  tone: 'success' | 'warning' | 'danger' | 'muted';
+}) {
+  return (
+    <div className="rounded-md border border-zinc-200 bg-zinc-50 px-3 py-2">
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-xs font-semibold uppercase tracking-normal text-zinc-500">{title}</span>
+        <StatusPill tone={tone}>{state}</StatusPill>
+      </div>
+      <p className="mt-2 text-xs text-zinc-500">{detail}</p>
+    </div>
+  );
+}
+
+function primaryReadinessReason(server: ServerMetrics): string | null {
+  const reason = server.readiness_reasons.find((item) => !isTechnicalNoise(item));
+  return reason ? formatReason(reason) : null;
+}
+
+function summarizeSignals(server: ServerMetrics): string {
+  const cpu = formatPercent(server.cpu_usage_percent);
+  const memory = formatPercent(server.memory_usage_percent);
+  const disk = formatPercent(server.disk_usage_percent);
+  if (cpu === 'No data' && memory === 'No data' && disk === 'No data') {
+    return 'No operational metric snapshot yet.';
+  }
+  return `CPU ${cpu} / Mem ${memory} / Disk ${disk}`;
+}
+
+function isTechnicalNoise(value: string): boolean {
+  const normalized = value.toLowerCase();
+  return (
+    normalized.includes('client error') ||
+    normalized.includes('http') ||
+    normalized.includes('query=') ||
+    normalized.includes('traceback') ||
+    normalized.length > 80
+  );
+}
+
+function readinessTone(value: string): 'success' | 'warning' | 'danger' | 'muted' {
+  const normalized = value.toLowerCase();
+  if (normalized === 'healthy') {
+    return 'success';
+  }
+  if (normalized === 'partial' || normalized === 'stale') {
+    return 'warning';
+  }
+  if (normalized === 'missing') {
+    return 'danger';
+  }
+  return 'muted';
 }
 
 function MetricLink({ label, href }: { label: string; href: string | null }) {

@@ -1,5 +1,6 @@
 export type IntegrationType = 'infrastructure_provider' | 'monitoring' | 'networking' | 'database';
 export type IntegrationProviderType = 'proxmox' | 'prometheus' | 'grafana' | 'loki' | 'tailscale' | 'custom';
+export type IntegrationState = 'connected' | 'disconnected' | 'error' | 'disabled' | 'syncing';
 
 export type Integration = {
   id: string;
@@ -7,8 +8,11 @@ export type Integration = {
   type: IntegrationType;
   provider_type: IntegrationProviderType;
   enabled: boolean;
+  state: IntegrationState;
   config: Record<string, unknown>;
   credential_refs: Record<string, string>;
+  last_successful_sync: string | null;
+  last_error: string | null;
   created_at: string;
   updated_at: string;
 };

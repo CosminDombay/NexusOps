@@ -24,6 +24,7 @@ export type ServerMetrics = {
   prometheus_url: string | null;
   loki_url: string | null;
   advanced_metrics_url: string | null;
+  container_metrics_url: string | null;
   advanced_logs_url: string | null;
   metrics_error: string | null;
   logs_error: string | null;

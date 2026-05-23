@@ -36,6 +36,7 @@ class ServerMetricsRead(BaseModel):
     prometheus_url: str | None = None
     loki_url: str | None = None
     advanced_metrics_url: str | None = None
+    container_metrics_url: str | None = None
     advanced_logs_url: str | None = None
     metrics_error: str | None = None
     logs_error: str | None = None

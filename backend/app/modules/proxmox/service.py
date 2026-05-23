@@ -3,6 +3,7 @@ from datetime import UTC, datetime
 from ipaddress import ip_address
 import socket
 from typing import Any
+from uuid import UUID
 
 import structlog
 
@@ -57,11 +58,14 @@ class ProxmoxService:
         adapter: ProxmoxAdapter,
         *,
         server_repository: ServerRepository | None = None,
-        integration_id: str | None = None,
+        integration_id: UUID | str | None = None,
+        integration_name: str | None = None,
     ) -> None:
         self.adapter = adapter
         self.server_repository = server_repository
-        self.integration_id = integration_id
+        self.integration_id = str(integration_id) if integration_id else None
+        self.integration_uuid = UUID(str(integration_id)) if integration_id else None
+        self.integration_name = integration_name
         self.runtime_snapshots = (
             RuntimeSnapshotService(
                 NodeRuntimeSnapshotRepository(server_repository.session),
@@ -86,6 +90,7 @@ class ProxmoxService:
         vms = []
         for raw_vm in raw_vms:
             vm = self._normalize_vm(raw_vm)
+            vm = vm.model_copy(update={"integration_id": self.integration_id, "integration_name": self.integration_name})
             if vm.ip_address is None:
                 detected_ip = await self._detect_guest_ip(vm)
                 if detected_ip:
@@ -166,11 +171,19 @@ class ProxmoxService:
                 continue
 
             external_id = self._host_external_id(node.name)
-            existing = await self.server_repository.get_by_provider_external_id("proxmox", external_id)
+            existing = await self.server_repository.get_by_provider_external_id_for_integration(
+                "proxmox",
+                external_id,
+                self.integration_uuid,
+            )
             if existing is None:
-                existing = await self.server_repository.get_by_provider_external_id("proxmox", node.name)
+                legacy = await self.server_repository.get_by_provider_external_id("proxmox", node.name)
+                if self._can_adopt_legacy_inventory(legacy):
+                    existing = legacy
             if existing is None:
-                existing = await self.server_repository.get_by_hostname(node.name)
+                legacy = await self.server_repository.get_by_hostname(node.name)
+                if self._can_adopt_legacy_inventory(legacy):
+                    existing = legacy
 
             metadata = self._host_metadata(node)
             capabilities = self._host_capabilities(node)
@@ -190,6 +203,8 @@ class ProxmoxService:
                     provider="proxmox",
                     external_id=external_id,
                     source="imported",
+                    integration_id=self.integration_uuid,
+                    source_type="proxmox",
                     managed=True,
                     management_state=ManagementState.MANAGED,
                     lifecycle_state=InventoryLifecycleState.MANAGED,
@@ -198,8 +213,11 @@ class ProxmoxService:
                     provider_node=node.name,
                     provider_type="node",
                     provider_metadata=metadata,
+                    sync_metadata=self._sync_metadata("host_sync", node=node.name, provider_type="node"),
                     capabilities=capabilities,
                     last_seen_at=now,
+                    last_sync_at=now,
+                    stale_since=None,
                     last_health_status=InventoryHealthStatus.ONLINE if node.status == "online" else InventoryHealthStatus.UNKNOWN,
                 )
                 await self.server_repository.create(server)
@@ -211,6 +229,8 @@ class ProxmoxService:
                 existing.status = ServerStatus.ONLINE if node.status == "online" else ServerStatus.OFFLINE
                 existing.provider = "proxmox"
                 existing.external_id = external_id
+                existing.integration_id = self.integration_uuid
+                existing.source_type = "proxmox"
                 existing.provider_node = node.name
                 existing.provider_type = "node"
                 existing.provider_metadata = {**existing.provider_metadata, **metadata}
@@ -220,10 +240,16 @@ class ProxmoxService:
                 existing.lifecycle_state = InventoryLifecycleState.MANAGED
                 existing.sync_status = InventorySyncStatus.SYNCED
                 existing.sync_state = InventorySyncStatus.SYNCED
+                existing.sync_metadata = {
+                    **existing.sync_metadata,
+                    **self._sync_metadata("host_sync", node=node.name, provider_type="node"),
+                }
                 existing.last_health_status = (
                     InventoryHealthStatus.ONLINE if node.status == "online" else InventoryHealthStatus.UNKNOWN
                 )
                 existing.last_seen_at = now
+                existing.last_sync_at = now
+                existing.stale_since = None
                 updated += 1
 
             synced_hosts.append(node.model_copy(update={"management_ip": management_ip, "inventory_sync_status": "synced"}))
@@ -253,11 +279,23 @@ class ProxmoxService:
             if guest.template:
                 continue
             ip_value = guest.ip_address or self._placeholder_ip_for_guest(guest.vm_id)
-            existing = await self.server_repository.get_by_provider_external_id("proxmox", str(guest.vm_id))
+            existing = await self.server_repository.get_by_provider_external_id_for_integration(
+                "proxmox",
+                str(guest.vm_id),
+                self.integration_uuid,
+            )
             if existing is None:
-                existing = await self.server_repository.get_by_hostname(guest.name)
+                legacy = await self.server_repository.get_by_provider_external_id("proxmox", str(guest.vm_id))
+                if self._can_adopt_legacy_inventory(legacy):
+                    existing = legacy
+            if existing is None:
+                legacy = await self.server_repository.get_by_hostname(guest.name)
+                if self._can_adopt_legacy_inventory(legacy):
+                    existing = legacy
             if existing is None and guest.ip_address:
-                existing = await self.server_repository.get_by_ip_address(guest.ip_address)
+                legacy = await self.server_repository.get_by_ip_address(guest.ip_address)
+                if self._can_adopt_legacy_inventory(legacy):
+                    existing = legacy
 
             metadata = self._guest_metadata(guest)
             if existing is None:
@@ -276,6 +314,8 @@ class ProxmoxService:
                     provider="proxmox",
                     external_id=str(guest.vm_id),
                     source="imported",
+                    integration_id=self.integration_uuid,
+                    source_type="proxmox",
                     managed=False,
                     management_state=ManagementState.UNMANAGED,
                     lifecycle_state=InventoryLifecycleState.UNMANAGED,
@@ -284,8 +324,11 @@ class ProxmoxService:
                     provider_node=guest.node,
                     provider_type=guest.type,
                     provider_metadata=metadata,
+                    sync_metadata=self._sync_metadata("guest_sync", node=guest.node, provider_type=guest.type),
                     capabilities=self._guest_capabilities(guest),
                     last_seen_at=now,
+                    last_sync_at=now,
+                    stale_since=None,
                     last_health_status=self._health_status_from_readiness(guest.operational_readiness),
                 )
                 await self.server_repository.create(server)
@@ -306,11 +349,19 @@ class ProxmoxService:
                 existing.status = self._server_status_from_guest(guest)
                 existing.provider = "proxmox"
                 existing.external_id = str(guest.vm_id)
+                existing.integration_id = self.integration_uuid
+                existing.source_type = "proxmox"
                 existing.provider_node = guest.node
                 existing.provider_type = guest.type
                 existing.provider_metadata = {**existing.provider_metadata, **metadata}
+                existing.sync_metadata = {
+                    **existing.sync_metadata,
+                    **self._sync_metadata("guest_sync", node=guest.node, provider_type=guest.type),
+                }
                 existing.capabilities = sorted(set([*existing.capabilities, *self._guest_capabilities(guest)]))
                 existing.last_seen_at = now
+                existing.last_sync_at = now
+                existing.stale_since = None
                 existing.last_health_status = self._health_status_from_readiness(guest.operational_readiness)
                 if existing.managed:
                     existing.sync_status = InventorySyncStatus.SYNCED
@@ -456,6 +507,8 @@ class ProxmoxService:
         storage: tuple[int, int],
     ) -> ProxmoxNodeRead:
         return ProxmoxNodeRead(
+            integration_id=None,
+            integration_name=None,
             name=str(raw_node.get("node", "unknown")),
             status=str(raw_node.get("status", "unknown")),
             management_ip=_optional_str(raw_node.get("ip") or raw_node.get("ip_address") or raw_node.get("management_ip")),
@@ -537,10 +590,10 @@ class ProxmoxService:
         if self.server_repository is None:
             return vms
 
-        inventory = await self.server_repository.list_by_provider("proxmox")
+        inventory = await self.server_repository.list_by_provider_integration("proxmox", self.integration_uuid)
         enriched: list[ProxmoxVmRead] = []
         for vm in vms:
-            match, sync_status, notes = InventoryService.match_discovered_vm(vm, inventory)
+            match, sync_status, notes = InventoryService.match_discovered_vm(vm, inventory, self.integration_id)
             runtime_state = RuntimeStateService.from_provider_guest(vm, match)
             if match is not None and self.runtime_snapshots is not None:
                 snapshot = await self.runtime_snapshots.refresh_provider_snapshot(
@@ -576,7 +629,7 @@ class ProxmoxService:
     async def _add_host_inventory_context(self, nodes: list[ProxmoxNodeRead]) -> list[ProxmoxNodeRead]:
         if self.server_repository is None:
             return nodes
-        inventory = await self.server_repository.list_by_provider("proxmox")
+        inventory = await self.server_repository.list_by_provider_integration("proxmox", self.integration_uuid)
         enriched: list[ProxmoxNodeRead] = []
         for node in nodes:
             match = next(
@@ -612,6 +665,8 @@ class ProxmoxService:
             enriched.append(
                 node.model_copy(
                     update={
+                        "integration_id": self.integration_id,
+                        "integration_name": self.integration_name,
                         "management_ip": node.management_ip or (match.ip_address if match else None),
                         "inventory_server_id": str(match.id) if match else None,
                         "inventory_hostname": match.hostname if match else None,
@@ -664,9 +719,17 @@ class ProxmoxService:
     def _host_external_id(self, node_name: str) -> str:
         return f"{self.integration_id}:{node_name}" if self.integration_id else node_name
 
+    def _can_adopt_legacy_inventory(self, server: Server | None) -> bool:
+        if server is None:
+            return False
+        if self.integration_uuid is None:
+            return True
+        return server.integration_id is None and (server.provider in {None, "", "proxmox"})
+
     def _host_metadata(self, node: ProxmoxNodeRead) -> dict[str, object]:
         return {
             "integration_id": self.integration_id,
+            "integration_name": self.integration_name,
             "node_status": node.status,
             "uptime_seconds": node.uptime_seconds,
             "cpu_usage": node.cpu_usage,
@@ -717,6 +780,8 @@ class ProxmoxService:
     @staticmethod
     def _guest_metadata(guest: ProxmoxVmRead) -> dict[str, object]:
         return {
+            "integration_id": guest.integration_id,
+            "integration_name": guest.integration_name,
             "vm_name": guest.name,
             "vm_status": guest.status,
             "detected_ip_address": guest.ip_address,
@@ -744,6 +809,17 @@ class ProxmoxService:
     @staticmethod
     def _placeholder_ip_for_guest(vm_id: int) -> str:
         return f"0.{(vm_id >> 16) & 255}.{(vm_id >> 8) & 255}.{vm_id & 255}"
+
+    def _sync_metadata(self, reason: str, *, node: str, provider_type: str) -> dict[str, object]:
+        return {
+            "integration_id": self.integration_id,
+            "integration_name": self.integration_name,
+            "source_type": "proxmox",
+            "last_sync_reason": reason,
+            "provider_node": node,
+            "provider_type": provider_type,
+            "synced_at": datetime.now(UTC).isoformat(),
+        }
 
     @staticmethod
     def _build_summary(

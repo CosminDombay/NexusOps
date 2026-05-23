@@ -152,7 +152,9 @@ Shell transcripts and file contents are not persisted. Structured audit hooks re
 
 Variable Manager foundations are implemented under `backend/app/modules/variables/`. Secret variables must reference credentials instead of storing plaintext values.
 
-Integrations are persisted separately from runtime adapter configuration. Proxmox runtime adapters now resolve from enabled persisted Proxmox integrations first and fall back to local environment settings when no enabled integration exists.
+Integrations are persisted separately from runtime adapter configuration. Proxmox runtime adapters resolve from enabled persisted Proxmox integrations and no longer use local environment values for runtime discovery. On application startup, NexusOps may create a default Proxmox integration from environment values only when no infrastructure integrations exist yet.
+
+Infrastructure integrations persist operational state: `connected`, `disconnected`, `error`, `disabled`, or `syncing`, plus `last_successful_sync` and `last_error`. Provider sync flows update these fields so the UI can distinguish disabled integrations, active syncs, failed syncs, and disconnected clusters without hiding existing Inventory records.
 
 Integration schemas validate known structured config fields such as URL, SSL verification, and timeout while preserving the existing JSON `config` storage model. Secrets should be referenced through Credential Manager IDs in `credential_refs`.
 
@@ -197,7 +199,7 @@ Inventory commits are currently performed in the service layer after repository 
 
 Alembic is configured at the repository root through `alembic.ini` and migration code under `backend/migrations`.
 
-Current migrations create the `servers` and `jobs` tables, inventory SSH authentication metadata, definition tables, provisioning requests, provisioning blueprints, inventory synchronization metadata, integration records, template override/variable metadata, encrypted credentials, credential usages, variables, inventory credential references, deployment credential references, integration credential references, provisioning additional disk metadata, LXC provisioning metadata, and deployment runtime execution tables.
+Current migrations create the `servers` and `jobs` tables, inventory SSH authentication metadata, definition tables, provisioning requests, provisioning blueprints, inventory synchronization metadata, integration records and integration sync state, template override/variable metadata, encrypted credentials, credential usages, variables, inventory credential references, deployment credential references, integration credential references, provisioning additional disk metadata, LXC provisioning metadata, and deployment runtime execution tables.
 
 Important migration characteristics:
 

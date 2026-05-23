@@ -4,7 +4,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from backend.app.modules.integrations.models import IntegrationProviderType, IntegrationType
+from backend.app.modules.integrations.models import IntegrationProviderType, IntegrationState, IntegrationType
 
 
 class IntegrationFields(BaseModel):
@@ -12,8 +12,11 @@ class IntegrationFields(BaseModel):
     type: IntegrationType
     provider_type: IntegrationProviderType = IntegrationProviderType.CUSTOM
     enabled: bool = True
+    state: IntegrationState = IntegrationState.DISCONNECTED
     config: dict[str, object] = Field(default_factory=dict)
     credential_refs: dict[str, str] = Field(default_factory=dict)
+    last_successful_sync: datetime | None = None
+    last_error: str | None = None
 
     @field_validator("name")
     @classmethod
@@ -32,7 +35,9 @@ class IntegrationBase(IntegrationFields):
 
 
 class IntegrationCreate(IntegrationBase):
-    pass
+    state: IntegrationState | None = None
+    last_successful_sync: datetime | None = None
+    last_error: str | None = None
 
 
 class IntegrationUpdate(BaseModel):
@@ -40,8 +45,11 @@ class IntegrationUpdate(BaseModel):
     type: IntegrationType | None = None
     provider_type: IntegrationProviderType | None = None
     enabled: bool | None = None
+    state: IntegrationState | None = None
     config: dict[str, object] | None = None
     credential_refs: dict[str, str] | None = None
+    last_successful_sync: datetime | None = None
+    last_error: str | None = None
 
     @field_validator("name")
     @classmethod

@@ -9,6 +9,10 @@ from backend.app.core.logging import configure_logging
 from backend.app.db.session import AsyncSessionLocal, get_db_session
 from backend.app.modules.auth.repositories.user_repository import UserRepository
 from backend.app.modules.auth.services.auth_service import AuthService
+from backend.app.modules.credentials.repository import CredentialRepository
+from backend.app.modules.credentials.service import CredentialService
+from backend.app.modules.integrations.repository import IntegrationRepository
+from backend.app.modules.integrations.service import IntegrationService
 from backend.app.workers.scheduler.service import scheduler_service
 
 
@@ -20,6 +24,7 @@ def create_app() -> FastAPI:
         scheduler_enabled = get_db_session not in app.dependency_overrides
         if scheduler_enabled:
             await bootstrap_admin()
+            await bootstrap_integrations()
         if scheduler_enabled:
             await scheduler_service.start()
         try:
@@ -65,3 +70,11 @@ async def bootstrap_admin() -> None:
             email=settings.nexusops_admin_email,
             password=settings.nexusops_admin_password,
         )
+
+
+async def bootstrap_integrations() -> None:
+    async with AsyncSessionLocal() as session:
+        await IntegrationService(
+            IntegrationRepository(session),
+            credential_service=CredentialService(repository=CredentialRepository(session)),
+        ).bootstrap_default_proxmox_from_env()

@@ -35,10 +35,26 @@ class IntegrationRepository(BaseRepository[Integration]):
         )
         return list(result.scalars().all())
 
+    async def list_by_type(self, integration_type: IntegrationType) -> list[Integration]:
+        result = await self.session.execute(
+            select(Integration)
+            .where(Integration.type == integration_type)
+            .order_by(Integration.name.asc())
+        )
+        return list(result.scalars().all())
+
     async def list_enabled_by_provider(self, provider_type: IntegrationProviderType) -> list[Integration]:
         result = await self.session.execute(
             select(Integration)
             .where(Integration.enabled.is_(True), Integration.provider_type == provider_type)
+            .order_by(Integration.name.asc())
+        )
+        return list(result.scalars().all())
+
+    async def list_by_provider(self, provider_type: IntegrationProviderType) -> list[Integration]:
+        result = await self.session.execute(
+            select(Integration)
+            .where(Integration.provider_type == provider_type)
             .order_by(Integration.name.asc())
         )
         return list(result.scalars().all())

@@ -36,6 +36,8 @@ class ServerBase(BaseModel):
     provider: str = Field(min_length=1, max_length=100)
     external_id: str | None = Field(default=None, max_length=100)
     source: str = Field(default="manual", min_length=1, max_length=100)
+    integration_id: UUID | None = None
+    source_type: str = Field(default="manual", min_length=1, max_length=100)
     managed: bool = True
     management_state: ManagementState = ManagementState.MANAGED
     lifecycle_state: InventoryLifecycleState = InventoryLifecycleState.MANAGED
@@ -47,8 +49,11 @@ class ServerBase(BaseModel):
     monitoring_target: str | None = Field(default=None, max_length=255)
     monitoring_strategy: str | None = Field(default=None, max_length=100)
     provider_metadata: dict[str, object] = Field(default_factory=dict)
+    sync_metadata: dict[str, object] = Field(default_factory=dict)
     capabilities: list[str] = Field(default_factory=list)
     last_seen_at: datetime | None = None
+    last_sync_at: datetime | None = None
+    stale_since: datetime | None = None
     last_health_check_at: datetime | None = None
     last_health_status: InventoryHealthStatus = InventoryHealthStatus.UNKNOWN
     last_health_error: str | None = Field(default=None, max_length=500)
@@ -58,7 +63,7 @@ class ServerBase(BaseModel):
     def validate_ip_address(cls, value: str) -> str:
         return str(ip_address(value))
 
-    @field_validator("hostname", "provider", "ssh_username", "operating_system", "source")
+    @field_validator("hostname", "provider", "ssh_username", "operating_system", "source", "source_type")
     @classmethod
     def strip_required_strings(cls, value: str) -> str:
         stripped = value.strip()
@@ -129,6 +134,8 @@ class ServerUpdate(BaseModel):
     provider: str | None = Field(default=None, min_length=1, max_length=100)
     external_id: str | None = Field(default=None, max_length=100)
     source: str | None = Field(default=None, min_length=1, max_length=100)
+    integration_id: UUID | None = None
+    source_type: str | None = Field(default=None, min_length=1, max_length=100)
     managed: bool | None = None
     management_state: ManagementState | None = None
     lifecycle_state: InventoryLifecycleState | None = None
@@ -140,8 +147,11 @@ class ServerUpdate(BaseModel):
     monitoring_target: str | None = Field(default=None, max_length=255)
     monitoring_strategy: str | None = Field(default=None, max_length=100)
     provider_metadata: dict[str, object] | None = None
+    sync_metadata: dict[str, object] | None = None
     capabilities: list[str] | None = None
     last_seen_at: datetime | None = None
+    last_sync_at: datetime | None = None
+    stale_since: datetime | None = None
     last_health_check_at: datetime | None = None
     last_health_status: InventoryHealthStatus | None = None
     last_health_error: str | None = Field(default=None, max_length=500)
@@ -153,7 +163,7 @@ class ServerUpdate(BaseModel):
             return None
         return str(ip_address(value))
 
-    @field_validator("hostname", "provider", "ssh_username", "operating_system", "source")
+    @field_validator("hostname", "provider", "ssh_username", "operating_system", "source", "source_type")
     @classmethod
     def strip_optional_strings(cls, value: str | None) -> str | None:
         if value is None:
@@ -307,10 +317,13 @@ class HostDockerRead(BaseModel):
 class ServerListFilters(BaseModel):
     environment: ServerEnvironment | None = None
     provider: str | None = None
+    integration_id: UUID | None = None
+    cluster: str | None = None
     search: str | None = None
 
 
 class ProxmoxInventoryImport(BaseModel):
+    integration_id: UUID
     vm_id: int
     node: str = Field(min_length=1, max_length=100)
     vm_type: str = Field(default="qemu", min_length=1, max_length=50)

@@ -27,6 +27,10 @@ type UseServersResult = {
   isRunningVmLifecycleAction: boolean;
   includeInactive: boolean;
   setIncludeInactive: (value: boolean) => void;
+  integrationFilter: string;
+  setIntegrationFilter: (value: string) => void;
+  clusterFilter: string;
+  setClusterFilter: (value: string) => void;
   refreshServers: () => Promise<void>;
   addServer: (payload: CreateServerPayload) => Promise<boolean>;
   editServer: (serverId: string, payload: UpdateServerPayload) => Promise<boolean>;
@@ -51,6 +55,8 @@ export function useServers(): UseServersResult {
   const [isCheckingHealth, setIsCheckingHealth] = useState(false);
   const [isRunningVmLifecycleAction, setIsRunningVmLifecycleAction] = useState(false);
   const [includeInactive, setIncludeInactive] = useState(false);
+  const [integrationFilter, setIntegrationFilter] = useState('');
+  const [clusterFilter, setClusterFilter] = useState('');
   const hasLoadedRef = useRef(false);
 
   const refreshServers = useCallback(async () => {
@@ -58,7 +64,11 @@ export function useServers(): UseServersResult {
     setError(null);
 
     try {
-      const nextServers = await listServers(includeInactive);
+      const nextServers = await listServers({
+        includeInactive,
+        integrationId: integrationFilter || undefined,
+        cluster: clusterFilter || undefined,
+      });
       setServers((currentServers) => reconcileServers(currentServers, nextServers));
       hasLoadedRef.current = true;
     } catch (caughtError) {
@@ -66,7 +76,7 @@ export function useServers(): UseServersResult {
     } finally {
       setIsLoading(false);
     }
-  }, [includeInactive]);
+  }, [clusterFilter, includeInactive, integrationFilter]);
 
   const addServer = useCallback(async (payload: CreateServerPayload) => {
     setIsCreating(true);
@@ -203,7 +213,9 @@ export function useServers(): UseServersResult {
     }
 
     try {
-      const results = await Promise.allSettled(lifecycleTargets.map((target) => runVmAction(target.vmId, action)));
+      const results = await Promise.allSettled(
+        lifecycleTargets.map((target) => runVmAction(target.vmId, action, target.server.integration_id)),
+      );
       const failedResults = results.filter((result): result is PromiseRejectedResult => result.status === 'rejected');
 
       await refreshServers();
@@ -241,6 +253,10 @@ export function useServers(): UseServersResult {
       isRunningVmLifecycleAction,
       includeInactive,
       setIncludeInactive,
+      integrationFilter,
+      setIntegrationFilter,
+      clusterFilter,
+      setClusterFilter,
       refreshServers,
       addServer,
       editServer,
@@ -262,11 +278,13 @@ export function useServers(): UseServersResult {
       editServer,
       error,
       includeInactive,
+      integrationFilter,
       isCreating,
       isCheckingHealth,
       isLoading,
       isRunningVmLifecycleAction,
       mutationError,
+      clusterFilter,
       refreshServers,
       removeServer,
       restoreInventoryServer,

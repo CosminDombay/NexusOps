@@ -14,8 +14,11 @@ export async function getProxmoxNodeDetail(nodeName: string): Promise<ProxmoxNod
 export async function runVmAction(
   vmId: number,
   action: ProxmoxVmAction,
+  integrationId?: string | null,
 ): Promise<ProxmoxVmActionResponse> {
-  const response = await apiClient.post<ProxmoxVmActionResponse>(`/proxmox/vms/${vmId}/${action}`);
+  const response = await apiClient.post<ProxmoxVmActionResponse>(`/proxmox/vms/${vmId}/${action}`, null, {
+    params: integrationId ? { integration_id: integrationId } : undefined,
+  });
   return response.data;
 }
 

@@ -307,7 +307,7 @@ Integration records provide a persisted configuration surface for provider and m
 
 The backend still stores a JSON `config` payload for compatibility, but validates known integration shapes and expects secrets to flow through credential references. Advanced JSON remains available only as an override surface.
 
-Runtime consumption of persisted integrations is active for the primary provider and observability paths. Proxmox adapters resolve enabled persisted Proxmox integrations and fall back to environment variables. Monitoring resolves enabled Prometheus, Grafana, and Loki integration records by provider type, with environment-backed settings remaining as fallback/bootstrap configuration.
+Runtime consumption of persisted integrations is active for the primary provider and observability paths. Proxmox adapters resolve enabled persisted Proxmox integrations only; environment values are used only to bootstrap the first default infrastructure integration when none exists yet. Monitoring resolves enabled Prometheus, Grafana, and Loki integration records by provider type, with environment-backed settings remaining as fallback/bootstrap configuration.
 
 ### Proxmox Template Provisioning and Blueprints
 
@@ -339,7 +339,11 @@ Inventory now reconciles provider discovery with orchestration ownership:
 Proxmox discovery -> synchronization status -> optional import -> Inventory authority -> Jobs / Profiles / Packages
 ```
 
-Discovered VMs are shown as unmanaged until an operator imports them. Import creates an Inventory record with Proxmox provider linkage, SSH metadata, lifecycle state, source metadata, and synchronization status. Reconciliation updates linked inventory records as synced, mismatched, orphaned, or archived without destroying provider-side infrastructure.
+Discovered VMs are shown as unmanaged until an operator imports them. Import creates an Inventory record with Proxmox provider linkage, `integration_id`, source type, SSH metadata, lifecycle state, sync metadata, and synchronization status. Reconciliation is scoped per integration and updates linked inventory records as synced, mismatched, stale, disconnected, or archived without destroying provider-side infrastructure.
+
+Inventory records survive integration failures. If a Proxmox integration disconnects or a sync fails, NexusOps marks owned resources stale or disconnected, records timestamps/errors, and keeps the records visible for future resync or operator recovery.
+
+Existing Proxmox inventory created before integration ownership is adopted during sync when it matches the discovered host or guest and has no `integration_id`. This preserves the old inventory identity while moving it under the persisted integration authority model.
 
 Inventory deletion now performs reference cleanup before removing the active server record. It clears provisioning request links, virtual machine links, workflow target links, and deployment target rows where applicable. If historical constraints prevent a hard delete, NexusOps archives the inventory record instead of destroying history.
 

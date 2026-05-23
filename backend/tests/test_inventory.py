@@ -8,6 +8,8 @@ from backend.app.adapters.ssh import SshAdapter, SshExecutionResult
 from backend.app.modules.credentials.schemas import ResolvedCredential
 from backend.app.modules.inventory.discovery import HostDiscoveryService
 from backend.app.modules.inventory.models import ServerSshAuthMethod
+from backend.app.modules.proxmox.schemas import ProxmoxVmRead
+from backend.app.modules.proxmox.service import ProxmoxService
 
 
 class FakeDiscoverySshAdapter(SshAdapter):
@@ -355,7 +357,40 @@ def test_inventory_unmanage_keeps_node_visible_but_not_managed(client) -> None:
     assert list_response.json()[0]["id"] == server_id
 
 
-def test_inventory_import_restores_archived_proxmox_record(client) -> None:
+def test_inventory_import_restores_archived_proxmox_record(client, monkeypatch) -> None:
+    async def fake_list_vms(self):
+        return [
+            ProxmoxVmRead(
+                integration_id="11111111-1111-1111-1111-111111111111",
+                vm_id=106,
+                name="hds-tool",
+                node="hellgate",
+                type="qemu",
+                status="running",
+                ip_address="192.168.50.15",
+            )
+        ]
+
+    monkeypatch.setattr(ProxmoxService, "list_vms", fake_list_vms)
+    integration_response = client.post(
+        "/api/v1/integrations",
+        json={
+            "name": "Proxmox Test",
+            "type": "infrastructure_provider",
+            "provider_type": "proxmox",
+            "enabled": True,
+            "config": {
+                "api_url": "https://pve.example:8006/api2/json",
+                "token_id": "root@pam!test",
+                "token_secret": "secret",
+                "verify_ssl": False,
+            },
+            "credential_refs": {},
+        },
+    )
+    assert integration_response.status_code == 201
+    integration_id = integration_response.json()["id"]
+
     create_response = client.post(
         "/api/v1/servers",
         json=server_payload(
@@ -371,6 +406,7 @@ def test_inventory_import_restores_archived_proxmox_record(client) -> None:
     import_response = client.post(
         "/api/v1/servers/sync/proxmox/import",
         json={
+            "integration_id": integration_id,
             "vm_id": 106,
             "node": "hellgate",
             "vm_type": "qemu",

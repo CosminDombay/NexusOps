@@ -11,9 +11,19 @@ import type {
   UpdateServerPayload,
 } from '../types/server';
 
-export async function listServers(includeInactive = false): Promise<Server[]> {
+export type ServerListParams = {
+  includeInactive?: boolean;
+  integrationId?: string;
+  cluster?: string;
+};
+
+export async function listServers(params: ServerListParams = {}): Promise<Server[]> {
   const response = await apiClient.get<Server[]>('/servers', {
-    params: includeInactive ? { include_inactive: true } : undefined,
+    params: {
+      ...(params.includeInactive ? { include_inactive: true } : {}),
+      ...(params.integrationId ? { integration_id: params.integrationId } : {}),
+      ...(params.cluster ? { cluster: params.cluster } : {}),
+    },
   });
   return response.data;
 }
@@ -62,8 +72,10 @@ export async function importProxmoxVm(payload: ImportProxmoxVmPayload): Promise<
   return response.data;
 }
 
-export async function reconcileProxmoxInventory(): Promise<Server[]> {
-  const response = await apiClient.post<Server[]>('/servers/sync/proxmox/reconcile');
+export async function reconcileProxmoxInventory(integrationId: string): Promise<Server[]> {
+  const response = await apiClient.post<Server[]>('/servers/sync/proxmox/reconcile', null, {
+    params: { integration_id: integrationId },
+  });
   return response.data;
 }
 

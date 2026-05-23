@@ -63,6 +63,8 @@ export const syncStyles: Record<InventorySyncStatus, string> = {
   unmanaged: 'bg-amber-50 text-amber-700 ring-amber-200',
   orphaned: 'bg-rose-50 text-rose-700 ring-rose-200',
   mismatch: 'bg-orange-50 text-orange-700 ring-orange-200',
+  stale: 'bg-amber-50 text-amber-700 ring-amber-200',
+  disconnected: 'bg-rose-50 text-rose-700 ring-rose-200',
   archived: 'bg-stone-100 text-stone-700 ring-stone-200',
 };
 

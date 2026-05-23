@@ -89,7 +89,11 @@ class InventoryService:
         discovered_vm: ProxmoxVmRead | None = None,
     ) -> Server:
         vm_name = discovered_vm.name if discovered_vm else payload.hostname
-        existing = await self.repository.get_by_provider_external_id("proxmox", str(payload.vm_id))
+        existing = await self.repository.get_by_provider_external_id_for_integration(
+            "proxmox",
+            str(payload.vm_id),
+            payload.integration_id,
+        )
         if existing is None:
             existing = await self.repository.get_by_hostname(payload.hostname)
         if existing is None:
@@ -126,6 +130,8 @@ class InventoryService:
             provider="proxmox",
             external_id=str(payload.vm_id),
             source="imported",
+            integration_id=payload.integration_id,
+            source_type="proxmox",
             managed=True,
             node_type=self._node_type_from_provider_type(payload.vm_type),
             management_state=ManagementState.MANAGED,
@@ -135,10 +141,19 @@ class InventoryService:
             provider_node=payload.node,
             provider_type=payload.vm_type,
             provider_metadata={
+                "integration_id": str(payload.integration_id),
                 "vm_name": vm_name,
                 "detected_ip_address": discovered_vm.ip_address if discovered_vm else None,
             },
+            sync_metadata={
+                "source_type": "proxmox",
+                "last_sync_reason": "manual_import",
+                "provider_node": payload.node,
+                "provider_type": payload.vm_type,
+            },
             last_seen_at=datetime.now(UTC) if discovered_vm else None,
+            last_sync_at=datetime.now(UTC) if discovered_vm else None,
+            stale_since=None,
         )
 
         try:
@@ -181,6 +196,8 @@ class InventoryService:
         server.provider = "proxmox"
         server.external_id = str(payload.vm_id)
         server.source = "imported"
+        server.integration_id = payload.integration_id
+        server.source_type = "proxmox"
         server.managed = True
         server.node_type = self._node_type_from_provider_type(payload.vm_type)
         server.management_state = ManagementState.MANAGED
@@ -189,10 +206,23 @@ class InventoryService:
         server.sync_state = server.sync_status
         server.provider_node = payload.node
         server.provider_type = payload.vm_type
-        server.provider_metadata = {"vm_name": vm_name, "restored_from_archive": True}
+        server.provider_metadata = {
+            "integration_id": str(payload.integration_id),
+            "vm_name": vm_name,
+            "restored_from_archive": True,
+        }
         if discovered_vm and discovered_vm.ip_address:
             server.provider_metadata["detected_ip_address"] = discovered_vm.ip_address
         server.last_seen_at = datetime.now(UTC) if discovered_vm else None
+        server.last_sync_at = server.last_seen_at
+        server.stale_since = None
+        server.sync_metadata = {
+            **server.sync_metadata,
+            "source_type": "proxmox",
+            "last_sync_reason": "manual_import_restore",
+            "provider_node": payload.node,
+            "provider_type": payload.vm_type,
+        }
 
         await self.repository.session.commit()
         await self.repository.session.refresh(server)
@@ -373,12 +403,16 @@ class InventoryService:
         *,
         environment: ServerEnvironment | None = None,
         provider: str | None = None,
+        integration_id: UUID | None = None,
+        cluster: str | None = None,
         search: str | None = None,
         include_inactive: bool = False,
     ) -> list[Server]:
         servers = await self.repository.list(
             environment=environment,
             provider=provider,
+            integration_id=integration_id,
+            cluster=cluster,
             search=search,
             include_inactive=include_inactive,
         )
@@ -387,12 +421,16 @@ class InventoryService:
     async def reconcile_proxmox_inventory(
         self,
         discovered_vms: list[ProxmoxVmRead],
+        *,
+        integration_id: UUID,
+        disconnected: bool = False,
     ) -> list[Server]:
         by_external_id = {str(vm.vm_id): vm for vm in discovered_vms}
         by_hostname = {vm.name: vm for vm in discovered_vms}
         changed: list[Server] = []
 
-        for server in await self.repository.list_by_provider("proxmox"):
+        now = datetime.now(UTC)
+        for server in await self.repository.list_by_provider_integration("proxmox", integration_id):
             if server.lifecycle_state in {
                 InventoryLifecycleState.ARCHIVED,
                 InventoryLifecycleState.DECOMMISSIONED,
@@ -404,17 +442,24 @@ class InventoryService:
                 server.hostname
             )
             if vm is None:
-                server.sync_status = InventorySyncStatus.ORPHANED
+                server.sync_status = InventorySyncStatus.DISCONNECTED if disconnected else InventorySyncStatus.STALE
+                server.sync_state = server.sync_status
+                server.stale_since = server.stale_since or now
             else:
                 server.external_id = str(vm.vm_id)
                 server.vmid = str(vm.vm_id)
                 server.provider_node = vm.node
                 server.provider_type = vm.type
                 server.node_type = self._node_type_from_provider_type(vm.type)
-                server.last_seen_at = datetime.now(UTC)
+                server.integration_id = integration_id
+                server.source_type = "proxmox"
+                server.last_seen_at = now
+                server.last_sync_at = now
+                server.stale_since = None
                 previous_detected_ip = server.provider_metadata.get("detected_ip_address")
                 server.provider_metadata = {
                     **server.provider_metadata,
+                    "integration_id": str(integration_id),
                     "vm_name": vm.name,
                     "vm_status": vm.status,
                     "detected_ip_address": vm.ip_address,
@@ -423,6 +468,13 @@ class InventoryService:
                     server.ip_address = vm.ip_address
                 server.sync_status = self._sync_status_for_match(server, vm)
                 server.sync_state = server.sync_status
+                server.sync_metadata = {
+                    **server.sync_metadata,
+                    "source_type": "proxmox",
+                    "last_sync_reason": "reconcile",
+                    "provider_node": vm.node,
+                    "provider_type": vm.type,
+                }
             changed.append(server)
 
         if changed:
@@ -431,10 +483,42 @@ class InventoryService:
 
         return changed
 
+    async def mark_integration_resources_disconnected(
+        self,
+        integration_id: UUID,
+        *,
+        error: str | None = None,
+    ) -> list[Server]:
+        now = datetime.now(UTC)
+        changed: list[Server] = []
+        for server in await self.repository.list_by_provider_integration("proxmox", integration_id):
+            if server.lifecycle_state in {
+                InventoryLifecycleState.ARCHIVED,
+                InventoryLifecycleState.DECOMMISSIONED,
+                InventoryLifecycleState.DELETED,
+            }:
+                continue
+            server.sync_status = InventorySyncStatus.DISCONNECTED
+            server.sync_state = InventorySyncStatus.DISCONNECTED
+            server.stale_since = server.stale_since or now
+            server.sync_metadata = {
+                **server.sync_metadata,
+                "source_type": "proxmox",
+                "last_sync_reason": "integration_disconnected",
+                "last_error": error,
+                "disconnected_at": now.isoformat(),
+            }
+            changed.append(server)
+        if changed:
+            await self.runtime_snapshots.refresh_inventory_snapshots(changed, commit=False)
+            await self.repository.session.commit()
+        return changed
+
     @staticmethod
     def match_discovered_vm(
         vm: ProxmoxVmRead,
         inventory: list[Server],
+        integration_id: str | None = None,
     ) -> tuple[Server | None, InventorySyncStatus, list[str]]:
         notes: list[str] = []
         match = next(
@@ -442,6 +526,7 @@ class InventoryService:
                 server
                 for server in inventory
                 if server.provider == "proxmox"
+                and (integration_id is None or str(server.integration_id) == integration_id)
                 and (server.external_id == str(vm.vm_id) or server.vmid == str(vm.vm_id))
             ),
             None,
@@ -524,7 +609,9 @@ class InventoryService:
         data["management_state"] = data.get("management_state") or (
             ManagementState.MANAGED if data.get("managed", True) else ManagementState.UNMANAGED
         )
+        data["source_type"] = data.get("source_type") or data.get("source") or "manual"
         data["sync_state"] = data.get("sync_state") or data.get("sync_status") or InventorySyncStatus.UNKNOWN
+        data["sync_metadata"] = data.get("sync_metadata") or {}
         data["capabilities"] = data.get("capabilities") or cls._default_capabilities(data)
         return data
 

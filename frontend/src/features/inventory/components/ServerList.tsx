@@ -298,6 +298,9 @@ export function ServerList({
                 </td>
                 <td className="px-5 py-4">
                   <SyncBadge status={server.sync_state} />
+                  {server.stale_since ? (
+                    <div className="mt-1 text-xs text-amber-700">Stale since {formatTimestamp(server.stale_since)}</div>
+                  ) : null}
                 </td>
                 <td className="px-5 py-4">
                   <HealthBadge status={server.last_health_status} />
@@ -358,6 +361,11 @@ export function ServerList({
               <LifecycleBadge state={server.lifecycle_state} />
               <ManagementBadge state={server.management_state} />
               <SyncBadge status={server.sync_state} />
+              {server.stale_since ? (
+                <span className="inline-flex items-center rounded-full bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700 ring-1 ring-inset ring-amber-200">
+                  Stale {formatTimestamp(server.stale_since)}
+                </span>
+              ) : null}
               <HealthBadge status={server.last_health_status} />
               <RuntimeStateBadge runtimeState={server.runtime_state} />
               <span className="inline-flex items-center rounded-full bg-zinc-100 px-2.5 py-1 text-xs font-medium text-zinc-700 ring-1 ring-inset ring-zinc-200">
@@ -622,5 +630,5 @@ function providerRelationship(server: Server): string {
   if (server.provider_node && (server.vmid || server.external_id)) {
     return `${server.provider_node}/${server.provider_type ?? 'guest'}:${server.vmid ?? server.external_id}`;
   }
-  return server.external_id ?? server.provider_type ?? 'manual';
+  return server.source_type ?? server.external_id ?? server.provider_type ?? 'manual';
 }

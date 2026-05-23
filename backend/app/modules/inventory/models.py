@@ -71,6 +71,12 @@ class Server(Base, UuidPrimaryKeyMixin, TimestampMixin):
     provider: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
     external_id: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
     source: Mapped[str] = mapped_column(String(100), default="manual", nullable=False, index=True)
+    integration_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("integrations.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    source_type: Mapped[str] = mapped_column(String(100), default="manual", nullable=False, index=True)
     managed: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False, index=True)
     management_state: Mapped[ManagementState] = mapped_column(
         Enum(
@@ -118,8 +124,11 @@ class Server(Base, UuidPrimaryKeyMixin, TimestampMixin):
     monitoring_target: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
     monitoring_strategy: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
     provider_metadata: Mapped[dict[str, object]] = mapped_column(JSON, default=dict, nullable=False)
+    sync_metadata: Mapped[dict[str, object]] = mapped_column(JSON, default=dict, nullable=False)
     capabilities: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
     last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_sync_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    stale_since: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_health_check_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True),
         nullable=True,

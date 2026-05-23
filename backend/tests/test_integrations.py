@@ -7,6 +7,7 @@ from backend.app.modules.integrations.models import Integration, IntegrationProv
 from backend.app.modules.integrations.repository import IntegrationRepository
 from backend.app.modules.integrations.schemas import IntegrationCreate
 from backend.app.modules.integrations.service import IntegrationService
+from backend.app.core.config import settings
 
 
 @pytest.mark.asyncio
@@ -94,3 +95,27 @@ async def test_list_integrations_includes_legacy_invalid_records(client) -> None
     assert response.status_code == 200
     assert response.json()[0]["id"] == integration_id
     assert response.json()[0]["config"] == {"verify_ssl": False}
+
+
+@pytest.mark.asyncio
+async def test_bootstrap_default_proxmox_integration_from_env(client, monkeypatch) -> None:
+    monkeypatch.setattr(settings, "proxmox_api_url", "https://bootstrap-pve.example:8006/api2/json")
+    monkeypatch.setattr(settings, "proxmox_token_id", "root@pam!bootstrap")
+    monkeypatch.setattr(settings, "proxmox_token_secret", "bootstrap-secret")
+    monkeypatch.setattr(settings, "proxmox_verify_ssl", False)
+    monkeypatch.setattr(settings, "proxmox_timeout_seconds", 9)
+    monkeypatch.setattr(settings, "nexusops_master_key", None)
+
+    session = next(iter(client.app.dependency_overrides.values()))
+    async for db_session in session():
+        service = IntegrationService(IntegrationRepository(db_session))
+        created = await service.bootstrap_default_proxmox_from_env()
+        skipped = await service.bootstrap_default_proxmox_from_env()
+
+        assert created is not None
+        assert skipped is None
+        assert created.name == "Default Proxmox"
+        assert created.state == "disconnected"
+        assert created.config["api_url"] == "https://bootstrap-pve.example:8006/api2/json"
+        assert created.config["token_secret"] == "bootstrap-secret"
+        assert len(await IntegrationRepository(db_session).list_by_type(IntegrationType.INFRASTRUCTURE_PROVIDER)) == 1
