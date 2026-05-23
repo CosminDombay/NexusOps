@@ -1,5 +1,7 @@
 # NexusOps Architecture
 
+For the latest platform review, validation status, and prioritized fix list, see `docs/project-review-up-to-2026-05-23.md`.
+
 ## Folder Structure
 
 ```text

@@ -46,6 +46,8 @@ This backlog captures near-term product and engineering improvements from the Ma
 
 ### Highest Impact
 
+- Fix backend test isolation for Proxmox import/restore. `test_inventory_import_restores_archived_proxmox_record` must not call the configured live Proxmox endpoint; inject or override a fake Proxmox service/adapter in the test path.
+- Preserve the runtime snapshot contract for monitoring overview reads. Ordinary page rendering should not run live Prometheus target discovery, Grafana dashboard search, or deep telemetry query chains; those belong behind explicit refresh actions that update snapshots.
 - Continue moving long-running work out of request/response paths. Scheduled automations now create WorkflowRuns and dispatch through the in-process async queue; provisioning, direct profile/package execution, identity replication, bulk jobs, and deployments still need deeper workflow-backed async entrypoints.
 - Expand Proxmox host replacement/failover workflows now that hosts are first-class `hypervisor` managed nodes. Discovery creates/reconciles hypervisors and lifecycle operations archive/decommission/restore them, but provider endpoint replacement and cluster failover UX need hardening.
 - Add Proxmox integration endpoint replacement/failover workflows. Operators need to move from one Proxmox host/API endpoint to another or add a multi-node cluster without editing code or environment variables.
@@ -55,7 +57,7 @@ This backlog captures near-term product and engineering improvements from the Ma
 - Add audit persistence for infrastructure actions, provisioning tasks, deployment operations, identity replication, and destructive operations.
 - Continue making persisted integration records the runtime source of truth for providers. Proxmox and Monitoring have initial integration-driven resolution; provider host/node reconciliation and future adapters still need the same treatment.
 - Add provisioning blueprint or provisioning batch as a Workflow/Automation operation with minimal runtime inputs.
-- Add authentication, authorization, and RBAC before broadening destructive infrastructure capabilities.
+- Strengthen authentication and authorization before broadening destructive infrastructure capabilities: MFA/WebAuthn, API keys, scoped tokens, finer-grained permissions, and audit trails remain future work even though local auth/RBAC exists.
 
 ### Reliability and Safety
 
@@ -81,6 +83,8 @@ This backlog captures near-term product and engineering improvements from the Ma
 ### Testing and Tooling
 
 - Add backend tests for provisioning blueprints, additional disks, deployment credential env injection, integration credential refs, LXC provisioning, hypervisor reconciliation, deployment target executions, and monitoring readiness derivation.
+- Add a backend regression test proving Proxmox import/restore uses injected fake infrastructure in tests and does not depend on local environment endpoints.
+- Add backend tests around monitoring snapshot refresh boundaries so overview reads remain database-bounded.
 - Add frontend tests for provisioning blueprint fill/save/delete, inventory edit modal behavior, and deployment credential env rows.
 - Add CI for lint, frontend build, backend tests, and Alembic migration validation.
 - Add migration tests against PostgreSQL, not only SQLite-backed service tests.

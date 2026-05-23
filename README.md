@@ -13,6 +13,8 @@ Proxmox visibility/lifecycle control, template-based VM provisioning with NexusO
 Proxmox-to-inventory synchronization, SSH-backed job execution, reusable operational actions, package definitions,
 infrastructure profiles, editable operational templates, credential-backed secret injection, Docker Compose deployments, and simple variable-driven execution.
 
+The latest full project review is documented in `docs/project-review-up-to-2026-05-23.md`.
+
 ## MVP Domains
 
 - VM provisioning through Proxmox API

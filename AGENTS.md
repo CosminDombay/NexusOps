@@ -60,20 +60,43 @@ backend/app/adapters/
 
 ## Current Implemented Scope
 
+- local platform authentication:
+  - username/email password login
+  - JWT access and refresh tokens
+  - token-version session revocation
+  - admin/operator/viewer RBAC dependencies
+  - admin user lifecycle page and APIs
 - inventory CRUD
 - frontend/backend inventory integration
 - PostgreSQL inventory persistence
+- managed-node inventory lifecycle:
+  - VM, LXC, physical host, and hypervisor node types
+  - managed/unmanaged/retired state
+  - discovered/imported/provisioned/archived/decommissioned lifecycle states
+  - provider linkage and synchronization metadata
 - inventory SSH authentication metadata:
   - key authentication
   - password authentication
   - optional per-server private key path
+  - optional shared credential reference
+- Credential Manager:
+  - encrypted passwords, SSH passwords, SSH keys, API tokens, and environment secrets
+  - Fernet encryption through `NEXUSOPS_MASTER_KEY`
+  - masked API responses
 - Proxmox infrastructure visibility
-- Proxmox VM listing and status retrieval
-- controlled Proxmox VM lifecycle actions:
+- Proxmox hypervisor, VM, and LXC discovery
+- Proxmox inventory import, synchronization, reconciliation, archive, and decommission flows
+- controlled Proxmox guest lifecycle actions:
   - start
   - stop
   - reboot
   - shutdown
+- LXC lifecycle foundations:
+  - start
+  - stop
+  - restart
+  - shutdown
+  - archive/delete path
 - Proxmox template-based VM provisioning:
   - template listing
   - clone from cloud-init capable template
@@ -82,6 +105,12 @@ backend/app/adapters/
   - SSH readiness polling
   - inventory auto-registration
   - optional profile/package bootstrap through Jobs
+- Proxmox LXC provisioning foundations:
+  - container template discovery
+  - CTID/node/storage/network inputs
+  - inventory registration
+  - optional bootstrap through Jobs/Profile/Package paths
+- provisioning blueprints and batch provisioning
 - Infrastructure dashboard in the frontend
 - Jobs domain:
   - persisted job history
@@ -141,40 +170,69 @@ backend/app/adapters/
   - raw command profile steps
   - frontend step reordering preview
 - Packages and Profiles frontend pages
-- Integration records and frontend Integrations settings page
-- Provisioning frontend page
-- ESLint, Prettier, Tailwind, and TypeScript tooling
-- persistent docs under `docs/architecture/` and `docs/sprints/`
-
-## Not Implemented Yet
-
-- authentication
-- authorization and RBAC
-- VM deletion
-- Terraform
-- cloud-init
-- Docker deployment execution
-- monitoring collection
+- Workflows domain:
+  - persisted workflow runs and steps
+  - status lifecycle for runs and steps
+  - workflow timeline/log frontend
+- Scheduled automations:
+  - interval and cron schedules
+  - predefined action, custom action, package, and profile operations
+  - in-process scheduler and async queue foundation
+- Docker Compose deployments:
+  - deployment definitions and target records
+  - multi-target deploy/redeploy/restart/stop/status/log operations through Jobs
+  - deployment executions and per-target execution records
+  - credential-backed environment variable injection
+- Remote access:
+  - backend-mediated WebSocket shell
+  - SFTP directory listing, file read, and hash-checked file write
+  - operator write allowlist
 - Linux identity orchestration:
-  - user creation/deletion
-  - user lock/unlock
+  - user creation/update/delete
+  - password expiration and login-shell disable
   - group creation/membership
   - SSH authorized_keys deployment/revocation
-  - sudoers.d snippet management
+  - sudoers.d snippets
   - filesystem chmod/chown templates
   - multi-host replication through Jobs
   - guided access profiles
   - distro-aware administrator group abstraction
   - operational group presets
   - permission presets and rwx matrix UX
-- realtime updates
-- background workers
+- Integration records and frontend Integrations settings page
+- runtime consumption of persisted Proxmox and monitoring integration records
+- monitoring readiness:
+  - Prometheus provider health
+  - Loki provider health
+  - optional Grafana deep links
+  - per-node metrics/log/exporter/staleness readiness
+  - runtime snapshot persistence
+- Provisioning frontend page
+- Deployments, Workflows, Automations, Credentials, Identity, Monitoring, Host Tools, and Users/RBAC frontend pages
+- ESLint, Prettier, Tailwind, and TypeScript tooling
+- persistent docs under `docs/architecture/` and `docs/sprints/`
+
+## Not Implemented Yet
+
+- SSO/federated authentication:
+  - Google SSO
+  - OIDC
+  - SAML
+  - LDAP/Kerberos/FreeIPA/Active Directory/SSSD/PAM federation
+- MFA/WebAuthn
+- API keys and fine-grained permissions
+- provider-side VM deletion for QEMU VMs
+- Terraform
+- Ansible integration
+- distributed background workers
+- realtime updates beyond current polling/read-refresh patterns
 - infrastructure action audit persistence
 - ISO installation workflows
-- Ansible integration
-- credential vault/encrypted secret storage
-- workflow chaining
-- rollback orchestration
+- production-grade secret vaulting, rotation, and usage audit
+- full workflow chaining and rollback orchestration
+- provisioning and deployment idempotency keys
+- Proxmox task audit/status persistence for all lifecycle actions
+- CI pipeline and PostgreSQL-backed migration validation
 
 ## Operational Safety
 
@@ -195,6 +253,9 @@ backend/app/adapters/
 - Provisioning must register Inventory before profile/package/bootstrap execution.
 - Built-in package/profile templates may be listed and executed, but only custom persisted definitions should be editable/deletable.
 - Destructive operational actions should require frontend confirmation.
+- Remote access is for inventory-managed hosts only. Do not add arbitrary host/IP shell access.
+- Remote shell WebSocket authentication currently uses the active JWT as a query parameter for MVP browser compatibility; replace it with a short-lived scoped remote-access token before production use.
+- Integration records may reference credentials, but they are not a full vault or rotation system.
 - SSH passwords and private key paths are temporary local MVP metadata; do not treat them as production-grade secret management.
 - Secrets must not be committed. Proxmox token values belong in local environment variables or ignored `.env` files.
 - Generated logs, screenshots, local SQLite files, and build artifacts must not be committed.

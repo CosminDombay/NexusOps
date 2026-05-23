@@ -18,6 +18,16 @@ Monitoring reduces node observability to five states:
 
 The API still stores internal values such as `monitoring_ready`, `monitoring_partial`, `monitoring_missing`, and `stale_metrics`, but operator-facing UI should show the simplified state names.
 
+## 2026-05-23 Review Note
+
+The monitoring architecture is snapshot-first. A current working-tree change adds Prometheus target discovery and Grafana dashboard lookup helpers around overview rendering. Before merging that direction, keep the boundary clear:
+
+- explicit refresh actions may query Prometheus, Loki, and Grafana, then persist runtime snapshot data
+- overview reads should prefer persisted snapshots and bounded database work
+- Grafana dashboard links should come from configured integration metadata or refresh-produced snapshot metadata, not repeated dashboard searches during normal page loads
+
+This keeps Monitoring useful on large inventories and prevents provider timeouts from making the overview page slow or flaky.
+
 ## Endpoint Metadata
 
 Managed nodes can carry explicit monitoring endpoint metadata:
@@ -26,7 +36,7 @@ Managed nodes can carry explicit monitoring endpoint metadata:
 - `monitoring_target`: canonical Prometheus instance target, for example `100.90.80.15:9100`
 - `monitoring_strategy`: `host`, `container`, or `host_container`
 
-NexusOps no longer discovers monitoring targets by hostname permutations or broad PromQL regex selectors. Reconciliation uses the canonical target exactly as stored.
+NexusOps should not discover monitoring targets by hostname permutations or broad PromQL regex selectors during ordinary overview rendering. Reconciliation uses the canonical target exactly as stored, or values found during explicit refresh workflows.
 
 ## Host vs Container Observability
 

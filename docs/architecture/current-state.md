@@ -419,6 +419,18 @@ The latest review confirms the platform has shifted from inventory plus CRUD pag
 - Grafana is treated as optional deep analysis tooling, not a dashboard lifecycle dependency.
 - Operational forms are increasingly collapsed, drawer-based, or header-triggered to reduce dashboard clutter.
 
+### Review Findings on 2026-05-23
+
+The 2026-05-23 review confirms that the implementation has moved beyond the older sprint memory and now behaves like a broad local control-plane MVP:
+
+- Local auth/RBAC, admin user management, token-version revocation, and session-scoped frontend token storage are implemented.
+- Inventory is now a managed-node CMDB for hypervisors, VMs, LXCs, and physical hosts rather than a simple server CRUD list.
+- Proxmox, provisioning, Jobs, profiles, packages, deployments, identity, monitoring, remote access, workflows, and automations all converge on Inventory-managed targets.
+- Credential-backed runtime secret resolution exists, but it should still be treated as encrypted local MVP secret handling rather than a production vault.
+- Runtime snapshots and monitoring readiness are present, but the current working tree includes monitoring changes that reintroduce some live Prometheus/Grafana discovery during overview reads; this conflicts with the snapshot-first monitoring design and should be reviewed before merging.
+- Frontend lint and production build pass on the current working tree.
+- Backend tests are mostly green, but `backend/tests/test_inventory.py::test_inventory_import_restores_archived_proxmox_record` currently leaks to a real Proxmox endpoint and fails when `hellgate.himalayan-chimaera.ts.net:8006` is unreachable. The test should use a fake Proxmox service/adapter and never require live infrastructure.
+
 ## Architecture Status
 
 - Backend remains organized as a modular monolith.
@@ -477,6 +489,9 @@ The latest review confirms the platform has shifted from inventory plus CRUD pag
 - Monitoring readiness is operational, but deep log exploration and centralized log indexing remain future work.
 - Remote shell WebSocket authentication uses the current JWT as a query parameter for MVP browser compatibility; a short-lived scoped remote-access token is still planned.
 - Refresh tokens are revoked through token-version changes, but refresh-token rotation/reuse detection is not implemented yet.
+- Monitoring overview should remain snapshot-first. Avoid live provider discovery or dashboard search during ordinary rendering unless it is behind an explicit refresh path.
+- The backend test suite has one known isolation issue: archived Proxmox import restoration can contact the configured real Proxmox API in tests.
+- The current repo has uncommitted monitoring/integration code and image assets as of the 2026-05-23 review; documentation updates should not assume those code changes are merged until committed.
 
 ## Current Safety Boundary
 
