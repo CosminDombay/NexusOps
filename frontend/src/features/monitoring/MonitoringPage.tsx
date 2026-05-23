@@ -139,6 +139,14 @@ function MonitoringRow({ server }: { server: ServerMetrics }) {
       {server.readiness_reasons.length ? (
         <p className="mt-3 text-xs text-zinc-500">{server.readiness_reasons.slice(0, 3).map(formatLabel).join(' / ')}</p>
       ) : null}
+      {Object.keys(server.component_failure_reasons).length ? (
+        <p className="mt-2 text-xs text-zinc-500">
+          {Object.entries(server.component_failure_reasons)
+            .slice(0, 3)
+            .map(([component, reason]) => `${formatLabel(component)}: ${formatLabel(reason)}`)
+            .join(' / ')}
+        </p>
+      ) : null}
     </article>
   );
 }

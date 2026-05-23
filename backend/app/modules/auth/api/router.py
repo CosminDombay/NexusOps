@@ -2,10 +2,11 @@ from typing import Annotated
 from uuid import UUID
 
 import structlog
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.db.session import get_db_session
+from backend.app.modules.audit.service import audit_service_from_session, source_ip_from_request
 from backend.app.modules.auth.models import User
 from backend.app.modules.auth.repositories.user_repository import UserRepository
 from backend.app.modules.auth.schemas.auth import LoginRequest, RefreshRequest, TokenPair, UserCreate, UserPasswordReset, UserRead, UserUpdate
@@ -32,19 +33,49 @@ async def get_auth_service(
 @router.post("/login", response_model=TokenPair)
 async def login(
     payload: LoginRequest,
+    request: Request,
+    session: Annotated[AsyncSession, Depends(get_db_session)],
     service: Annotated[AuthService, Depends(get_auth_service)],
 ) -> TokenPair:
     try:
-        return await service.login(payload)
+        token_pair = await service.login(payload)
+        await audit_service_from_session(session).record(
+            event_type="auth.login",
+            actor_user_id=token_pair.user.id,
+            actor_username=token_pair.user.username,
+            target_type="user",
+            target_id=token_pair.user.id,
+            result="success",
+            source_ip=source_ip_from_request(request),
+            metadata={"role": token_pair.user.role},
+        )
+        return token_pair
     except AuthenticationError as exc:
+        await audit_service_from_session(session).record(
+            event_type="auth.login",
+            actor_username=payload.username_or_email,
+            target_type="user",
+            result="failed",
+            source_ip=source_ip_from_request(request),
+            error="invalid_credentials",
+        )
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc)) from exc
     except InactiveUserError as exc:
+        await audit_service_from_session(session).record(
+            event_type="auth.login",
+            actor_username=payload.username_or_email,
+            target_type="user",
+            result="failed",
+            source_ip=source_ip_from_request(request),
+            error="inactive_user",
+        )
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
 
 
 @router.post("/refresh", response_model=TokenPair)
 async def refresh(
     payload: RefreshRequest,
+    request: Request,
     session: Annotated[AsyncSession, Depends(get_db_session)],
     service: Annotated[AuthService, Depends(get_auth_service)],
 ) -> TokenPair:
@@ -60,17 +91,36 @@ async def refresh(
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token has been revoked")
 
     try:
-        return await service.refresh(user)
+        token_pair = await service.refresh(user)
+        await audit_service_from_session(session).record(
+            event_type="auth.refresh",
+            actor=user,
+            target_type="user",
+            target_id=user.id,
+            result="success",
+            source_ip=source_ip_from_request(request),
+        )
+        return token_pair
     except InactiveUserError as exc:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
 
 
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
 async def logout(
+    request: Request,
+    session: Annotated[AsyncSession, Depends(get_db_session)],
     current_user: Annotated[User, Depends(get_current_user)],
     service: Annotated[AuthService, Depends(get_auth_service)],
 ) -> None:
     await service.revoke_user_tokens(current_user)
+    await audit_service_from_session(session).record(
+        event_type="auth.logout",
+        actor=current_user,
+        target_type="user",
+        target_id=current_user.id,
+        result="success",
+        source_ip=source_ip_from_request(request),
+    )
     logger.info("auth.logout", user_id=str(current_user.id), username=current_user.username)
 
 

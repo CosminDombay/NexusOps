@@ -4,7 +4,7 @@ Created: 2026-05-23
 
 ## Priority Roadmap
 
-1. Add CI first:
+1. Completed on 2026-05-23: add CI foundations:
    - frontend lint
    - frontend build
    - backend tests
@@ -12,7 +12,7 @@ Created: 2026-05-23
    - Alembic upgrade validation
    - generated-artifact hygiene checks
 
-2. Add durable audit tables/events for infrastructure mutations and remote access.
+2. Completed on 2026-05-23: add durable audit tables/events for infrastructure mutations, authentication, credentials, provisioning, deployments, inventory reconciliation, remote access, workflows, monitoring validation, and package/profile execution.
 
 3. Replace WebSocket query JWT authentication with short-lived scoped remote-access tokens.
 
@@ -20,7 +20,7 @@ Created: 2026-05-23
 
 5. Add idempotency keys for provisioning and deployment operations.
 
-6. Add PostgreSQL migration validation and basic frontend tests.
+6. Partially completed on 2026-05-23: add PostgreSQL Alembic validation in CI. Basic frontend tests still need to be added.
 
 7. Add production startup safety checks for secrets, CORS, and master key configuration.
 
@@ -32,15 +32,15 @@ These items came from the project review performed on 2026-05-23. They are inten
 
 Source document: `docs/project-review-2026-05-23-monitoring-inventory.md`
 
-1. Move monitoring validation into durable WorkflowRun-backed async execution with bounded concurrency, retry jitter, per-node timeout budgets, and persisted run history.
+1. Partially completed: monitoring validation now has persisted attempt history, audit events, bounded per-node checks, and resilient snapshot preservation. A full WorkflowRun-backed execution model remains future work.
 
-2. Persist monitoring validation attempts as operational events or WorkflowRuns so operators can inspect method, duration, result, and failure class per node.
+2. Completed: monitoring validation attempts persist method, duration, result, component state, structured failure reason, and audit-event linkage per node.
 
 3. Rename or deprecate legacy node-level Prometheus fields such as `prometheus_target_health` once API compatibility allows it. Prometheus is a provider-level health check, not a per-node row signal.
 
 4. Clarify Grafana provider UI semantics. Grafana is currently a configured jump-link provider, not a render-time API dependency. Either label it as configured or add optional background reachability checks.
 
-5. Store structured exporter/service failure reasons instead of collapsing TCP failure, SSH auth failure, missing service, inactive service, and command failure into `unavailable`.
+5. Completed: exporter/service validation now stores structured failure reasons such as `tcp_unreachable`, `ssh_auth_failed`, `service_inactive`, `docker_unavailable`, `command_timeout`, and `exporter_missing`.
 
 6. Audit internal Inventory callers after the managed-only default filter change. Historical/discovery reads must request `include_unmanaged=true` explicitly, and execution flows must continue to exclude unmanaged nodes.
 

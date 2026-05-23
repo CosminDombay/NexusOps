@@ -1,5 +1,5 @@
 from backend.app.common.repository import BaseRepository
-from backend.app.modules.monitoring.models import MetricSample, MonitoringSnapshot
+from backend.app.modules.monitoring.models import MetricSample, MonitoringSnapshot, MonitoringValidationAttempt
 from sqlalchemy import select
 from uuid import UUID
 
@@ -57,3 +57,20 @@ class MonitoringSnapshotRepository(BaseRepository[MonitoringSnapshot]):
             setattr(existing, key, getattr(snapshot, key))
         await self.session.flush()
         return existing
+
+
+class MonitoringValidationAttemptRepository(BaseRepository[MonitoringValidationAttempt]):
+    async def create(self, attempt: MonitoringValidationAttempt) -> MonitoringValidationAttempt:
+        self.session.add(attempt)
+        await self.session.flush()
+        await self.session.refresh(attempt)
+        return attempt
+
+    async def list_for_server(self, server_id: UUID, *, limit: int = 50) -> list[MonitoringValidationAttempt]:
+        result = await self.session.execute(
+            select(MonitoringValidationAttempt)
+            .where(MonitoringValidationAttempt.server_id == server_id)
+            .order_by(MonitoringValidationAttempt.started_at.desc())
+            .limit(limit)
+        )
+        return list(result.scalars().all())

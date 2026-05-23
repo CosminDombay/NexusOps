@@ -1,6 +1,8 @@
 from datetime import UTC, datetime
 from uuid import UUID
 
+from backend.app.modules.audit.repository import AuditEventRepository
+from backend.app.modules.audit.service import AuditService
 from backend.app.modules.inventory.repository import ServerRepository
 from backend.app.modules.workflows.models import (
     WorkflowRun,
@@ -31,10 +33,12 @@ class WorkflowService:
         workflow_repository: WorkflowRunRepository,
         step_repository: WorkflowStepRepository,
         server_repository: ServerRepository | None = None,
+        audit_service: AuditService | None = None,
     ) -> None:
         self.workflow_repository = workflow_repository
         self.step_repository = step_repository
         self.server_repository = server_repository
+        self.audit_service = audit_service or AuditService(AuditEventRepository(workflow_repository.session))
 
     async def list_workflows(self) -> list[WorkflowRunRead]:
         return [await self._to_read(item) for item in await self.workflow_repository.list()]
@@ -57,6 +61,7 @@ class WorkflowService:
             )
         )
         await self.workflow_repository.session.commit()
+        await self._audit_workflow(workflow, "workflow.created", "success")
         return await self._to_read(workflow)
 
     async def mark_queued(self, workflow_run_id: UUID) -> WorkflowRunRead:
@@ -64,6 +69,7 @@ class WorkflowService:
         workflow.status = WorkflowStatus.QUEUED
         await self.workflow_repository.session.commit()
         await self.workflow_repository.session.refresh(workflow, attribute_names=["steps"])
+        await self._audit_workflow(workflow, "workflow.queued", "success")
         return await self._to_read(workflow)
 
     async def start_workflow(self, workflow_run_id: UUID) -> WorkflowRunRead:
@@ -74,6 +80,7 @@ class WorkflowService:
         workflow.started_at = workflow.started_at or datetime.now(UTC)
         await self.workflow_repository.session.commit()
         await self.workflow_repository.session.refresh(workflow, attribute_names=["steps"])
+        await self._audit_workflow(workflow, "workflow.started", "success")
         return await self._to_read(workflow)
 
     async def complete_workflow(self, workflow_run_id: UUID, result_summary: dict | None = None) -> WorkflowRunRead:
@@ -83,6 +90,7 @@ class WorkflowService:
         workflow.result_summary = result_summary or workflow.result_summary
         await self.workflow_repository.session.commit()
         await self.workflow_repository.session.refresh(workflow, attribute_names=["steps"])
+        await self._audit_workflow(workflow, "workflow.completed", "success")
         return await self._to_read(workflow)
 
     async def fail_workflow(self, workflow_run_id: UUID, error_message: str, result_summary: dict | None = None) -> WorkflowRunRead:
@@ -93,6 +101,7 @@ class WorkflowService:
         workflow.result_summary = result_summary or workflow.result_summary
         await self.workflow_repository.session.commit()
         await self.workflow_repository.session.refresh(workflow, attribute_names=["steps"])
+        await self._audit_workflow(workflow, "workflow.failed", "failed", error=error_message)
         return await self._to_read(workflow)
 
     async def cancel_workflow(self, workflow_run_id: UUID) -> WorkflowRunRead:
@@ -101,6 +110,7 @@ class WorkflowService:
         workflow.finished_at = datetime.now(UTC)
         await self.workflow_repository.session.commit()
         await self.workflow_repository.session.refresh(workflow, attribute_names=["steps"])
+        await self._audit_workflow(workflow, "workflow.cancelled", "cancelled")
         return await self._to_read(workflow)
 
     async def add_step(self, workflow_run_id: UUID, payload: WorkflowStepCreate) -> WorkflowStepRead:
@@ -225,3 +235,26 @@ class WorkflowService:
         if end.tzinfo is None:
             end = end.replace(tzinfo=UTC)
         return max(0, int((end - start).total_seconds()))
+
+    async def _audit_workflow(
+        self,
+        workflow: WorkflowRun,
+        event_type: str,
+        result: str,
+        *,
+        error: str | None = None,
+    ) -> None:
+        await self.audit_service.record(
+            event_type=event_type,
+            actor_username=workflow.initiated_by,
+            target_type="workflow_run",
+            target_id=workflow.id,
+            result=result,
+            workflow_run_id=workflow.id,
+            metadata={
+                "workflow_type": workflow.workflow_type.value,
+                "trigger_source": workflow.trigger_source.value,
+                "target_server_id": str(workflow.target_server_id) if workflow.target_server_id else None,
+            },
+            error=error,
+        )

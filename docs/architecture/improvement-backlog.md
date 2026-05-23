@@ -53,7 +53,7 @@ This backlog captures near-term product and engineering improvements from the Ma
 - Add realtime status updates through polling endpoints first, then WebSockets or server-sent events later.
 - Expand the workflow domain into full orchestration chaining. WorkflowRun and WorkflowStep now expose runtime visibility, but provisioning, identity, and direct package/profile execution still need complete step-by-step workflow refactors.
 - Deepen deployment/profile integration so profile steps can orchestrate deployments with full execution context and rollback-ready behavior.
-- Add audit persistence for infrastructure actions, provisioning tasks, deployment operations, identity replication, and destructive operations.
+- Expand audit reporting and filtering for infrastructure actions, provisioning tasks, deployment operations, identity replication, and destructive operations. Durable audit persistence is now present; the next step is operator-facing analysis and retention policy.
 - Extend the persisted integration authority model to future providers. Proxmox discovery/synchronization now resolves through database integrations; new provider adapters should follow the same integration-owned discovery, state, and stale-resource model.
 - Add provisioning blueprint or provisioning batch as a Workflow/Automation operation with minimal runtime inputs.
 - Strengthen authentication and authorization before broadening destructive infrastructure capabilities: MFA/WebAuthn, API keys, scoped tokens, finer-grained permissions, and audit trails remain future work even though local auth/RBAC exists.
@@ -68,7 +68,7 @@ This backlog captures near-term product and engineering improvements from the Ma
 - Deepen CT/LXC readiness checks beyond the current discovery/provisioning/lifecycle foundation: interface detection, gateway reachability, DNS validation, SSH readiness polling, storage discovery, and richer template metadata.
 - Add cancellation support for queued/running Jobs and long-running provisioning workflows where technically possible.
 - Add optimistic locking or version fields for editable definitions and blueprints to avoid accidental overwrite.
-- Add structured error types for provider failures so the frontend can show actionable messages instead of generic API errors.
+- Continue expanding structured error types for provider failures so the frontend can show actionable messages instead of generic API errors. Monitoring validation already exposes structured component failure reasons.
 
 ### Data and Secrets
 
@@ -84,8 +84,8 @@ This backlog captures near-term product and engineering improvements from the Ma
 - Add backend tests for provisioning blueprints, additional disks, deployment credential env injection, integration credential refs, LXC provisioning, hypervisor reconciliation, deployment target executions, and monitoring readiness derivation.
 - Add backend tests around monitoring snapshot refresh boundaries so overview reads remain database-bounded.
 - Add frontend tests for provisioning blueprint fill/save/delete, inventory edit modal behavior, and deployment credential env rows.
-- Add CI for lint, frontend build, backend tests, and Alembic migration validation.
-- Add migration tests against PostgreSQL, not only SQLite-backed service tests.
+- Keep CI coverage healthy for lint, frontend build, backend tests, Alembic migration validation, and artifact hygiene.
+- Add deeper migration tests against PostgreSQL beyond the current Alembic head/current/upgrade/downgrade CI smoke.
 - Add contract tests around `VITE_API_BASE_URL`, CORS origins, and common local startup failures.
 - Add code quality gates for generated artifacts, logs, screenshots, and local build output.
 

@@ -1,7 +1,7 @@
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.adapters.proxmox import (
@@ -10,6 +10,8 @@ from backend.app.adapters.proxmox import (
 )
 from backend.app.modules.integrations.models import IntegrationProviderType
 from backend.app.db.session import get_db_session
+from backend.app.modules.audit.service import audit_service_from_session, source_ip_from_request
+from backend.app.modules.auth.models import User
 from backend.app.modules.credentials.repository import CredentialRepository
 from backend.app.modules.credentials.service import CredentialService
 from backend.app.modules.integrations.repository import IntegrationRepository
@@ -348,19 +350,12 @@ async def sync_proxmox_guests(
 )
 async def start_vm(
     vm_id: int,
+    request: Request,
     session: Annotated[AsyncSession, Depends(get_db_session)],
+    current_user: Annotated[User, Depends(require_operator)],
     integration_id: UUID | None = None,
 ) -> ProxmoxVmActionRead:
-    try:
-        service = await _service_for_integration(session, integration_id)
-        return await service.start_vm(vm_id)
-    except (
-        ProxmoxConfigurationError,
-        ProxmoxConnectionError,
-        ProxmoxVmActionNotAllowedError,
-        ProxmoxVmNotFoundError,
-    ) as exc:
-        raise _map_proxmox_error(exc) from exc
+    return await _run_vm_action("start", vm_id, session, request, current_user, integration_id)
 
 
 @router.post(
@@ -370,19 +365,12 @@ async def start_vm(
 )
 async def stop_vm(
     vm_id: int,
+    request: Request,
     session: Annotated[AsyncSession, Depends(get_db_session)],
+    current_user: Annotated[User, Depends(require_operator)],
     integration_id: UUID | None = None,
 ) -> ProxmoxVmActionRead:
-    try:
-        service = await _service_for_integration(session, integration_id)
-        return await service.stop_vm(vm_id)
-    except (
-        ProxmoxConfigurationError,
-        ProxmoxConnectionError,
-        ProxmoxVmActionNotAllowedError,
-        ProxmoxVmNotFoundError,
-    ) as exc:
-        raise _map_proxmox_error(exc) from exc
+    return await _run_vm_action("stop", vm_id, session, request, current_user, integration_id)
 
 
 @router.post(
@@ -392,19 +380,12 @@ async def stop_vm(
 )
 async def reboot_vm(
     vm_id: int,
+    request: Request,
     session: Annotated[AsyncSession, Depends(get_db_session)],
+    current_user: Annotated[User, Depends(require_operator)],
     integration_id: UUID | None = None,
 ) -> ProxmoxVmActionRead:
-    try:
-        service = await _service_for_integration(session, integration_id)
-        return await service.reboot_vm(vm_id)
-    except (
-        ProxmoxConfigurationError,
-        ProxmoxConnectionError,
-        ProxmoxVmActionNotAllowedError,
-        ProxmoxVmNotFoundError,
-    ) as exc:
-        raise _map_proxmox_error(exc) from exc
+    return await _run_vm_action("reboot", vm_id, session, request, current_user, integration_id)
 
 
 @router.post(
@@ -414,16 +395,62 @@ async def reboot_vm(
 )
 async def shutdown_vm(
     vm_id: int,
+    request: Request,
     session: Annotated[AsyncSession, Depends(get_db_session)],
+    current_user: Annotated[User, Depends(require_operator)],
     integration_id: UUID | None = None,
+) -> ProxmoxVmActionRead:
+    return await _run_vm_action("shutdown", vm_id, session, request, current_user, integration_id)
+
+
+async def _run_vm_action(
+    action: str,
+    vm_id: int,
+    session: AsyncSession,
+    request: Request,
+    current_user: User,
+    integration_id: UUID | None,
 ) -> ProxmoxVmActionRead:
     try:
         service = await _service_for_integration(session, integration_id)
-        return await service.shutdown_vm(vm_id)
+        method = {
+            "start": service.start_vm,
+            "stop": service.stop_vm,
+            "reboot": service.reboot_vm,
+            "shutdown": service.shutdown_vm,
+        }[action]
+        result = await method(vm_id)
+        await audit_service_from_session(session).record(
+            event_type=f"infrastructure.vm_{action}",
+            actor=current_user,
+            target_type="proxmox_vm",
+            target_id=vm_id,
+            result="success",
+            source_ip=source_ip_from_request(request),
+            metadata={
+                "vm_id": result.vm_id,
+                "name": result.name,
+                "node": result.node,
+                "vm_type": result.type,
+                "task_id": result.task_id,
+                "integration_id": str(integration_id) if integration_id else None,
+            },
+        )
+        return result
     except (
         ProxmoxConfigurationError,
         ProxmoxConnectionError,
         ProxmoxVmActionNotAllowedError,
         ProxmoxVmNotFoundError,
     ) as exc:
+        await audit_service_from_session(session).record(
+            event_type=f"infrastructure.vm_{action}",
+            actor=current_user,
+            target_type="proxmox_vm",
+            target_id=vm_id,
+            result="failed",
+            source_ip=source_ip_from_request(request),
+            metadata={"integration_id": str(integration_id) if integration_id else None},
+            error=exc.__class__.__name__,
+        )
         raise _map_proxmox_error(exc) from exc

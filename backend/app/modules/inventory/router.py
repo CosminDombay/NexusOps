@@ -1,12 +1,14 @@
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.adapters.proxmox import ProxmoxConfigurationError, ProxmoxConnectionError
 from backend.app.adapters.ssh import ParamikoSshAdapter
 from backend.app.db.session import get_db_session
+from backend.app.modules.audit.service import audit_service_from_session, source_ip_from_request
+from backend.app.modules.auth.models import User
 from backend.app.modules.auth.security.dependencies import require_operator
 from backend.app.modules.credentials.repository import CredentialRepository
 from backend.app.modules.credentials.service import CredentialService
@@ -191,10 +193,23 @@ async def health_check_server(
 )
 async def create_server(
     payload: ServerCreate,
+    request: Request,
+    session: Annotated[AsyncSession, Depends(get_db_session)],
+    current_user: Annotated[User, Depends(require_operator)],
     service: Annotated[InventoryService, Depends(get_inventory_service)],
 ) -> ServerRead:
     try:
-        return await service.create_server(payload)
+        server = await service.create_server(payload)
+        await audit_service_from_session(session).record(
+            event_type="inventory.server_created",
+            actor=current_user,
+            target_type="server",
+            target_id=server.id,
+            result="success",
+            source_ip=source_ip_from_request(request),
+            metadata={"hostname": server.hostname, "provider": server.provider},
+        )
+        return server
     except InventoryConflictError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
 
@@ -207,7 +222,9 @@ async def create_server(
 )
 async def import_proxmox_vm(
     payload: ProxmoxInventoryImport,
+    request: Request,
     session: Annotated[AsyncSession, Depends(get_db_session)],
+    current_user: Annotated[User, Depends(require_operator)],
     service: Annotated[InventoryService, Depends(get_inventory_service)],
 ) -> ServerRead:
     integration_service = IntegrationService(
@@ -234,7 +251,17 @@ async def import_proxmox_vm(
             ),
             None,
         )
-        return await service.import_proxmox_vm(payload, discovered_vm=discovered_vm)
+        server = await service.import_proxmox_vm(payload, discovered_vm=discovered_vm)
+        await audit_service_from_session(session).record(
+            event_type="inventory.proxmox_imported",
+            actor=current_user,
+            target_type="server",
+            target_id=server.id,
+            result="success",
+            source_ip=source_ip_from_request(request),
+            metadata={"hostname": server.hostname, "vm_id": payload.vm_id, "node": payload.node},
+        )
+        return server
     except InventoryConflictError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     except IntegrationNotFoundError as exc:
@@ -251,7 +278,9 @@ async def import_proxmox_vm(
 )
 async def reconcile_proxmox_inventory(
     integration_id: UUID,
+    request: Request,
     session: Annotated[AsyncSession, Depends(get_db_session)],
+    current_user: Annotated[User, Depends(require_operator)],
     service: Annotated[InventoryService, Depends(get_inventory_service)],
 ) -> list[ServerRead]:
     integration_service = IntegrationService(
@@ -271,6 +300,15 @@ async def reconcile_proxmox_inventory(
         vms = await proxmox_service.list_vms()
         result = await service.reconcile_proxmox_inventory(vms, integration_id=integration_id)
         await integration_service.mark_integration_connected(integration)
+        await audit_service_from_session(session).record(
+            event_type="inventory.proxmox_reconciled",
+            actor=current_user,
+            target_type="integration",
+            target_id=integration_id,
+            result="success",
+            source_ip=source_ip_from_request(request),
+            metadata={"changed_servers": len(result), "discovered_vms": len(vms)},
+        )
         return result
     except IntegrationNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
@@ -287,10 +325,23 @@ async def reconcile_proxmox_inventory(
 async def update_server(
     server_id: UUID,
     payload: ServerUpdate,
+    request: Request,
+    session: Annotated[AsyncSession, Depends(get_db_session)],
+    current_user: Annotated[User, Depends(require_operator)],
     service: Annotated[InventoryService, Depends(get_inventory_service)],
 ) -> ServerRead:
     try:
-        return await service.update_server(server_id, payload)
+        server = await service.update_server(server_id, payload)
+        await audit_service_from_session(session).record(
+            event_type="inventory.server_updated",
+            actor=current_user,
+            target_type="server",
+            target_id=server.id,
+            result="success",
+            source_ip=source_ip_from_request(request),
+            metadata={"fields": sorted(payload.model_dump(exclude_unset=True).keys())},
+        )
+        return server
     except ServerNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except InventoryConflictError as exc:
@@ -304,10 +355,21 @@ async def update_server(
 )
 async def delete_server(
     server_id: UUID,
+    request: Request,
+    session: Annotated[AsyncSession, Depends(get_db_session)],
+    current_user: Annotated[User, Depends(require_operator)],
     service: Annotated[InventoryService, Depends(get_inventory_service)],
 ) -> None:
     try:
         await service.delete_server(server_id)
+        await audit_service_from_session(session).record(
+            event_type="inventory.server_deleted",
+            actor=current_user,
+            target_type="server",
+            target_id=server_id,
+            result="success",
+            source_ip=source_ip_from_request(request),
+        )
     except ServerNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
 
@@ -319,10 +381,22 @@ async def delete_server(
 )
 async def archive_server(
     server_id: UUID,
+    request: Request,
+    session: Annotated[AsyncSession, Depends(get_db_session)],
+    current_user: Annotated[User, Depends(require_operator)],
     service: Annotated[InventoryService, Depends(get_inventory_service)],
 ) -> ServerRead:
     try:
-        return await service.archive_server(server_id)
+        server = await service.archive_server(server_id)
+        await audit_service_from_session(session).record(
+            event_type="inventory.server_archived",
+            actor=current_user,
+            target_type="server",
+            target_id=server.id,
+            result="success",
+            source_ip=source_ip_from_request(request),
+        )
+        return server
     except ServerNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
 
@@ -334,10 +408,22 @@ async def archive_server(
 )
 async def decommission_server(
     server_id: UUID,
+    request: Request,
+    session: Annotated[AsyncSession, Depends(get_db_session)],
+    current_user: Annotated[User, Depends(require_operator)],
     service: Annotated[InventoryService, Depends(get_inventory_service)],
 ) -> ServerRead:
     try:
-        return await service.decommission_server(server_id)
+        server = await service.decommission_server(server_id)
+        await audit_service_from_session(session).record(
+            event_type="inventory.server_decommissioned",
+            actor=current_user,
+            target_type="server",
+            target_id=server.id,
+            result="success",
+            source_ip=source_ip_from_request(request),
+        )
+        return server
     except ServerNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
 
@@ -349,10 +435,22 @@ async def decommission_server(
 )
 async def restore_server(
     server_id: UUID,
+    request: Request,
+    session: Annotated[AsyncSession, Depends(get_db_session)],
+    current_user: Annotated[User, Depends(require_operator)],
     service: Annotated[InventoryService, Depends(get_inventory_service)],
 ) -> ServerRead:
     try:
-        return await service.restore_server(server_id)
+        server = await service.restore_server(server_id)
+        await audit_service_from_session(session).record(
+            event_type="inventory.server_restored",
+            actor=current_user,
+            target_type="server",
+            target_id=server.id,
+            result="success",
+            source_ip=source_ip_from_request(request),
+        )
+        return server
     except ServerNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
 
@@ -364,9 +462,21 @@ async def restore_server(
 )
 async def unmanage_server(
     server_id: UUID,
+    request: Request,
+    session: Annotated[AsyncSession, Depends(get_db_session)],
+    current_user: Annotated[User, Depends(require_operator)],
     service: Annotated[InventoryService, Depends(get_inventory_service)],
 ) -> ServerRead:
     try:
-        return await service.mark_unmanaged(server_id)
+        server = await service.mark_unmanaged(server_id)
+        await audit_service_from_session(session).record(
+            event_type="inventory.server_unmanaged",
+            actor=current_user,
+            target_type="server",
+            target_id=server.id,
+            result="success",
+            source_ip=source_ip_from_request(request),
+        )
+        return server
     except ServerNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc

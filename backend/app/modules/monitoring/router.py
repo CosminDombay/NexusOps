@@ -14,10 +14,12 @@ from backend.app.modules.inventory.service import ServerNotFoundError
 from backend.app.modules.auth.security.dependencies import require_operator
 from backend.app.modules.monitoring.schemas import (
     MonitoringOverviewRead,
+    MonitoringValidationAttemptRead,
     MonitoringValidationRead,
     PrometheusHealthRead,
     ServerMetricsRead,
 )
+from backend.app.modules.monitoring.repository import MonitoringValidationAttemptRepository
 from backend.app.modules.monitoring.service import MonitoringService
 
 router = APIRouter()
@@ -97,3 +99,12 @@ async def validate_server_monitoring(
         return await service.validate_server(server_id)
     except ServerNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+
+@router.get("/servers/{server_id}/validation-attempts", response_model=list[MonitoringValidationAttemptRead])
+async def list_server_monitoring_attempts(
+    server_id: UUID,
+    session: Annotated[AsyncSession, Depends(get_db_session)],
+) -> list[MonitoringValidationAttemptRead]:
+    attempts = await MonitoringValidationAttemptRepository(session).list_for_server(server_id)
+    return [MonitoringValidationAttemptRead.model_validate(attempt) for attempt in attempts]

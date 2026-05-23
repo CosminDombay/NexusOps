@@ -4,6 +4,7 @@ from uuid import UUID
 import structlog
 
 from backend.app.adapters.ssh import SshAdapter
+from backend.app.modules.audit.service import AuditService
 from backend.app.modules.credentials.service import CredentialNotFoundError, CredentialService
 from backend.app.modules.inventory.repository import ServerRepository
 from backend.app.modules.inventory.models import InventoryLifecycleState, ServerSshAuthMethod
@@ -60,12 +61,14 @@ class JobService:
         ssh_adapter: SshAdapter,
         action_repository: CustomOperationalActionRepository | None = None,
         credential_service: CredentialService | None = None,
+        audit_service: AuditService | None = None,
     ) -> None:
         self.job_repository = job_repository
         self.server_repository = server_repository
         self.ssh_adapter = ssh_adapter
         self.action_repository = action_repository
         self.credential_service = credential_service
+        self.audit_service = audit_service
 
     async def list_jobs(self) -> list[JobRead]:
         jobs = await self.job_repository.list()
@@ -233,6 +236,20 @@ class JobService:
         job.completed_at = datetime.now(UTC)
         await self.job_repository.session.commit()
         await self.job_repository.session.refresh(job)
+        if self.audit_service is not None:
+            await self.audit_service.record(
+                event_type=self._audit_event_type(job.operation_type),
+                target_type="server",
+                target_id=server.id,
+                result="success" if job.status == JobStatus.SUCCESS else "failed",
+                metadata={
+                    "job_id": str(job.id),
+                    "operation_type": job.operation_type,
+                    "exit_code": job.exit_code,
+                    "target_hostname": server.hostname,
+                },
+                error=job.stderr if job.status == JobStatus.FAILED else None,
+            )
 
         logger.info(
             "job_completed",
@@ -312,3 +329,15 @@ class JobService:
             destructive=action.destructive,
             is_builtin=False,
         )
+
+    @staticmethod
+    def _audit_event_type(operation_type: str) -> str:
+        prefix = operation_type.split(":", 1)[0]
+        return {
+            "action": "job.action_executed",
+            "package": "package.executed",
+            "profile": "profile.executed",
+            "deployment": "deployment.action_executed",
+            "provisioning": "provisioning.action_executed",
+            "identity": "identity.action_executed",
+        }.get(prefix, "job.executed")

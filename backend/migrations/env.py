@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from backend.app.core.config import settings
 from backend.app.db.base import Base
+from backend.app.modules.audit.models import AuditEvent
 from backend.app.modules.auth.models import User
 from backend.app.modules.credentials.models import Credential, CredentialUsage
 from backend.app.modules.deployments.models import Deployment, DeploymentRevision, DeploymentTarget
@@ -21,7 +22,7 @@ from backend.app.modules.identity.models import (
     SSHKey,
 )
 from backend.app.modules.jobs.models import CustomOperationalAction, Job
-from backend.app.modules.monitoring.models import MetricSample, MonitoringSnapshot
+from backend.app.modules.monitoring.models import MetricSample, MonitoringSnapshot, MonitoringValidationAttempt
 from backend.app.modules.packages.models import PackageDefinitionRecord, PackageInstallation
 from backend.app.modules.profiles.models import InfrastructureProfileRecord, StandardizationProfile
 from backend.app.modules.provisioning.models import ProvisioningBatch, ProvisioningRequest, VirtualMachine
@@ -38,6 +39,7 @@ target_metadata = Base.metadata
 
 _models = (
     User,
+    AuditEvent,
     CommandExecution,
     Credential,
     CredentialUsage,
@@ -52,6 +54,7 @@ _models = (
     LinuxUser,
     MetricSample,
     MonitoringSnapshot,
+    MonitoringValidationAttempt,
     NodeRuntimeSnapshot,
     PackageDefinitionRecord,
     PackageInstallation,

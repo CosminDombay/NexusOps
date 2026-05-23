@@ -5,6 +5,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.adapters.ssh import ParamikoSshAdapter
 from backend.app.db.session import get_db_session
+from backend.app.modules.audit.repository import AuditEventRepository
+from backend.app.modules.audit.service import AuditService
 from backend.app.modules.credentials.repository import CredentialRepository
 from backend.app.modules.credentials.service import CredentialNotFoundError, CredentialService
 from backend.app.modules.deployments.repository import (
@@ -51,6 +53,7 @@ async def get_profile_service(
         ssh_adapter=ParamikoSshAdapter(),
         action_repository=CustomOperationalActionRepository(session),
         credential_service=credential_service,
+        audit_service=AuditService(AuditEventRepository(session)),
     )
     return ProfileService(
         job_service=job_service,

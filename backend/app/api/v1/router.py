@@ -3,6 +3,7 @@ from fastapi import APIRouter, Depends
 from backend.app.api.v1.routes import health
 from backend.app.modules.auth.api.router import router as auth_router
 from backend.app.modules.auth.security.dependencies import require_admin, require_operator, require_viewer
+from backend.app.modules.audit.router import router as audit_router
 from backend.app.modules.automations.router import router as automations_router
 from backend.app.modules.credentials.router import router as credentials_router
 from backend.app.modules.deployments.router import router as deployments_router
@@ -23,6 +24,12 @@ from backend.app.modules.workflows.router import router as workflows_router
 api_v1_router = APIRouter()
 api_v1_router.include_router(health.router, tags=["health"])
 api_v1_router.include_router(auth_router, prefix="/auth", tags=["auth"])
+api_v1_router.include_router(
+    audit_router,
+    prefix="/audit-events",
+    tags=["audit-events"],
+    dependencies=[Depends(require_admin)],
+)
 api_v1_router.include_router(
     automations_router,
     prefix="/automations",

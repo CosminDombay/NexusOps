@@ -1,0 +1,88 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  backend:
+    name: Backend tests and migrations
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: nexusops_ci
+          POSTGRES_USER: nexusops
+          POSTGRES_PASSWORD: nexusops
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U nexusops -d nexusops_ci"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: postgresql+asyncpg://nexusops:nexusops@localhost:5432/nexusops_ci
+      NEXUSOPS_MASTER_KEY: MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=
+      SECRET_KEY: ci-secret-key
+      ACCESS_TOKEN_EXPIRE_MINUTES: "15"
+      REFRESH_TOKEN_EXPIRE_DAYS: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install backend dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Artifact hygiene
+        run: python scripts/check_artifact_hygiene.py
+
+      - name: Alembic single-head validation
+        run: |
+          heads="$(python -m alembic heads | wc -l)"
+          test "$heads" -eq 1
+
+      - name: Alembic upgrade validation
+        run: |
+          python -m alembic upgrade head
+          python -m alembic current
+
+      - name: Alembic downgrade smoke validation
+        run: |
+          python -m alembic downgrade -1
+          python -m alembic upgrade head
+
+      - name: Backend tests
+        run: python -m pytest backend/tests
+
+  frontend:
+    name: Frontend lint and build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Frontend lint
+        working-directory: frontend
+        run: npm run lint
+
+      - name: Frontend build
+        working-directory: frontend
+        run: npm run build

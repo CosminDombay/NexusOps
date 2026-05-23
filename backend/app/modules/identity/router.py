@@ -6,6 +6,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.adapters.ssh import ParamikoSshAdapter
 from backend.app.db.session import get_db_session
+from backend.app.modules.audit.repository import AuditEventRepository
+from backend.app.modules.audit.service import AuditService
 from backend.app.modules.credentials.repository import CredentialRepository
 from backend.app.modules.credentials.service import CredentialNotFoundError, CredentialService
 from backend.app.modules.identity.repository import (
@@ -67,6 +69,7 @@ def _replication_service(session: AsyncSession) -> IdentityReplicationService:
             job_repository=JobRepository(session),
             server_repository=server_repository,
             ssh_adapter=ParamikoSshAdapter(),
+            audit_service=AuditService(AuditEventRepository(session)),
         ),
     )
 

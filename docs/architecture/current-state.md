@@ -433,8 +433,11 @@ The 2026-05-23 review confirms that the implementation has moved beyond the olde
 - Proxmox, provisioning, Jobs, profiles, packages, deployments, identity, monitoring, remote access, workflows, and automations all converge on Inventory-managed targets.
 - Credential-backed runtime secret resolution exists, but it should still be treated as encrypted local MVP secret handling rather than a production vault.
 - Runtime snapshots and monitoring validation are present. The Monitoring overview is snapshot-first and avoids live Prometheus/Grafana/Loki discovery during normal rendering.
+- Durable audit events are now persisted for authentication, inventory reconciliation, Proxmox lifecycle mutations, credentials, provisioning entrypoints, Jobs/package/profile/deployment/identity executions, workflows, remote access, and monitoring validation.
+- Monitoring validation now persists historical validation attempts with method, duration, structured failure reason, component results, and optional audit-event linkage.
+- CI is defined for frontend lint/build, backend tests, Alembic head/current/upgrade/downgrade validation, and generated-artifact hygiene checks.
 - Frontend lint and production build pass on the current working tree.
-- Backend tests are mostly green, but `backend/tests/test_inventory.py::test_inventory_import_restores_archived_proxmox_record` currently leaks to a real Proxmox endpoint and fails when `hellgate.himalayan-chimaera.ts.net:8006` is unreachable. The test should use a fake Proxmox service/adapter and never require live infrastructure.
+- Backend tests are isolated from live infrastructure and pass against fake/synthetic adapters and fixtures.
 
 ## Architecture Status
 
@@ -471,12 +474,12 @@ The 2026-05-23 review confirms that the implementation has moved beyond the olde
 - Legacy inline SSH passwords/private key paths still exist for backward compatibility and local MVP use; shared Credential Manager records are the preferred path for reusable secrets.
 - Integration configs are structured and credential-reference aware, but they are not a secrets vault yet.
 - No frontend test framework is configured yet.
-- No CI pipeline is defined in the repo.
-- Inventory tests use SQLite fixtures; PostgreSQL migration behavior is validated manually, not in automated CI.
+- CI pipeline coverage exists for lint, build, backend tests, Alembic single-head/current/upgrade validation, downgrade smoke, and generated-artifact hygiene.
+- PostgreSQL migration behavior is validated by the CI workflow against a PostgreSQL service.
 - Proxmox live validation depends on local environment variables and a reachable Proxmox host.
 - Proxmox credentials are intentionally not persisted in source-controlled files.
 - Proxmox lifecycle actions currently return accepted task IDs but do not poll task completion.
-- Proxmox lifecycle action audit persistence is not implemented yet.
+- Proxmox lifecycle action audit persistence is implemented for start, stop, reboot, and shutdown outcomes.
 - Jobs still execute synchronously inside the JobService call, but scheduled automations now dispatch through WorkflowRuns and an in-process async queue.
 - Profiles still run sequentially inside ProfileService, but automation-triggered profile runs now persist workflow steps.
 - Provisioning still needs the deeper background refactor so each clone/config/bootstrap phase is driven fully by WorkflowRun steps.
@@ -491,7 +494,7 @@ The 2026-05-23 review confirms that the implementation has moved beyond the olde
 - Provisioning now collapses large action areas, but a full guided review wizard is still planned.
 - Provisioning blueprints are not yet first-class Workflow/Automation operations.
 - CT/LXC support is operationally wired for discovery, provisioning, lifecycle, and Inventory registration, but advanced filesystem editing, deeper network validation, and richer template/storage discovery remain future work.
-- Monitoring validation is operational, but durable validation run history, richer failure reasons, deep log exploration, and centralized log indexing remain future work.
+- Monitoring validation is operational with durable validation attempt history and structured failure reasons. Deep log exploration and centralized log indexing remain future work.
 - Remote shell WebSocket authentication uses the current JWT as a query parameter for MVP browser compatibility; a short-lived scoped remote-access token is still planned.
 - Refresh tokens are revoked through token-version changes, but refresh-token rotation/reuse detection is not implemented yet.
 - Monitoring overview should remain snapshot-first. Avoid live provider discovery or dashboard search during ordinary rendering unless it is behind an explicit refresh path.

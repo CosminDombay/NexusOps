@@ -49,6 +49,7 @@ export type ServerMetrics = {
   readiness_reasons: string[];
   remediation: string[];
   technical_details: string[];
+  component_failure_reasons: Record<string, string>;
   last_validated_at: string | null;
   last_successful_check_at: string | null;
   collected_at: string;

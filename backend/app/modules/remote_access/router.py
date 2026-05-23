@@ -2,10 +2,11 @@ import asyncio
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, WebSocket, WebSocketDisconnect, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.db.session import get_db_session
+from backend.app.modules.audit.service import audit_service_from_session, source_ip_from_request
 from backend.app.modules.auth.models import User, UserRole
 from backend.app.modules.auth.repositories.user_repository import UserRepository
 from backend.app.modules.auth.security.dependencies import ROLE_ORDER, require_operator
@@ -72,6 +73,14 @@ async def shell_websocket(
     try:
         shell = await service.open_shell(server_id, user)
         audit_remote_access_event("remote_shell_opened", server_id=server_id, user=user)
+        await audit_service_from_session(session).record(
+            event_type="remote_access.shell_opened",
+            actor=user,
+            target_type="server",
+            target_id=server_id,
+            result="success",
+            source_ip=websocket.client.host if websocket.client else None,
+        )
         await asyncio.gather(
             _websocket_to_shell(websocket, shell.channel),
             _shell_to_websocket(websocket, shell.channel),
@@ -86,11 +95,28 @@ async def shell_websocket(
             outcome="failed",
             reason=exc.__class__.__name__,
         )
+        await audit_service_from_session(session).record(
+            event_type="remote_access.shell_failed",
+            actor=user,
+            target_type="server",
+            target_id=server_id,
+            result="failed",
+            source_ip=websocket.client.host if websocket.client else None,
+            error=exc.__class__.__name__,
+        )
         await websocket.close(code=status.WS_1011_INTERNAL_ERROR, reason=str(exc))
     finally:
         if shell is not None:
             await asyncio.to_thread(shell.close)
         audit_remote_access_event("remote_shell_closed", server_id=server_id, user=user)
+        await audit_service_from_session(session).record(
+            event_type="remote_access.shell_closed",
+            actor=user,
+            target_type="server",
+            target_id=server_id,
+            result="success",
+            source_ip=websocket.client.host if websocket.client else None,
+        )
 
 
 async def _authenticate_websocket(token: str | None, session: AsyncSession) -> User:
@@ -130,6 +156,8 @@ async def _shell_to_websocket(websocket: WebSocket, channel) -> None:
 @router.get("/hosts/{server_id}/files", response_model=RemoteDirectoryListing)
 async def list_files(
     server_id: UUID,
+    request: Request,
+    session: Annotated[AsyncSession, Depends(get_db_session)],
     service: Annotated[RemoteAccessService, Depends(get_remote_access_service)],
     user: Annotated[User, Depends(require_operator)],
     path: str = "/",
@@ -137,6 +165,15 @@ async def list_files(
     try:
         result = await service.list_files(server_id, path, user)
         audit_remote_access_event("remote_file_listed", server_id=server_id, user=user, path=result.path)
+        await audit_service_from_session(session).record(
+            event_type="remote_access.file_listed",
+            actor=user,
+            target_type="server",
+            target_id=server_id,
+            result="success",
+            source_ip=source_ip_from_request(request),
+            metadata={"path": result.path},
+        )
         return result
     except Exception as exc:
         raise _map_error(exc) from exc
@@ -145,6 +182,8 @@ async def list_files(
 @router.get("/hosts/{server_id}/files/read", response_model=RemoteFileRead)
 async def read_file(
     server_id: UUID,
+    request: Request,
+    session: Annotated[AsyncSession, Depends(get_db_session)],
     service: Annotated[RemoteAccessService, Depends(get_remote_access_service)],
     user: Annotated[User, Depends(require_operator)],
     path: str,
@@ -152,6 +191,15 @@ async def read_file(
     try:
         result = await service.read_file(server_id, path, user)
         audit_remote_access_event("remote_file_read", server_id=server_id, user=user, path=result.path)
+        await audit_service_from_session(session).record(
+            event_type="remote_access.file_read",
+            actor=user,
+            target_type="server",
+            target_id=server_id,
+            result="success",
+            source_ip=source_ip_from_request(request),
+            metadata={"path": result.path},
+        )
         return result
     except Exception as exc:
         raise _map_error(exc) from exc
@@ -161,6 +209,8 @@ async def read_file(
 async def write_file(
     server_id: UUID,
     payload: RemoteFileWriteRequest,
+    request: Request,
+    session: Annotated[AsyncSession, Depends(get_db_session)],
     service: Annotated[RemoteAccessService, Depends(get_remote_access_service)],
     user: Annotated[User, Depends(require_operator)],
 ) -> RemoteFileWriteResponse:
@@ -174,6 +224,15 @@ async def write_file(
             user,
         )
         audit_remote_access_event("remote_file_write_succeeded", server_id=server_id, user=user, path=result.path)
+        await audit_service_from_session(session).record(
+            event_type="remote_access.file_write",
+            actor=user,
+            target_type="server",
+            target_id=server_id,
+            result="success",
+            source_ip=source_ip_from_request(request),
+            metadata={"path": result.path},
+        )
         return result
     except Exception as exc:
         audit_remote_access_event(
@@ -183,5 +242,15 @@ async def write_file(
             path=payload.path,
             outcome="failed",
             reason=exc.__class__.__name__,
+        )
+        await audit_service_from_session(session).record(
+            event_type="remote_access.file_write",
+            actor=user,
+            target_type="server",
+            target_id=server_id,
+            result="failed",
+            source_ip=source_ip_from_request(request),
+            metadata={"path": payload.path},
+            error=exc.__class__.__name__,
         )
         raise _map_error(exc) from exc

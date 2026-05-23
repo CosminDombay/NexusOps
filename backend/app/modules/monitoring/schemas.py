@@ -61,9 +61,28 @@ class ServerMetricsRead(BaseModel):
     readiness_reasons: list[str] = Field(default_factory=list)
     remediation: list[str] = Field(default_factory=list)
     technical_details: list[str] = Field(default_factory=list)
+    component_failure_reasons: dict[str, str] = Field(default_factory=dict)
     last_validated_at: datetime | None = None
     last_successful_check_at: datetime | None = None
     collected_at: datetime
+
+
+class MonitoringValidationAttemptRead(BaseModel):
+    id: UUID
+    server_id: UUID
+    monitoring_snapshot_id: UUID | None = None
+    audit_event_id: UUID | None = None
+    validation_method: str
+    component_results: dict[str, object] = Field(default_factory=dict)
+    monitoring_state: str
+    result: str
+    failure_reason: str | None = None
+    duration_ms: int | None = None
+    started_at: datetime
+    finished_at: datetime
+    details: dict[str, object] = Field(default_factory=dict)
+
+    model_config = {"from_attributes": True}
 
 
 class MonitoringOverviewRead(BaseModel):

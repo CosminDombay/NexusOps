@@ -1,12 +1,15 @@
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.adapters.proxmox import HttpProxmoxAdapter, ProxmoxConfigurationError, ProxmoxConnectionError
 from backend.app.adapters.ssh import ParamikoSshAdapter
 from backend.app.db.session import get_db_session
+from backend.app.modules.audit.service import audit_service_from_session, source_ip_from_request
+from backend.app.modules.auth.models import User
+from backend.app.modules.auth.security.dependencies import require_operator
 from backend.app.modules.credentials.repository import CredentialRepository
 from backend.app.modules.credentials.service import CredentialService
 from backend.app.modules.integrations.repository import IntegrationRepository
@@ -110,10 +113,23 @@ async def list_batches(
 @router.post("/batches", response_model=ProvisioningBatchRead, status_code=status.HTTP_201_CREATED)
 async def provision_batch(
     payload: ProvisioningBatchCreate,
+    request: Request,
+    session: Annotated[AsyncSession, Depends(get_db_session)],
+    current_user: Annotated[User, Depends(require_operator)],
     service: Annotated[ProvisioningService, Depends(get_provisioning_service)],
 ) -> ProvisioningBatchRead:
     try:
-        return await service.provision_batch(payload)
+        batch = await service.provision_batch(payload)
+        await audit_service_from_session(session).record(
+            event_type="provisioning.batch_created",
+            actor=current_user,
+            target_type="provisioning_batch",
+            target_id=batch.id,
+            result="success",
+            source_ip=source_ip_from_request(request),
+            metadata={"blueprint_id": str(payload.blueprint_id), "count": payload.count},
+        )
+        return batch
     except ProvisioningBlueprintNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except (ProxmoxConfigurationError, ProxmoxConnectionError) as exc:
@@ -192,9 +208,28 @@ async def delete_provisioning_request(
 @router.post("", response_model=ProvisioningRead, status_code=status.HTTP_201_CREATED)
 async def provision_vm(
     payload: ProvisioningCreate,
+    request: Request,
+    session: Annotated[AsyncSession, Depends(get_db_session)],
+    current_user: Annotated[User, Depends(require_operator)],
     service: Annotated[ProvisioningService, Depends(get_provisioning_service)],
 ) -> ProvisioningRead:
     try:
-        return await service.provision(payload)
+        provisioning = await service.provision(payload)
+        await audit_service_from_session(session).record(
+            event_type="provisioning.request_created",
+            actor=current_user,
+            target_type="provisioning_request",
+            target_id=provisioning.id,
+            result="success" if provisioning.status.value != "failed" else "failed",
+            source_ip=source_ip_from_request(request),
+            metadata={
+                "vm_name": provisioning.vm_name,
+                "new_vm_id": provisioning.new_vm_id,
+                "provisioning_type": provisioning.provisioning_type,
+                "server_id": str(provisioning.server_id) if provisioning.server_id else None,
+            },
+            error=provisioning.error_message,
+        )
+        return provisioning
     except (ProxmoxConfigurationError, ProxmoxConnectionError) as exc:
         raise _map_provider_error(exc) from exc

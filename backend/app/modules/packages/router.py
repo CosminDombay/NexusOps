@@ -5,6 +5,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.adapters.ssh import ParamikoSshAdapter
 from backend.app.db.session import get_db_session
+from backend.app.modules.audit.repository import AuditEventRepository
+from backend.app.modules.audit.service import AuditService
 from backend.app.modules.credentials.repository import CredentialRepository
 from backend.app.modules.credentials.service import CredentialNotFoundError, CredentialService
 from backend.app.modules.inventory.repository import ServerRepository
@@ -41,6 +43,7 @@ async def get_package_service(
             server_repository=ServerRepository(session),
             ssh_adapter=ParamikoSshAdapter(),
             credential_service=CredentialService(repository=CredentialRepository(session)),
+            audit_service=AuditService(AuditEventRepository(session)),
         ),
         credential_service=CredentialService(repository=CredentialRepository(session)),
     )

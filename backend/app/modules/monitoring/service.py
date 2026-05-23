@@ -1,6 +1,7 @@
 import asyncio
 from datetime import UTC, datetime, timedelta
 from string import Template
+from time import perf_counter
 from urllib.parse import urlencode
 from uuid import UUID
 
@@ -8,6 +9,8 @@ import httpx
 import structlog
 
 from backend.app.adapters.ssh import ParamikoSshAdapter, SshAdapter
+from backend.app.modules.audit.repository import AuditEventRepository
+from backend.app.modules.audit.service import AuditService
 from backend.app.modules.credentials.service import CredentialNotFoundError, CredentialService
 from backend.app.common.constants import InventoryLifecycleState
 from backend.app.core.config import settings
@@ -21,7 +24,8 @@ from backend.app.modules.monitoring.models import (
     MonitoringSnapshot,
     MonitoringState,
 )
-from backend.app.modules.monitoring.repository import MonitoringSnapshotRepository
+from backend.app.modules.monitoring.repository import MonitoringSnapshotRepository, MonitoringValidationAttemptRepository
+from backend.app.modules.monitoring.models import MonitoringValidationAttempt
 from backend.app.modules.monitoring.schemas import (
     MonitoringOverviewRead,
     MonitoringProviderStatusRead,
@@ -49,6 +53,8 @@ class MonitoringService:
         server_repository: ServerRepository,
         integration_service: IntegrationService,
         snapshot_repository: MonitoringSnapshotRepository | None = None,
+        attempt_repository: MonitoringValidationAttemptRepository | None = None,
+        audit_service: AuditService | None = None,
         credential_service: CredentialService | None = None,
         ssh_adapter: SshAdapter | None = None,
     ) -> None:
@@ -57,6 +63,8 @@ class MonitoringService:
         self.snapshot_repository = snapshot_repository or MonitoringSnapshotRepository(
             server_repository.session
         )
+        self.attempt_repository = attempt_repository or MonitoringValidationAttemptRepository(server_repository.session)
+        self.audit_service = audit_service or AuditService(AuditEventRepository(server_repository.session))
         self.credential_service = credential_service
         self.ssh_adapter = ssh_adapter or ParamikoSshAdapter()
         self.runtime_snapshots = RuntimeSnapshotService(
@@ -175,7 +183,9 @@ class MonitoringService:
         ]
 
     async def _validate_server(self, server: Server) -> MonitoringSnapshot:
-        now = datetime.now(UTC)
+        started_at = datetime.now(UTC)
+        started_timer = perf_counter()
+        now = started_at
         configs = await self._provider_configs()
         prometheus_config = configs.get(IntegrationProviderType.PROMETHEUS)
         grafana_config = configs.get(IntegrationProviderType.GRAFANA)
@@ -199,22 +209,33 @@ class MonitoringService:
                 last_error="node is not managed or active",
                 details={"reason": "node_not_monitorable"},
             )
-            return await self._save_snapshot(server, snapshot)
+            saved = await self._save_snapshot(server, snapshot)
+            await self._record_validation_attempt(
+                server,
+                saved,
+                started_at=started_at,
+                started_timer=started_timer,
+                component_results={},
+                validation_method="not_monitorable",
+                result="skipped",
+                failure_reason="node_not_monitorable",
+            )
+            return saved
 
-        prometheus_status = await self._http_health(prometheus_config, "/-/healthy")
-        node_status, node_method = await self._component_status(
+        prometheus_status, prometheus_reason = await self._http_health(prometheus_config, "/-/healthy")
+        node_status, node_method, node_reason = await self._component_status(
             server,
             target_host,
             port=self._port(server, "node_exporter_port", 9100),
             services=("node_exporter", "node-exporter"),
         )
-        promtail_status, promtail_method = await self._component_status(
+        promtail_status, promtail_method, promtail_reason = await self._component_status(
             server,
             target_host,
             port=self._port(server, "promtail_port", 9080),
             services=("promtail",),
         )
-        cadvisor_status, cadvisor_method = await self._component_status(
+        cadvisor_status, cadvisor_method, cadvisor_reason = await self._component_status(
             server,
             target_host,
             port=self._port(server, "cadvisor_port", 8080),
@@ -257,9 +278,32 @@ class MonitoringService:
                     "cadvisor": cadvisor_method,
                 },
                 "prometheus_reachable": prometheus_status == MonitoringComponentStatus.HEALTHY,
+                "failure_reasons": {
+                    "node_exporter": node_reason,
+                    "promtail": promtail_reason,
+                    "cadvisor": cadvisor_reason,
+                    "prometheus": prometheus_reason,
+                },
             },
         )
-        return await self._save_snapshot(server, snapshot)
+        saved = await self._save_snapshot(server, snapshot)
+        component_results = {
+            "node_exporter": {"status": node_status.value, "method": node_method, "failure_reason": node_reason},
+            "promtail": {"status": promtail_status.value, "method": promtail_method, "failure_reason": promtail_reason},
+            "cadvisor": {"status": cadvisor_status.value, "method": cadvisor_method, "failure_reason": cadvisor_reason},
+            "prometheus": {"status": prometheus_status.value, "method": "http_health", "failure_reason": prometheus_reason},
+        }
+        await self._record_validation_attempt(
+            server,
+            saved,
+            started_at=started_at,
+            started_timer=started_timer,
+            component_results=component_results,
+            validation_method="tcp_http_ssh",
+            result="success" if state in {MonitoringState.MONITORED, MonitoringState.PARTIAL} else "failed",
+            failure_reason=self._primary_failure_reason(component_results),
+        )
+        return saved
 
     async def _save_snapshot(self, server: Server, snapshot: MonitoringSnapshot) -> MonitoringSnapshot:
         saved = await self.snapshot_repository.upsert(snapshot)
@@ -293,20 +337,22 @@ class MonitoringService:
         self,
         config: ProviderConnectionConfig | None,
         path: str,
-    ) -> MonitoringComponentStatus:
+    ) -> tuple[MonitoringComponentStatus, str | None]:
         if config is None:
-            return MonitoringComponentStatus.NOT_CONFIGURED
+            return MonitoringComponentStatus.NOT_CONFIGURED, "provider_not_configured"
         try:
             async with httpx.AsyncClient(timeout=config.timeout_seconds, verify=config.verify_ssl) as client:
                 response = await client.get(f"{config.base_url}{path}", headers=config.headers)
                 response.raise_for_status()
+        except TimeoutError:
+            return MonitoringComponentStatus.UNAVAILABLE, "command_timeout"
         except Exception:
-            return MonitoringComponentStatus.UNAVAILABLE
-        return MonitoringComponentStatus.HEALTHY
+            return MonitoringComponentStatus.UNAVAILABLE, "provider_unreachable"
+        return MonitoringComponentStatus.HEALTHY, None
 
-    async def _tcp_status(self, host: str | None, port: int | None) -> MonitoringComponentStatus:
+    async def _tcp_status(self, host: str | None, port: int | None) -> tuple[MonitoringComponentStatus, str | None]:
         if not host or not port:
-            return MonitoringComponentStatus.NOT_CONFIGURED
+            return MonitoringComponentStatus.NOT_CONFIGURED, "target_not_configured"
         try:
             _reader, writer = await asyncio.wait_for(
                 asyncio.open_connection(host, port),
@@ -314,9 +360,11 @@ class MonitoringService:
             )
             writer.close()
             await writer.wait_closed()
+        except TimeoutError:
+            return MonitoringComponentStatus.UNAVAILABLE, "tcp_unreachable"
         except Exception:
-            return MonitoringComponentStatus.UNAVAILABLE
-        return MonitoringComponentStatus.HEALTHY
+            return MonitoringComponentStatus.UNAVAILABLE, "tcp_unreachable"
+        return MonitoringComponentStatus.HEALTHY, None
 
     async def _component_status(
         self,
@@ -326,28 +374,30 @@ class MonitoringService:
         port: int,
         services: tuple[str, ...],
         docker_pattern: str | None = None,
-    ) -> tuple[MonitoringComponentStatus, str]:
-        tcp_status = await self._tcp_status(host, port)
+    ) -> tuple[MonitoringComponentStatus, str, str | None]:
+        tcp_status, tcp_reason = await self._tcp_status(host, port)
         if tcp_status == MonitoringComponentStatus.HEALTHY:
-            return tcp_status, "tcp"
-        systemd_status = await self._systemctl_status(server, services)
+            return tcp_status, "tcp", None
+        systemd_status, systemd_reason = await self._systemctl_status(server, services)
         if systemd_status == MonitoringComponentStatus.HEALTHY:
-            return systemd_status, "ssh_systemctl"
+            return systemd_status, "ssh_systemctl", None
         if docker_pattern:
-            docker_status = await self._docker_container_status(server, docker_pattern)
+            docker_status, docker_reason = await self._docker_container_status(server, docker_pattern)
             if docker_status == MonitoringComponentStatus.HEALTHY:
-                return docker_status, "ssh_docker_ps"
+                return docker_status, "ssh_docker_ps", None
+            if systemd_status == MonitoringComponentStatus.NOT_CONFIGURED:
+                return docker_status, "ssh_docker_ps", docker_reason
         if systemd_status == MonitoringComponentStatus.NOT_CONFIGURED:
-            return tcp_status, "tcp"
-        return systemd_status, "ssh_systemctl"
+            return tcp_status, "tcp", tcp_reason
+        return systemd_status, "ssh_systemctl", systemd_reason
 
     async def _systemctl_status(
         self,
         server: Server,
         services: tuple[str, ...],
-    ) -> MonitoringComponentStatus:
+    ) -> tuple[MonitoringComponentStatus, str | None]:
         if not server.ssh_username and server.credential_id is None:
-            return MonitoringComponentStatus.NOT_CONFIGURED
+            return MonitoringComponentStatus.NOT_CONFIGURED, "ssh_not_configured"
         service_checks = " ".join(self._sh_quote(service) for service in services)
         command = (
             "for svc in "
@@ -367,19 +417,21 @@ class MonitoringService:
                 private_key=details["private_key"],
                 passphrase=details["passphrase"],
             )
+        except CredentialNotFoundError:
+            return MonitoringComponentStatus.UNAVAILABLE, "ssh_auth_failed"
+        except TimeoutError:
+            return MonitoringComponentStatus.UNAVAILABLE, "command_timeout"
         except Exception:
-            return MonitoringComponentStatus.UNAVAILABLE
-        return (
-            MonitoringComponentStatus.HEALTHY
-            if result.exit_code == 0
-            else MonitoringComponentStatus.UNAVAILABLE
-        )
+            return MonitoringComponentStatus.UNAVAILABLE, "ssh_auth_failed"
+        if result.exit_code == 0:
+            return MonitoringComponentStatus.HEALTHY, None
+        return MonitoringComponentStatus.UNAVAILABLE, "service_inactive"
 
     async def _docker_container_status(
         self,
         server: Server,
         pattern: str,
-    ) -> MonitoringComponentStatus:
+    ) -> tuple[MonitoringComponentStatus, str | None]:
         command = (
             "docker ps --format '{{.Names}} {{.Image}}' "
             f"| grep -i -- {self._sh_quote(pattern)} >/dev/null"
@@ -396,13 +448,15 @@ class MonitoringService:
                 private_key=details["private_key"],
                 passphrase=details["passphrase"],
             )
+        except CredentialNotFoundError:
+            return MonitoringComponentStatus.UNAVAILABLE, "ssh_auth_failed"
+        except TimeoutError:
+            return MonitoringComponentStatus.UNAVAILABLE, "command_timeout"
         except Exception:
-            return MonitoringComponentStatus.UNAVAILABLE
-        return (
-            MonitoringComponentStatus.HEALTHY
-            if result.exit_code == 0
-            else MonitoringComponentStatus.UNAVAILABLE
-        )
+            return MonitoringComponentStatus.UNAVAILABLE, "docker_unavailable"
+        if result.exit_code == 0:
+            return MonitoringComponentStatus.HEALTHY, None
+        return MonitoringComponentStatus.UNAVAILABLE, "exporter_missing"
 
     async def _ssh_details(self, server: Server) -> dict[str, str | None | int]:
         from backend.app.modules.inventory.models import ServerSshAuthMethod
@@ -471,6 +525,7 @@ class MonitoringService:
             stale_metrics=state == MonitoringState.STALE.value,
             readiness_reasons=self._readiness_reasons(snapshot),
             technical_details=self._technical_details(snapshot),
+            component_failure_reasons=self._component_failure_reasons(snapshot),
             last_validated_at=snapshot.last_validated_at if snapshot else None,
             last_successful_check_at=snapshot.last_successful_check_at if snapshot else None,
             collected_at=snapshot.last_validated_at if snapshot and snapshot.last_validated_at else datetime.now(UTC),
@@ -637,6 +692,91 @@ class MonitoringService:
         if snapshot.monitoring_state == MonitoringState.STALE:
             reasons.append("monitoring_snapshot_stale")
         return reasons
+
+    @staticmethod
+    def _component_failure_reasons(snapshot: MonitoringSnapshot | None) -> dict[str, str]:
+        if snapshot is None or not isinstance(snapshot.details, dict):
+            return {}
+        raw_reasons = snapshot.details.get("failure_reasons")
+        if not isinstance(raw_reasons, dict):
+            return {}
+        return {
+            str(component): str(reason)
+            for component, reason in raw_reasons.items()
+            if reason is not None
+        }
+
+    @staticmethod
+    def _primary_failure_reason(component_results: dict[str, object]) -> str | None:
+        priority = (
+            "ssh_auth_failed",
+            "command_timeout",
+            "tcp_unreachable",
+            "service_inactive",
+            "docker_unavailable",
+            "exporter_missing",
+            "provider_unreachable",
+            "provider_not_configured",
+            "target_not_configured",
+            "ssh_not_configured",
+        )
+        reasons = []
+        for value in component_results.values():
+            if isinstance(value, dict) and value.get("failure_reason"):
+                reasons.append(str(value["failure_reason"]))
+        for item in priority:
+            if item in reasons:
+                return item
+        return reasons[0] if reasons else None
+
+    async def _record_validation_attempt(
+        self,
+        server: Server,
+        snapshot: MonitoringSnapshot,
+        *,
+        started_at: datetime,
+        started_timer: float,
+        component_results: dict[str, object],
+        validation_method: str,
+        result: str,
+        failure_reason: str | None,
+    ) -> None:
+        finished_at = datetime.now(UTC)
+        duration_ms = max(0, int((perf_counter() - started_timer) * 1000))
+        audit_event = await self.audit_service.record(
+            event_type="monitoring.validation",
+            target_type="server",
+            target_id=server.id,
+            result=result,
+            metadata={
+                "hostname": server.hostname,
+                "monitoring_state": snapshot.monitoring_state.value,
+                "validation_method": validation_method,
+                "failure_reason": failure_reason,
+                "component_results": component_results,
+                "duration_ms": duration_ms,
+            },
+            error=failure_reason if result == "failed" else None,
+            commit=False,
+        )
+        attempt = MonitoringValidationAttempt(
+            server_id=server.id,
+            monitoring_snapshot_id=snapshot.id,
+            audit_event_id=audit_event.id if audit_event is not None else None,
+            validation_method=validation_method,
+            component_results=component_results,
+            monitoring_state=snapshot.monitoring_state,
+            result=result,
+            failure_reason=failure_reason,
+            duration_ms=duration_ms,
+            started_at=started_at,
+            finished_at=finished_at,
+            details={
+                "monitoring_target": snapshot.monitoring_target,
+                "grafana_url": snapshot.grafana_url,
+            },
+        )
+        await self.attempt_repository.create(attempt)
 
     @staticmethod
     def _technical_details(snapshot: MonitoringSnapshot | None) -> list[str]:
