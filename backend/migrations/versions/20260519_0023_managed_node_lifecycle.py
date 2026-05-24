@@ -94,7 +94,7 @@ def upgrade() -> None:
                 ELSE 'physical'
             END)::managed_node_type,
             management_state = (CASE
-                WHEN lifecycle_state IN ('archived', 'deleted') THEN 'retired'
+                WHEN lifecycle_state::text IN ('archived', 'deleted') THEN 'retired'
                 WHEN managed IS TRUE THEN 'managed'
                 ELSE 'unmanaged'
             END)::management_state,

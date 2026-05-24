@@ -29,7 +29,7 @@ jobs:
       NEXUSOPS_MASTER_KEY: MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=
       SECRET_KEY: ci-secret-key
       ACCESS_TOKEN_EXPIRE_MINUTES: "15"
-      REFRESH_TOKEN_EXPIRE_DAYS: "1"
+      REFRESH_TOKEN_EXPIRE_DAYS: "7"
     steps:
       - uses: actions/checkout@v4
 
