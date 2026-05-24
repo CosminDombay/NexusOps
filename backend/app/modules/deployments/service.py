@@ -33,8 +33,18 @@ from backend.app.modules.deployments.schemas import (
 from backend.app.modules.credentials.service import CredentialService
 from backend.app.modules.inventory.models import InventoryLifecycleState
 from backend.app.modules.inventory.repository import ServerRepository
-from backend.app.modules.jobs.schemas import JobExecuteRequest
+from backend.app.modules.jobs.schemas import JobExecuteRequest, JobRead
 from backend.app.modules.jobs.service import JobService, JobTargetNotFoundError, JobTargetNotManagedError
+from backend.app.modules.orchestration.activity import deployment_execution_activity_timeline
+from backend.app.modules.orchestration.semantics import (
+    deployment_execution_failure_states,
+    deployment_execution_success_states,
+)
+from backend.app.modules.orchestration.utils import (
+    aggregate_target_executions,
+    duration_seconds,
+    rollup_status,
+)
 
 
 class DeploymentNotFoundError(Exception):
@@ -72,8 +82,12 @@ class DockerComposeDeploymentService:
         self.job_service = job_service
         self.credential_service = credential_service
 
-    async def list_deployments(self) -> list[DeploymentRead]:
-        deployments = await self.repository.list()
+    async def list_deployments(self, *, server_id: UUID | None = None) -> list[DeploymentRead]:
+        deployments = (
+            await self.repository.list_for_server(server_id)
+            if server_id is not None
+            else await self.repository.list()
+        )
         return [await self._to_read(deployment) for deployment in deployments]
 
     async def create_deployment(self, payload: DeploymentCreate) -> DeploymentRead:
@@ -215,8 +229,50 @@ class DockerComposeDeploymentService:
         *,
         target_server_ids: set[UUID] | None = None,
     ) -> DeploymentOperationRead:
+        deployment, targets, execution = await self._prepare_execution(
+            deployment_id,
+            operation,
+            target_server_ids=target_server_ids,
+        )
+
+        jobs: list[JobRead] = []
+        revisions: list[DeploymentRevision] = []
+        target_executions: list[DeploymentTargetExecution] = []
+        for target in targets:
+            job, revision, target_execution = await self._execute_target_operation(
+                deployment,
+                execution,
+                target,
+                operation,
+            )
+            if job is not None:
+                jobs.append(job)
+            revisions.append(revision)
+            target_executions.append(target_execution)
+
+        return await self._finalize_execution(
+            deployment,
+            execution,
+            targets,
+            operation,
+            jobs=jobs,
+            revisions=revisions,
+            target_executions=target_executions,
+        )
+
+    async def _prepare_execution(
+        self,
+        deployment_id: UUID,
+        operation: str,
+        *,
+        target_server_ids: set[UUID] | None = None,
+    ) -> tuple[Deployment, list[DeploymentTarget], DeploymentExecution]:
         deployment, all_targets = await self._deployment_and_targets(deployment_id)
-        targets = [target for target in all_targets if target_server_ids is None or target.server_id in target_server_ids]
+        targets = [
+            target
+            for target in all_targets
+            if target_server_ids is None or target.server_id in target_server_ids
+        ]
         if not targets:
             raise DeploymentValidationError("Deployment has no matching target hosts")
         for target in targets:
@@ -236,82 +292,104 @@ class DockerComposeDeploymentService:
             )
         )
         await self.repository.session.commit()
+        return deployment, targets, execution
 
-        jobs = []
-        revisions = []
-        target_executions = []
-        for target in targets:
-            target_execution = await self.target_execution_repository.create(
-                DeploymentTargetExecution(
-                    execution_id=execution.id,
-                    deployment_id=deployment.id,
-                    target_id=target.id,
-                    server_id=target.server_id,
-                    status=DeploymentStatus.DEPLOYING,
-                    started_at=datetime.now(UTC),
+    async def _execute_target_operation(
+        self,
+        deployment: Deployment,
+        execution: DeploymentExecution,
+        target: DeploymentTarget,
+        operation: str,
+    ) -> tuple[JobRead | None, DeploymentRevision, DeploymentTargetExecution]:
+        target_execution = await self.target_execution_repository.create(
+            DeploymentTargetExecution(
+                execution_id=execution.id,
+                deployment_id=deployment.id,
+                target_id=target.id,
+                server_id=target.server_id,
+                status=DeploymentStatus.DEPLOYING,
+                started_at=datetime.now(UTC),
+            )
+        )
+        revision = await self.revision_repository.create(
+            DeploymentRevision(
+                deployment_id=deployment.id,
+                server_id=target.server_id,
+                revision_number=await self.revision_repository.next_revision_number(deployment.id),
+                operation=operation,
+                compose_content=deployment.compose_content,
+                env_content=deployment.env_content,
+                status=DeploymentStatus.DEPLOYING,
+            )
+        )
+        await self.repository.session.commit()
+
+        job: JobRead | None = None
+        try:
+            command, redacted_command = await self._operation_commands(deployment, target, operation)
+            job = await self.job_service.execute(
+                JobExecuteRequest(
+                    target_server_id=target.server_id,
+                    operation_type=f"deployment:{deployment.id}:{operation}",
+                    command=command,
+                    redacted_command=redacted_command,
                 )
             )
-            revision = await self.revision_repository.create(
-                DeploymentRevision(
-                    deployment_id=deployment.id,
-                    server_id=target.server_id,
-                    revision_number=await self.revision_repository.next_revision_number(deployment.id),
-                    operation=operation,
-                    compose_content=deployment.compose_content,
-                    env_content=deployment.env_content,
-                    status=DeploymentStatus.DEPLOYING,
-                )
+            next_status = (
+                DeploymentStatus.RUNNING
+                if job.exit_code == 0 and operation != "stop"
+                else DeploymentStatus.FAILED
             )
-            await self.repository.session.commit()
-            try:
-                command, redacted_command = await self._operation_commands(deployment, target, operation)
-                job = await self.job_service.execute(
-                    JobExecuteRequest(
-                        target_server_id=target.server_id,
-                        operation_type=f"deployment:{deployment.id}:{operation}",
-                        command=command,
-                        redacted_command=redacted_command,
-                    )
-                )
-                next_status = DeploymentStatus.RUNNING if job.exit_code == 0 and operation != "stop" else DeploymentStatus.FAILED
-                if job.exit_code == 0 and operation == "stop":
-                    next_status = DeploymentStatus.STOPPED
+            if job.exit_code == 0 and operation == "stop":
+                next_status = DeploymentStatus.STOPPED
 
-                target.status = next_status
-                target.last_job_id = job.id
-                revision.status = next_status
-                revision.job_id = job.id
-                revision.stdout = job.stdout
-                revision.stderr = job.stderr
-                target_execution.status = next_status
-                target_execution.job_id = job.id
-                target_execution.revision_id = revision.id
-                target_execution.stdout = job.stdout
-                target_execution.stderr = job.stderr
-                target_execution.finished_at = datetime.now(UTC)
-                jobs.append(job)
-            except Exception as exc:
-                target.status = DeploymentStatus.FAILED
-                revision.status = DeploymentStatus.FAILED
-                revision.stderr = str(exc)
-                target_execution.status = DeploymentStatus.FAILED
-                target_execution.error_message = str(exc)
-                target_execution.finished_at = datetime.now(UTC)
-            revisions.append(revision)
-            target_executions.append(target_execution)
-            await self.repository.session.commit()
+            target.status = next_status
+            target.last_job_id = job.id
+            revision.status = next_status
+            revision.job_id = job.id
+            revision.stdout = job.stdout
+            revision.stderr = job.stderr
+            target_execution.status = next_status
+            target_execution.job_id = job.id
+            target_execution.revision_id = revision.id
+            target_execution.stdout = job.stdout
+            target_execution.stderr = job.stderr
+            target_execution.finished_at = datetime.now(UTC)
+        except Exception as exc:
+            target.status = DeploymentStatus.FAILED
+            revision.status = DeploymentStatus.FAILED
+            revision.stderr = str(exc)
+            target_execution.status = DeploymentStatus.FAILED
+            target_execution.error_message = str(exc)
+            target_execution.finished_at = datetime.now(UTC)
+        await self.repository.session.commit()
+        return job, revision, target_execution
 
+    async def _finalize_execution(
+        self,
+        deployment: Deployment,
+        execution: DeploymentExecution,
+        targets: list[DeploymentTarget],
+        operation: str,
+        *,
+        jobs: list[JobRead],
+        revisions: list[DeploymentRevision],
+        target_executions: list[DeploymentTargetExecution],
+    ) -> DeploymentOperationRead:
         deployment.status = self._rollup_status([target.status for target in targets], operation)
         execution.status = deployment.status
         execution.finished_at = datetime.now(UTC)
-        execution.result_summary = {
-            "target_count": len(targets),
-            "success_count": sum(1 for item in target_executions if item.status in {DeploymentStatus.RUNNING, DeploymentStatus.STOPPED, DeploymentStatus.SUCCESS}),
-            "failed_count": sum(1 for item in target_executions if item.status == DeploymentStatus.FAILED),
-            "job_ids": [str(job.id) for job in jobs],
-        }
-        failed_messages = [item.error_message for item in target_executions if item.error_message]
-        execution.error_message = "\n".join(failed_messages) if failed_messages else None
+        target_aggregate = aggregate_target_executions(
+            target_executions,
+            success_states=deployment_execution_success_states(),
+            failure_states=deployment_execution_failure_states(),
+        )
+        execution.result_summary = target_aggregate.summary.as_result_summary()
+        execution.error_message = (
+            "\n".join(target_aggregate.summary.failure_messages)
+            if target_aggregate.summary.failure_messages
+            else None
+        )
         await self.repository.session.commit()
         for revision in revisions:
             await self.repository.session.refresh(revision)
@@ -396,13 +474,19 @@ class DockerComposeDeploymentService:
             await self._target_execution_to_read(item)
             for item in await self.target_execution_repository.list_for_execution(execution.id)
         ]
+        target_aggregate = aggregate_target_executions(
+            target_executions,
+            success_states=deployment_execution_success_states(),
+            failure_states=deployment_execution_failure_states(),
+        )
         return DeploymentExecutionRead.model_validate(execution).model_copy(
             update={
-                "duration_seconds": self._duration_seconds(execution.started_at, execution.finished_at),
-                "target_count": len(target_executions),
-                "success_count": sum(1 for item in target_executions if item.status in {DeploymentStatus.RUNNING, DeploymentStatus.STOPPED, DeploymentStatus.SUCCESS}),
-                "failed_count": sum(1 for item in target_executions if item.status == DeploymentStatus.FAILED),
+                "duration_seconds": duration_seconds(execution.started_at, execution.finished_at),
+                "target_count": target_aggregate.summary.total_count,
+                "success_count": target_aggregate.summary.success_count,
+                "failed_count": target_aggregate.summary.failed_count,
                 "target_executions": target_executions,
+                "activity_timeline": deployment_execution_activity_timeline(execution, target_executions),
             }
         )
 
@@ -413,7 +497,7 @@ class DockerComposeDeploymentService:
         return DeploymentTargetExecutionRead.model_validate(execution).model_copy(
             update={
                 "hostname": server.hostname if server else None,
-                "duration_seconds": self._duration_seconds(execution.started_at, execution.finished_at),
+                "duration_seconds": duration_seconds(execution.started_at, execution.finished_at),
             }
         )
 
@@ -538,30 +622,19 @@ class DockerComposeDeploymentService:
 
     @staticmethod
     def _rollup_status(statuses: list[DeploymentStatus], operation: str) -> DeploymentStatus:
-        if not statuses:
-            return DeploymentStatus.FAILED
         success_states = {DeploymentStatus.RUNNING, DeploymentStatus.SUCCESS}
         if operation == "stop":
             success_states = {DeploymentStatus.STOPPED}
-        success_count = sum(1 for status in statuses if status in success_states)
-        failed_count = sum(1 for status in statuses if status == DeploymentStatus.FAILED)
-        if success_count == len(statuses):
-            return DeploymentStatus.STOPPED if operation == "stop" else DeploymentStatus.RUNNING
-        if success_count and failed_count:
-            return DeploymentStatus.PARTIAL_SUCCESS
-        if failed_count == len(statuses):
-            return DeploymentStatus.FAILED
-        return DeploymentStatus.DEGRADED
-
-    @staticmethod
-    def _duration_seconds(started_at: datetime | None, finished_at: datetime | None) -> int | None:
-        if started_at is None:
-            return None
-        start = started_at if started_at.tzinfo else started_at.replace(tzinfo=UTC)
-        end = finished_at or datetime.now(UTC)
-        if end.tzinfo is None:
-            end = end.replace(tzinfo=UTC)
-        return max(0, int((end - start).total_seconds()))
+        return rollup_status(
+            statuses,
+            success_states=success_states,
+            failure_states={DeploymentStatus.FAILED},
+            empty_status=DeploymentStatus.FAILED,
+            all_success_status=DeploymentStatus.STOPPED if operation == "stop" else DeploymentStatus.RUNNING,
+            partial_success_status=DeploymentStatus.PARTIAL_SUCCESS,
+            all_failed_status=DeploymentStatus.FAILED,
+            mixed_status=DeploymentStatus.DEGRADED,
+        )
 
     @staticmethod
     def _server_readiness(server) -> str:

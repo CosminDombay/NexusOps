@@ -26,8 +26,9 @@ async def get_workflow_service(
 @router.get("", response_model=list[WorkflowRunRead])
 async def list_workflows(
     service: Annotated[WorkflowService, Depends(get_workflow_service)],
+    target_server_id: UUID | None = None,
 ) -> list[WorkflowRunRead]:
-    return await service.list_workflows()
+    return await service.list_workflows(target_server_id=target_server_id)
 
 
 @router.get("/{workflow_run_id}", response_model=WorkflowRunRead)

@@ -15,9 +15,30 @@ class NodeRuntimeEligibility(BaseModel):
     can_manage_identity: bool = False
     can_monitor: bool = False
     can_sync_provider: bool = False
+    blockers: dict[str, list[str]] = Field(default_factory=dict)
+
+
+class NodeRuntimeReconciliation(BaseModel):
+    provider_link_status: str = "unknown"
+    confidence: str = "unknown"
+    drift_indicators: list[str] = Field(default_factory=list)
+    mismatch_explanations: list[str] = Field(default_factory=list)
+    provider_sync_freshness: str = "unknown"
+    last_reconciled_at: datetime | None = None
+
+
+class NodeRuntimeFreshness(BaseModel):
+    provider_refreshed_at: datetime | None = None
+    monitoring_refreshed_at: datetime | None = None
+    inventory_refreshed_at: datetime | None = None
+    runtime_refreshed_at: datetime | None = None
+    confidence: str = "unknown"
 
 
 class NodeRuntimeState(BaseModel):
+    administrative_state: str = "active"
+    infrastructure_state: str = "unknown"
+    observability_state: str = "missing"
     inventory_state: str = "unknown"
     provider_state: str = "unknown"
     provider_reachable: bool = False
@@ -28,6 +49,8 @@ class NodeRuntimeState(BaseModel):
     orchestration_state: str = "unknown"
     lifecycle_state: str = "unknown"
     eligibility: NodeRuntimeEligibility = Field(default_factory=NodeRuntimeEligibility)
+    reconciliation: NodeRuntimeReconciliation = Field(default_factory=NodeRuntimeReconciliation)
+    freshness: NodeRuntimeFreshness = Field(default_factory=NodeRuntimeFreshness)
     degraded_reasons: list[str] = Field(default_factory=list)
     stale_reasons: list[str] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)

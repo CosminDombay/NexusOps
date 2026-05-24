@@ -1,18 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
 
 import { PageHeader } from '../../../components/layout/PageHeader';
+import { RuntimeBadge } from '../../../components/operations/OperationalComponents';
+import { OperationalTimeline } from '../../../components/operations/OperationalTimeline';
+import { formatDurationSeconds, formatOperationalLabel } from '../../../components/operations/runtimeFormat';
 import { getApiErrorMessage } from '../../../lib/api/client';
 import { listWorkflows } from '../api/workflowsApi';
 import type { WorkflowRun, WorkflowStatus } from '../types/workflow';
-
-const statusStyles: Record<WorkflowStatus, string> = {
-  pending: 'bg-zinc-100 text-zinc-700 ring-zinc-200',
-  queued: 'bg-sky-100 text-sky-700 ring-sky-200',
-  running: 'bg-amber-100 text-amber-700 ring-amber-200',
-  success: 'bg-emerald-100 text-emerald-700 ring-emerald-200',
-  failed: 'bg-rose-100 text-rose-700 ring-rose-200',
-  cancelled: 'bg-orange-100 text-orange-700 ring-orange-200',
-};
 
 export function WorkflowsPage() {
   const [workflows, setWorkflows] = useState<WorkflowRun[]>([]);
@@ -118,33 +112,35 @@ function WorkflowDetail({ workflow }: { workflow: WorkflowRun | null }) {
         </div>
         {workflow.error_message ? <p className="mt-2 text-sm text-rose-700">{workflow.error_message}</p> : null}
       </div>
-      <ol className="divide-y divide-zinc-100">
-        {workflow.steps.map((step) => (
-          <li key={step.id} className="p-5">
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-              <div>
-                <p className="text-sm font-semibold text-zinc-950">{step.step_order}. {stepTitle(step)}</p>
-                <p className="mt-1 text-xs text-zinc-500">{formatLabel(step.step_type)} - {durationSeconds(null, step.started_at, step.finished_at)}</p>
+      <div className="grid gap-5 p-5 lg:grid-cols-[minmax(0,1fr)_26rem]">
+        <ol className="divide-y divide-zinc-100 rounded-md border border-zinc-200">
+          {workflow.steps.map((step) => (
+            <li key={step.id} className="p-4">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                <div>
+                  <p className="text-sm font-semibold text-zinc-950">{step.step_order}. {stepTitle(step)}</p>
+                  <p className="mt-1 text-xs text-zinc-500">{formatLabel(step.step_type)} - {durationSeconds(null, step.started_at, step.finished_at)}</p>
+                </div>
+                <RuntimeBadge value={step.status} />
               </div>
-              <span className="rounded-full bg-zinc-100 px-2.5 py-1 text-xs font-semibold text-zinc-700">{step.status}</span>
-            </div>
-            <pre className="mt-3 max-h-44 overflow-auto rounded-md bg-zinc-950 p-3 text-xs leading-5 text-zinc-50">
-              {step.log_output || step.error_output || '(no logs)'}
-            </pre>
-          </li>
-        ))}
-        {workflow.steps.length === 0 ? <li className="p-5 text-sm text-zinc-500">No steps have been persisted for this workflow yet.</li> : null}
-      </ol>
+              <pre className="mt-3 max-h-44 overflow-auto rounded-md bg-zinc-950 p-3 text-xs leading-5 text-zinc-50">
+                {step.log_output || step.error_output || '(no logs)'}
+              </pre>
+            </li>
+          ))}
+          {workflow.steps.length === 0 ? <li className="p-4 text-sm text-zinc-500">No steps have been persisted for this workflow yet.</li> : null}
+        </ol>
+        <div>
+          <h4 className="mb-3 text-sm font-semibold text-zinc-950">Operational timeline</h4>
+          <OperationalTimeline activities={workflow.activity_timeline} />
+        </div>
+      </div>
     </section>
   );
 }
 
 function WorkflowBadge({ status }: { status: WorkflowStatus }) {
-  return (
-    <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ring-1 ring-inset ${statusStyles[status]}`}>
-      {status}
-    </span>
-  );
+  return <RuntimeBadge value={status} />;
 }
 
 function RuntimeInfo({ label, value }: { label: string; value: string }) {
@@ -157,7 +153,7 @@ function RuntimeInfo({ label, value }: { label: string; value: string }) {
 }
 
 function formatLabel(value: string): string {
-  return value.replace(/_/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
+  return formatOperationalLabel(value);
 }
 
 function formatDate(value: string | null): string {
@@ -200,12 +196,10 @@ function stepTitle(step: WorkflowRun['steps'][number]): string {
 
 function durationSeconds(value: number | null, startedAt: string | null, finishedAt: string | null): string {
   if (value != null) {
-    if (value < 60) return `${value}s`;
-    return `${Math.floor(value / 60)}m ${value % 60}s`;
+    return formatDurationSeconds(value);
   }
   if (!startedAt) return 'Not started';
   const end = finishedAt ? new Date(finishedAt).getTime() : Date.now();
   const seconds = Math.max(0, Math.round((end - new Date(startedAt).getTime()) / 1000));
-  if (seconds < 60) return `${seconds}s`;
-  return `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
+  return formatDurationSeconds(seconds);
 }

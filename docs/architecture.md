@@ -2,6 +2,12 @@
 
 For the latest platform review, validation status, and prioritized fix list, see `docs/project-review-up-to-2026-05-23.md`.
 
+Focused operational references:
+
+- `docs/architecture/orchestration-semantics.md`: orchestration ownership and lifecycle terminology.
+- `docs/architecture/operational-runtime-experience.md`: runtime timeline, explainability, and cancellation semantics.
+- `docs/architecture/component-usage-and-deployments.md`: practical component usage and deployment setup guide.
+
 ## Folder Structure
 
 ```text

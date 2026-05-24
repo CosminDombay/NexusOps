@@ -48,7 +48,7 @@ type LoadState = {
   sshKeys: SSHKey[];
 };
 
-type HostTab = 'overview' | 'management' | 'metrics' | 'terminal' | 'files' | 'deployments' | 'jobs' | 'workflows' | 'packages' | 'profiles' | 'identity';
+type HostTab = 'overview' | 'operations' | 'runtime' | 'access' | 'automation';
 
 const initialState: LoadState = {
   server: null,
@@ -96,10 +96,10 @@ export function HostDetailPage() {
         settle(() => getServerNetwork(id)),
         settle(() => getServerDocker(id)),
         settle(() => getServerMetrics(id)),
-        settle(() => listDeployments()),
-        settle(() => listJobs()),
-        settle(() => listWorkflows()),
-        settle(() => listAutomations()),
+        settle(() => listDeployments({ serverId: id })),
+        settle(() => listJobs({ targetServerId: id })),
+        settle(() => listWorkflows({ targetServerId: id })),
+        settle(() => listAutomations({ targetServerId: id })),
         settle(() => listLinuxUsers()),
         settle(() => listLinuxGroups()),
         settle(() => listSSHKeys()),
@@ -111,10 +111,10 @@ export function HostDetailPage() {
       network: network.ok ? network.value : null,
       docker: docker.ok ? docker.value : null,
       metrics: metrics.ok ? metrics.value : null,
-      deployments: deployments.ok ? deployments.value.filter((item) => deploymentTouchesServer(item, id)) : [],
-      jobs: jobs.ok ? jobs.value.filter((job) => job.target_server_id === id).slice(0, 8) : [],
-      workflows: workflows.ok ? workflows.value.filter((workflow) => workflowTouchesServer(workflow, id)).slice(0, 8) : [],
-      automations: automations.ok ? automations.value.filter((automation) => automation.target_server_ids.includes(id)).slice(0, 8) : [],
+      deployments: deployments.ok ? deployments.value : [],
+      jobs: jobs.ok ? jobs.value.slice(0, 8) : [],
+      workflows: workflows.ok ? workflows.value.slice(0, 8) : [],
+      automations: automations.ok ? automations.value.slice(0, 8) : [],
       users: users.ok ? users.value : [],
       groups: groups.ok ? groups.value : [],
       sshKeys: sshKeys.ok ? sshKeys.value : [],
@@ -247,6 +247,8 @@ export function HostDetailPage() {
 
       <section className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_360px]">
         <div className="space-y-6">
+          <OperationalInsightsPanel server={server} state={state} />
+
           <Panel title="System Overview">
             <dl className="grid gap-3 sm:grid-cols-2">
               <Info label="Node type" value={formatNodeType(server.node_type)} />
@@ -263,6 +265,8 @@ export function HostDetailPage() {
               <Info label="Provider state" value={server.runtime_state?.provider_state ?? 'unknown'} />
             </dl>
           </Panel>
+
+          <ReconciliationPanel server={server} />
 
           <Panel title="Provider Metadata">
             <div className="grid gap-3 md:grid-cols-2">
@@ -416,16 +420,10 @@ export function HostDetailPage() {
 
 const hostTabs: Array<{ id: HostTab; label: string }> = [
   { id: 'overview', label: 'Overview' },
-  { id: 'management', label: 'Management' },
-  { id: 'metrics', label: 'Metrics' },
-  { id: 'terminal', label: 'Terminal' },
-  { id: 'files', label: 'Files' },
-  { id: 'deployments', label: 'Deployments' },
-  { id: 'jobs', label: 'Jobs' },
-  { id: 'workflows', label: 'Workflows' },
-  { id: 'packages', label: 'Packages' },
-  { id: 'profiles', label: 'Profiles' },
-  { id: 'identity', label: 'Identity' },
+  { id: 'operations', label: 'Operations' },
+  { id: 'runtime', label: 'Runtime' },
+  { id: 'access', label: 'Access' },
+  { id: 'automation', label: 'Automation' },
 ];
 
 function HostTabPanel({
@@ -445,10 +443,11 @@ function HostTabPanel({
   state: LoadState;
   onVmLifecycle: (action: ProxmoxVmAction) => void;
 }) {
-  if (tab === 'management') {
+  if (tab === 'operations') {
     return (
-      <Panel title="VM management">
-        <div className="space-y-4">
+      <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_380px]">
+        <Panel title="Lifecycle actions">
+          <div className="space-y-4">
           <div className="grid gap-3 md:grid-cols-3">
             <Info label="Provider" value={server.provider} />
             <Info label="Node" value={server.provider_node ?? 'Unknown'} />
@@ -461,91 +460,188 @@ function HostTabPanel({
             onAction={onVmLifecycle}
           />
           {!allowManagement ? <p className="text-sm text-zinc-500">Operator or admin role required for VM lifecycle actions.</p> : null}
-        </div>
-      </Panel>
-    );
-  }
-
-  if (tab === 'terminal') {
-    return (
-      <div className="min-h-[520px]">
-        <ShellPanel server={server} canUseShell={canUseRemoteAccess} compact />
+          </div>
+        </Panel>
+        <EligibilityPanel server={server} />
       </div>
     );
   }
 
-  if (tab === 'files') {
+  if (tab === 'access') {
     return (
-      <FileBrowserPanel server={server} canUseFiles={canUseRemoteAccess} />
-    );
-  }
-
-  if (tab === 'deployments') {
-    return (
-      <Panel title="Host deployments">
-        <LinkList items={[
-          ...state.deployments.map((deployment) => ({ label: `${deployment.name} - ${deployment.status}`, to: '/deployments' })),
-          { label: 'Create deployment for this host', to: '/deployments' },
-        ]} />
-      </Panel>
-    );
-  }
-
-  if (tab === 'jobs') {
-    return (
-      <Panel title="Recent jobs">
-        <LinkList items={[
-          ...state.jobs.map((job) => ({ label: `${job.operation_type} - ${job.status}`, to: '/jobs' })),
-          { label: 'Run command for this host', to: '/jobs' },
-        ]} />
-      </Panel>
-    );
-  }
-
-  if (tab === 'workflows') {
-    return (
-      <Panel title="Recent workflow executions">
-        <LinkList items={[
-          ...state.workflows.map((workflow) => ({
-            label: `${formatReadiness(workflow.workflow_type)} - ${workflow.status} - ${workflowProgress(workflow)}`,
-            to: '/workflows',
-          })),
-          ...state.automations.map((automation) => ({
-            label: `${automation.name} automation - ${automation.runtime_state}`,
-            to: '/automations',
-          })),
-          { label: 'Open workflow history', to: '/workflows' },
-        ]} />
-      </Panel>
-    );
-  }
-
-  if (tab === 'metrics') {
-    return (
-      <Panel title="Metrics">
-        <div className="grid gap-3 md:grid-cols-3">
-          <Info label="Uptime" value={formatDuration(state.metrics?.uptime_seconds)} />
-          <Info label="CPU" value={formatPercent(state.metrics?.cpu_usage_percent)} />
-          <Info label="Memory" value={formatPercent(state.metrics?.memory_usage_percent)} />
+      <div className="grid gap-6 xl:grid-cols-2">
+        <div className="min-h-[520px]">
+          <ShellPanel server={server} canUseShell={canUseRemoteAccess} compact />
         </div>
-      </Panel>
+        <FileBrowserPanel server={server} canUseFiles={canUseRemoteAccess} />
+      </div>
     );
   }
 
-  if (tab === 'overview') {
-    return null;
+  if (tab === 'automation') {
+    return (
+      <div className="grid gap-6 xl:grid-cols-2">
+        <Panel title="Deployments">
+          <LinkList items={[
+            ...state.deployments.map((deployment) => ({ label: `${deployment.name} - ${deployment.status}`, to: '/deployments' })),
+            { label: 'Create deployment for this host', to: '/deployments' },
+          ]} />
+        </Panel>
+        <Panel title="Jobs">
+          <LinkList items={[
+            ...state.jobs.map((job) => ({ label: `${job.operation_type} - ${job.status}`, to: '/jobs' })),
+            { label: 'Run command for this host', to: '/jobs' },
+          ]} />
+        </Panel>
+        <Panel title="Workflows and automations">
+          <LinkList items={[
+            ...state.workflows.map((workflow) => ({
+              label: `${formatReadiness(workflow.workflow_type)} - ${workflow.status} - ${workflowProgress(workflow)}`,
+              to: '/workflows',
+            })),
+            ...state.automations.map((automation) => ({
+              label: `${automation.name} automation - ${automation.runtime_state}`,
+              to: '/automations',
+            })),
+            { label: 'Open workflow history', to: '/workflows' },
+          ]} />
+        </Panel>
+        <Panel title="Profiles and packages">
+          <LinkList items={[
+            { label: 'Run package against this host', to: '/packages' },
+            { label: 'Apply profile to this host', to: '/profiles' },
+          ]} />
+        </Panel>
+      </div>
+    );
   }
 
-  const links: Record<'packages' | 'profiles' | 'identity', Array<{ label: string; to: string }>> = {
-    packages: [{ label: 'Run package against this host', to: '/packages' }],
-    profiles: [{ label: 'Apply profile to this host', to: '/profiles' }],
-    identity: [{ label: `${state.users.length} users / ${state.groups.length} groups`, to: '/identity' }],
-  };
+  if (tab === 'runtime') {
+    return (
+      <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_380px]">
+        <Panel title="Monitoring and freshness">
+          <div className="grid gap-3 md:grid-cols-3">
+            <Info label="Uptime" value={formatDuration(state.metrics?.uptime_seconds)} />
+            <Info label="CPU" value={formatPercent(state.metrics?.cpu_usage_percent)} />
+            <Info label="Memory" value={formatPercent(state.metrics?.memory_usage_percent)} />
+            <Info label="Observability" value={formatReadiness(server.runtime_state?.observability_state ?? monitoringReadiness(state))} />
+            <Info label="Runtime freshness" value={formatDateTime(server.runtime_state?.freshness.runtime_refreshed_at)} />
+            <Info label="Confidence" value={formatReadiness(server.runtime_state?.freshness.confidence ?? 'unknown')} />
+          </div>
+        </Panel>
+        <OperationalNoticesPanel server={server} />
+      </div>
+    );
+  }
 
+  return null;
+}
+
+function OperationalInsightsPanel({ server, state }: { server: Server; state: LoadState }) {
+  const runtime = server.runtime_state;
   return (
-    <Panel title={hostTabs.find((item) => item.id === tab)?.label ?? 'Host operations'}>
-      <LinkList items={links[tab]} />
+    <Panel title="Operational insights">
+      <div className="grid gap-4 lg:grid-cols-2">
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Info label="Administrative state" value={formatReadiness(runtime?.administrative_state ?? server.lifecycle_state)} />
+          <Info label="Infrastructure state" value={formatReadiness(runtime?.infrastructure_state ?? runtime?.provider_state ?? 'unknown')} />
+          <Info label="Orchestration state" value={formatReadiness(runtime?.orchestration_state ?? nodeReadiness(server, state))} />
+          <Info label="Observability state" value={formatReadiness(runtime?.observability_state ?? monitoringReadiness(state))} />
+          <Info label="SSH readiness" value={formatReadiness(runtime?.ssh_state ?? sshReadiness(server, state))} />
+          <Info label="Runtime readiness" value={formatReadiness(runtime?.readiness_state ?? nodeReadiness(server, state))} />
+        </div>
+        <OperationalNoticesPanel server={server} compact />
+      </div>
     </Panel>
+  );
+}
+
+function ReconciliationPanel({ server }: { server: Server }) {
+  const reconciliation = server.runtime_state?.reconciliation;
+  return (
+    <Panel title="Reconciliation">
+      <div className="grid gap-3 md:grid-cols-2">
+        <Info label="Provider link" value={formatReadiness(reconciliation?.provider_link_status ?? providerLinkStatus(server))} />
+        <Info label="Confidence" value={formatReadiness(reconciliation?.confidence ?? 'unknown')} />
+        <Info label="Provider sync" value={formatReadiness(reconciliation?.provider_sync_freshness ?? server.sync_state)} />
+        <Info label="Last reconciled" value={formatDateTime(reconciliation?.last_reconciled_at ?? server.last_sync_at ?? server.last_seen_at)} />
+      </div>
+      <NoticeList
+        emptyText="No reconciliation drift detected."
+        items={[...(reconciliation?.drift_indicators ?? []), ...(reconciliation?.mismatch_explanations ?? [])]}
+      />
+    </Panel>
+  );
+}
+
+function EligibilityPanel({ server }: { server: Server }) {
+  const eligibility = server.runtime_state?.eligibility;
+  const actions = [
+    ['can_open_shell', 'Shell'],
+    ['can_run_jobs', 'Jobs'],
+    ['can_deploy', 'Deployments'],
+    ['can_apply_profiles', 'Profiles'],
+    ['can_manage_identity', 'Identity'],
+    ['can_start', 'Start'],
+    ['can_stop', 'Stop'],
+    ['can_reboot', 'Reboot'],
+    ['can_sync_provider', 'Provider sync'],
+  ] as const;
+  return (
+    <Panel title="Runtime eligibility">
+      <div className="space-y-3">
+        {actions.map(([key, label]) => {
+          const allowed = Boolean(eligibility?.[key] ?? false);
+          const blockers = eligibility?.blockers?.[key] ?? [];
+          return (
+            <div key={key} className="rounded-md border border-zinc-200 p-3">
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-sm font-semibold text-zinc-950">{label}</span>
+                <Badge tone={allowed ? 'success' : 'warning'}>{allowed ? 'Allowed' : 'Blocked'}</Badge>
+              </div>
+              {!allowed ? <p className="mt-2 text-xs text-zinc-500">{blockers.map(formatReadiness).join(', ') || 'Policy not satisfied'}</p> : null}
+            </div>
+          );
+        })}
+      </div>
+    </Panel>
+  );
+}
+
+function OperationalNoticesPanel({ server, compact = false }: { server: Server; compact?: boolean }) {
+  const runtime = server.runtime_state;
+  const items = [
+    ...(runtime?.degraded_reasons ?? []),
+    ...(runtime?.stale_reasons ?? []),
+    ...(runtime?.warnings ?? []),
+  ];
+  return (
+    <div className={compact ? '' : 'space-y-4'}>
+      <NoticeList emptyText="No runtime warnings reported." items={items} />
+      {!compact ? (
+        <div className="grid gap-3">
+          <Info label="Provider refresh" value={formatDateTime(runtime?.freshness.provider_refreshed_at)} />
+          <Info label="Monitoring refresh" value={formatDateTime(runtime?.freshness.monitoring_refreshed_at)} />
+          <Info label="Inventory refresh" value={formatDateTime(runtime?.freshness.inventory_refreshed_at)} />
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function NoticeList({ emptyText, items }: { emptyText: string; items: string[] }) {
+  const uniqueItems = Array.from(new Set(items.filter(Boolean)));
+  if (!uniqueItems.length) {
+    return <EmptyText text={emptyText} />;
+  }
+  return (
+    <div className="mt-4 space-y-2">
+      {uniqueItems.map((item) => (
+        <div key={item} className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+          {formatReadiness(item)}
+        </div>
+      ))}
+    </div>
   );
 }
 
@@ -731,17 +827,6 @@ async function settle<T>(fn: () => Promise<T>): Promise<{ ok: true; value: T } |
   }
 }
 
-function workflowTouchesServer(workflow: WorkflowRun, serverId: string): boolean {
-  if (workflow.target_server_id === serverId) {
-    return true;
-  }
-  return workflow.steps.some((step) => step.metadata_json.target_server_id === serverId);
-}
-
-function deploymentTouchesServer(deployment: Deployment, serverId: string): boolean {
-  return deployment.target_server_id === serverId || (deployment.target_server_ids ?? []).includes(serverId);
-}
-
 function workflowProgress(workflow: WorkflowRun): string {
   if (!workflow.steps.length) {
     return 'no steps';
@@ -894,6 +979,27 @@ function sshReadiness(server: Server, state: LoadState): string {
 
 function monitoringReadiness(state: LoadState): string {
   return state.metrics?.monitoring_state ?? 'unknown';
+}
+
+function providerLinkStatus(server: Server): string {
+  if (server.provider !== 'proxmox') {
+    return 'not_provider_backed';
+  }
+  if (server.sync_state === 'orphaned') {
+    return 'provider_guest_missing';
+  }
+  return server.vmid || server.external_id ? 'linked' : 'missing_provider_identity';
+}
+
+function formatDateTime(value: string | null | undefined): string {
+  if (!value) {
+    return 'Unknown';
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return 'Unknown';
+  }
+  return date.toLocaleString();
 }
 
 function formatReadiness(value: string): string {

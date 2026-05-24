@@ -4,6 +4,8 @@ from uuid import UUID
 from backend.app.modules.audit.repository import AuditEventRepository
 from backend.app.modules.audit.service import AuditService
 from backend.app.modules.inventory.repository import ServerRepository
+from backend.app.modules.orchestration.activity import workflow_activity_timeline
+from backend.app.modules.orchestration.utils import duration_seconds, summarize_statuses
 from backend.app.modules.workflows.models import (
     WorkflowRun,
     WorkflowStatus,
@@ -40,8 +42,13 @@ class WorkflowService:
         self.server_repository = server_repository
         self.audit_service = audit_service or AuditService(AuditEventRepository(workflow_repository.session))
 
-    async def list_workflows(self) -> list[WorkflowRunRead]:
-        return [await self._to_read(item) for item in await self.workflow_repository.list()]
+    async def list_workflows(self, *, target_server_id: UUID | None = None) -> list[WorkflowRunRead]:
+        workflows = (
+            await self.workflow_repository.list_for_target(target_server_id)
+            if target_server_id is not None
+            else await self.workflow_repository.list()
+        )
+        return [await self._to_read(item) for item in workflows]
 
     async def get_workflow(self, workflow_run_id: UUID) -> WorkflowRunRead:
         workflow = await self.workflow_repository.get_by_id(workflow_run_id)
@@ -147,13 +154,21 @@ class WorkflowService:
         await self.step_repository.session.refresh(step)
         return await self._step_to_read(step)
 
-    async def fail_step(self, step_id: UUID, error_output: str, log_output: str | None = None) -> WorkflowStepRead:
+    async def fail_step(
+        self,
+        step_id: UUID,
+        error_output: str,
+        log_output: str | None = None,
+        metadata_json: dict | None = None,
+    ) -> WorkflowStepRead:
         step = await self._step(step_id)
         step.status = WorkflowStepStatus.FAILED
         step.finished_at = datetime.now(UTC)
         step.error_output = self._append_text(step.error_output, error_output)
         if log_output:
             step.log_output = self._append_text(step.log_output, log_output)
+        if metadata_json:
+            step.metadata_json = {**step.metadata_json, **metadata_json}
         await self.step_repository.session.commit()
         await self.step_repository.session.refresh(step)
         return await self._step_to_read(step)
@@ -190,6 +205,11 @@ class WorkflowService:
         data = WorkflowRunRead.model_validate(workflow)
         hostname = await self._hostname(workflow.target_server_id)
         steps = [await self._step_to_read(step) for step in workflow.steps]
+        step_summary = summarize_statuses(
+            steps,
+            success_states={WorkflowStepStatus.SUCCESS},
+            failure_states={WorkflowStepStatus.FAILED},
+        )
         target_nodes = [item for item in {hostname, *[step.target_hostname for step in steps]} if item]
         linked_job_ids: list[str] = []
         for step in steps:
@@ -202,11 +222,12 @@ class WorkflowService:
                 "target_hostname": hostname,
                 "steps": steps,
                 "current_step": current_step,
-                "completed_steps": sum(1 for step in steps if step.status == WorkflowStepStatus.SUCCESS),
-                "failed_steps": sum(1 for step in steps if step.status == WorkflowStepStatus.FAILED),
-                "duration_seconds": self._duration_seconds(workflow.started_at, workflow.finished_at),
+                "completed_steps": step_summary.success_count,
+                "failed_steps": step_summary.failed_count,
+                "duration_seconds": duration_seconds(workflow.started_at, workflow.finished_at),
                 "target_nodes": target_nodes,
                 "linked_job_ids": sorted(set(linked_job_ids)),
+                "activity_timeline": workflow_activity_timeline(workflow, steps),
             }
         )
 
@@ -225,16 +246,6 @@ class WorkflowService:
             return None
         server = await self.server_repository.get_by_id(server_uuid)
         return server.hostname if server else None
-
-    @staticmethod
-    def _duration_seconds(started_at: datetime | None, finished_at: datetime | None) -> int | None:
-        if started_at is None:
-            return None
-        start = started_at if started_at.tzinfo else started_at.replace(tzinfo=UTC)
-        end = finished_at or datetime.now(UTC)
-        if end.tzinfo is None:
-            end = end.replace(tzinfo=UTC)
-        return max(0, int((end - start).total_seconds()))
 
     async def _audit_workflow(
         self,

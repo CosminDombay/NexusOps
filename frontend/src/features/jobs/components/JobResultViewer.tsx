@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import { Copy, Expand, WrapText } from 'lucide-react';
 
+import { OperationalTimeline } from '../../../components/operations/OperationalTimeline';
+import { formatDurationSeconds } from '../../../components/operations/runtimeFormat';
 import type { Job } from '../types/job';
 import { formatDateTime } from '../utils/format';
 
@@ -42,7 +44,7 @@ export function JobResultViewer({ job }: { job: Job | null }) {
         <p className="mt-2 truncate font-mono text-sm text-zinc-500">{job.command}</p>
       </div>
 
-      <div className="p-5">
+      <div className="grid gap-5 p-5 xl:grid-cols-[minmax(0,1fr)_22rem]">
         <OutputInspector
           activeTab={activeTab}
           job={job}
@@ -50,6 +52,10 @@ export function JobResultViewer({ job }: { job: Job | null }) {
           onTabChange={setActiveTab}
           onToggleWrap={() => setWrapOutput((current) => !current)}
         />
+        <div>
+          <h4 className="mb-3 text-sm font-semibold text-zinc-950">Runtime timeline</h4>
+          <OperationalTimeline activities={job.activity_timeline} />
+        </div>
       </div>
       {isExpanded ? (
         <ExpandedModal
@@ -193,14 +199,10 @@ function getTabValue(job: Job, tab: OutputTab): string {
 }
 
 function formatDuration(job: Job): string {
-  if (!job.started_at || !job.completed_at) {
-    return 'Unavailable';
+  if (job.runtime_duration_seconds != null) {
+    return formatDurationSeconds(job.runtime_duration_seconds);
   }
+  if (!job.started_at || !job.completed_at) return 'Unavailable';
   const seconds = Math.max(0, Math.round((new Date(job.completed_at).getTime() - new Date(job.started_at).getTime()) / 1000));
-  if (seconds < 60) {
-    return `${seconds}s`;
-  }
-  const minutes = Math.floor(seconds / 60);
-  const remainder = seconds % 60;
-  return `${minutes}m ${remainder}s`;
+  return formatDurationSeconds(seconds);
 }

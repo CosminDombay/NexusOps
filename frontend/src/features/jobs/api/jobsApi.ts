@@ -10,8 +10,10 @@ import type {
   UpdateOperationalActionPayload,
 } from '../types/job';
 
-export async function listJobs(): Promise<Job[]> {
-  const response = await apiClient.get<Job[]>('/jobs');
+export async function listJobs(filters: { targetServerId?: string } = {}): Promise<Job[]> {
+  const response = await apiClient.get<Job[]>('/jobs', {
+    params: filters.targetServerId ? { target_server_id: filters.targetServerId } : undefined,
+  });
   return response.data;
 }
 

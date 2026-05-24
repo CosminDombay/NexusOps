@@ -25,8 +25,9 @@ async def get_automation_service(
 @router.get("", response_model=list[AutomationRead])
 async def list_automations(
     service: Annotated[AutomationService, Depends(get_automation_service)],
+    target_server_id: UUID | None = None,
 ) -> list[AutomationRead]:
-    return await service.list_automations()
+    return await service.list_automations(target_server_id=target_server_id)
 
 
 @router.post("", response_model=AutomationRead, status_code=status.HTTP_201_CREATED)
@@ -103,7 +104,13 @@ async def run_automation(
 ) -> WorkflowRunRead:
     try:
         workflow = await service.create_run_workflow(automation_id)
-        task_queue.submit(execute_automation_workflow(automation_id, workflow.id))
+        task_queue.submit(
+            execute_automation_workflow(automation_id, workflow.id),
+            name=f"automation:{automation_id}",
+            owner="api",
+            execution_origin="automation",
+            correlation_id=str(workflow.id),
+        )
         return workflow
     except AutomationNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc

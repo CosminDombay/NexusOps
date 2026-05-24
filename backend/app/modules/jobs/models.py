@@ -2,7 +2,7 @@ from enum import StrEnum
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import DateTime, Enum, ForeignKey, Integer, String, Text
+from sqlalchemy import DateTime, Enum, ForeignKey, Integer, JSON, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from backend.app.db.base import Base, TimestampMixin, UuidPrimaryKeyMixin
@@ -10,10 +10,14 @@ from backend.app.db.base import Base, TimestampMixin, UuidPrimaryKeyMixin
 
 class JobStatus(StrEnum):
     PENDING = "pending"
+    QUEUED = "queued"
+    DISPATCHED = "dispatched"
     RUNNING = "running"
+    COMPLETED = "completed"
     SUCCESS = "success"
     FAILED = "failed"
     CANCELLED = "cancelled"
+    STALE = "stale"
 
 
 class Job(Base, UuidPrimaryKeyMixin, TimestampMixin):
@@ -35,8 +39,16 @@ class Job(Base, UuidPrimaryKeyMixin, TimestampMixin):
     stdout: Mapped[str | None] = mapped_column(Text)
     stderr: Mapped[str | None] = mapped_column(Text)
     exit_code: Mapped[int | None] = mapped_column(Integer)
+    queued_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    dispatched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    runtime_duration_seconds: Mapped[int | None] = mapped_column(Integer)
+    execution_origin: Mapped[str] = mapped_column(String(100), default="manual", nullable=False)
+    correlation_id: Mapped[str | None] = mapped_column(String(100), index=True)
+    cancellation_requested_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    runtime_metadata: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+    output_events: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
 
 
 class CustomOperationalAction(Base, UuidPrimaryKeyMixin, TimestampMixin):

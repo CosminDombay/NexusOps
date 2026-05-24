@@ -19,6 +19,8 @@ import {
 
 import { PageHeader } from '../../components/layout/PageHeader';
 import { PageActionButton, RuntimeBadge, CollapsibleSection } from '../../components/operations/OperationalComponents';
+import { OperationalTimeline } from '../../components/operations/OperationalTimeline';
+import { formatDurationSeconds, formatOperationalLabel } from '../../components/operations/runtimeFormat';
 import { getApiErrorMessage } from '../../lib/api/client';
 import { listCredentials } from '../credentials/api/credentialsApi';
 import type { Credential } from '../credentials/types/credential';
@@ -598,6 +600,12 @@ function DeploymentExecutionSummary({ deployment }: { deployment: Deployment }) 
         {execution.failed_count ? `, ${execution.failed_count} failed` : ''} - {formatDuration(execution.duration_seconds)}
       </p>
       {execution.error_message ? <p className="mt-1 text-xs text-rose-700">{execution.error_message}</p> : null}
+      <div className="mt-3">
+        <OperationalTimeline
+          activities={execution.activity_timeline}
+          emptyText="No deployment runtime activity has been recorded yet."
+        />
+      </div>
     </div>
   );
 }
@@ -888,15 +896,11 @@ function ActionButton({
 }
 
 function formatDuration(seconds: number | null): string {
-  if (seconds === null) return 'unknown';
-  if (seconds < 60) return `${seconds}s`;
-  if (seconds < 3600) return `${Math.floor(seconds / 60)}m`;
-  if (seconds < 86400) return `${Math.floor(seconds / 3600)}h`;
-  return `${Math.floor(seconds / 86400)}d`;
+  return seconds === null ? 'unknown' : formatDurationSeconds(seconds);
 }
 
 function formatLabel(value: string): string {
-  return value.replace(/_/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
+  return formatOperationalLabel(value);
 }
 
 function formatNodeType(value: string | null): string {

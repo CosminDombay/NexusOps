@@ -4,6 +4,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from backend.app.modules.jobs.models import JobStatus
+from backend.app.modules.orchestration.activity import OperationalActivityRead
 
 
 class JobExecuteRequest(BaseModel):
@@ -30,6 +31,7 @@ class JobBulkExecuteRequest(BaseModel):
     redacted_command: str | None = Field(default=None, min_length=1, max_length=20000)
     operation_type: str = Field(default="command", min_length=1, max_length=100)
     credential_ref: str | None = Field(default=None, max_length=255)
+    max_parallel: int = Field(default=4, ge=1, le=20)
 
     @field_validator("target_server_ids")
     @classmethod
@@ -124,8 +126,17 @@ class JobRead(BaseModel):
     stdout: str | None = None
     stderr: str | None = None
     exit_code: int | None = None
+    queued_at: datetime | None = None
+    dispatched_at: datetime | None = None
     started_at: datetime | None = None
     completed_at: datetime | None = None
+    runtime_duration_seconds: int | None = None
+    execution_origin: str = "manual"
+    correlation_id: str | None = None
+    cancellation_requested_at: datetime | None = None
+    runtime_metadata: dict[str, object] = Field(default_factory=dict)
+    output_events: list[dict[str, object]] = Field(default_factory=list)
+    activity_timeline: list[OperationalActivityRead] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime
 

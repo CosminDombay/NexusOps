@@ -6,8 +6,11 @@ from sqlalchemy.exc import IntegrityError
 from backend.app.common.variables import VariableResolutionError, VariableResolutionService
 from backend.app.modules.deployments.service import DockerComposeDeploymentService
 from backend.app.modules.jobs.actions import get_action
+from backend.app.modules.jobs.models import JobStatus
 from backend.app.modules.jobs.schemas import JobExecuteRequest
 from backend.app.modules.jobs.service import JobService
+from backend.app.modules.orchestration.semantics import job_failure_states, job_success_states
+from backend.app.modules.orchestration.utils import success_failure_counts, summarize_statuses
 from backend.app.modules.packages.definitions import get_package_definition
 from backend.app.modules.packages.repository import PackageDefinitionRepository
 from backend.app.modules.packages.service import PackageAutomationService
@@ -25,6 +28,9 @@ from backend.app.modules.profiles.schemas import (
     ProfileApplyRequest,
     ProfileCloneRequest,
 )
+from backend.app.modules.workflows.models import WorkflowTriggerSource, WorkflowType
+from backend.app.modules.workflows.schemas import WorkflowCreate, WorkflowRunRead, WorkflowStepCreate, WorkflowStepRead
+from backend.app.modules.workflows.service import WorkflowService
 
 
 class ProfileNotFoundError(Exception):
@@ -56,11 +62,13 @@ class ProfileService:
         repository: InfrastructureProfileRepository | None = None,
         package_repository: PackageDefinitionRepository | None = None,
         deployment_service: DockerComposeDeploymentService | None = None,
+        workflow_service: WorkflowService | None = None,
     ) -> None:
         self.job_service = job_service
         self.repository = repository
         self.package_repository = package_repository
         self.deployment_service = deployment_service
+        self.workflow_service = workflow_service
         self.variable_service = VariableResolutionService()
 
     async def list_profiles(self) -> list[InfrastructureProfileRead]:
@@ -201,52 +209,47 @@ class ProfileService:
 
         jobs = []
         status = "success"
-        for step in profile.steps:
-            if getattr(step, "enabled", True) is False:
-                continue
-            if step.kind == "deployment":
-                if self.deployment_service is None:
-                    raise ProfileStepResolutionError("Deployment service is required for deployment profile steps")
+        workflow = await self._start_profile_workflow(profile, payload)
+        try:
+            step_order = 0
+            for step in profile.steps:
+                if getattr(step, "enabled", True) is False:
+                    continue
+                step_order += 1
+                workflow_step = await self._start_profile_workflow_step(
+                    workflow,
+                    profile,
+                    step,
+                    payload,
+                    step_order,
+                )
                 try:
-                    deployment_id = UUID(step.reference_id)
-                except ValueError as exc:
-                    raise ProfileStepResolutionError(
-                        f"Deployment step requires a deployment UUID: {step.reference_id}"
-                    ) from exc
-                deployment_result = await self.deployment_service.deploy_for_target(
-                    deployment_id,
-                    payload.target_server_id,
-                )
-                jobs.append(deployment_result.job)
-                if deployment_result.job.status == "failed" and payload.stop_on_failure:
-                    status = "failed"
-                    break
-                continue
-            credential_ref = getattr(step, "credential_ref", None)
-            command, redacted_command = await self._resolve_step_commands(
-                step.kind,
-                step.reference_id,
-                variables=payload.variables,
-                credential_refs=payload.credential_refs,
-                command=step.command,
-                profile_variables=[variable.model_dump() for variable in profile.variables],
-            )
-            job = await self.job_service.execute(
-                JobExecuteRequest(
-                    target_server_id=payload.target_server_id,
-                    operation_type=f"profile:{profile.id}:{step.id}",
-                    command=command,
-                    redacted_command=redacted_command,
-                    credential_ref=credential_ref,
-                )
-            )
-            jobs.append(job)
-            if job.status == "failed" and payload.stop_on_failure:
-                status = "failed"
-                break
+                    step_jobs = await self._execute_profile_step(profile, step, payload)
+                    jobs.extend(step_jobs)
+                    await self._finish_profile_workflow_step(
+                        workflow_step,
+                        profile,
+                        step,
+                        step_jobs,
+                    )
+                    if self._profile_step_failed(step_jobs) and payload.stop_on_failure:
+                        status = "failed"
+                        break
+                except Exception as exc:
+                    await self._fail_profile_workflow_step(workflow_step, exc)
+                    raise
 
-        if any(job.status == "failed" for job in jobs) and status != "failed":
-            status = "completed_with_failures"
+            job_summary = summarize_statuses(
+                jobs,
+                success_states=job_success_states(),
+                failure_states=job_failure_states(),
+            )
+            if job_summary.has_failures and status != "failed":
+                status = "completed_with_failures"
+            await self._finish_profile_workflow(workflow, profile, status, jobs)
+        except Exception as exc:
+            await self._fail_profile_workflow(workflow, profile, exc, jobs)
+            raise
 
         return ProfileApplyRead(
             profile_id=profile.id,
@@ -289,13 +292,202 @@ class ProfileService:
                     )
                 )
 
-        success_count = sum(1 for result in results if result.success)
+        success_count, failure_count = success_failure_counts(results)
         return ProfileBulkApplyRead(
             profile_id=payload.profile_id,
             success_count=success_count,
-            failure_count=len(results) - success_count,
+            failure_count=failure_count,
             results=results,
         )
+
+    async def _execute_profile_step(
+        self,
+        profile: InfrastructureProfileRead,
+        step,
+        payload: ProfileApplyRequest,
+    ):
+        if step.kind == "deployment":
+            if self.deployment_service is None:
+                raise ProfileStepResolutionError("Deployment service is required for deployment profile steps")
+            try:
+                deployment_id = UUID(step.reference_id)
+            except ValueError as exc:
+                raise ProfileStepResolutionError(
+                    f"Deployment step requires a deployment UUID: {step.reference_id}"
+                ) from exc
+            deployment_result = await self.deployment_service.deploy_for_target(
+                deployment_id,
+                payload.target_server_id,
+            )
+            return deployment_result.jobs or ([deployment_result.job] if deployment_result.job else [])
+
+        credential_ref = getattr(step, "credential_ref", None)
+        command, redacted_command = await self._resolve_step_commands(
+            step.kind,
+            step.reference_id,
+            variables=payload.variables,
+            credential_refs=payload.credential_refs,
+            command=step.command,
+            profile_variables=[variable.model_dump() for variable in profile.variables],
+        )
+        job = await self.job_service.execute(
+            JobExecuteRequest(
+                target_server_id=payload.target_server_id,
+                operation_type=f"profile:{profile.id}:{step.id}",
+                command=command,
+                redacted_command=redacted_command,
+                credential_ref=credential_ref,
+            )
+        )
+        return [job]
+
+    async def _start_profile_workflow(
+        self,
+        profile: InfrastructureProfileRead,
+        payload: ProfileApplyRequest,
+    ) -> WorkflowRunRead | None:
+        if self.workflow_service is None:
+            return None
+        workflow = await self.workflow_service.create_workflow(
+            WorkflowCreate(
+                workflow_type=WorkflowType.PROFILE_EXECUTION,
+                trigger_source=WorkflowTriggerSource.MANUAL,
+                target_server_id=payload.target_server_id,
+                context_json={
+                    "profile_id": profile.id,
+                    "profile_name": profile.name,
+                    "stop_on_failure": payload.stop_on_failure,
+                    "variable_names": sorted(payload.variables),
+                    "credential_ref_names": sorted(payload.credential_refs),
+                },
+            )
+        )
+        workflow = await self.workflow_service.mark_queued(workflow.id)
+        return await self.workflow_service.start_workflow(workflow.id)
+
+    async def _start_profile_workflow_step(
+        self,
+        workflow: WorkflowRunRead | None,
+        profile: InfrastructureProfileRead,
+        step,
+        payload: ProfileApplyRequest,
+        step_order: int,
+    ) -> WorkflowStepRead | None:
+        if workflow is None or self.workflow_service is None:
+            return None
+        workflow_step = await self.workflow_service.add_step(
+            workflow.id,
+            WorkflowStepCreate(
+                step_order=step_order,
+                step_type=f"profile_{step.kind}",
+                name=step.name,
+                metadata_json={
+                    "profile_id": profile.id,
+                    "profile_step_id": step.id,
+                    "profile_step_kind": step.kind,
+                    "reference_id": step.reference_id,
+                    "target_server_id": str(payload.target_server_id),
+                    "operation_type": f"profile:{profile.id}:{step.id}",
+                },
+            ),
+        )
+        return await self.workflow_service.start_step(workflow_step.id)
+
+    async def _finish_profile_workflow_step(
+        self,
+        workflow_step: WorkflowStepRead | None,
+        profile: InfrastructureProfileRead,
+        step,
+        jobs,
+    ) -> None:
+        if workflow_step is None or self.workflow_service is None:
+            return
+        job_ids = [str(job.id) for job in jobs]
+        metadata = {
+            "job_ids": job_ids,
+            "job_statuses": [str(job.status) for job in jobs],
+            "profile_id": profile.id,
+            "profile_step_id": step.id,
+            "profile_step_kind": step.kind,
+        }
+        if self._profile_step_failed(jobs):
+            await self.workflow_service.fail_step(
+                workflow_step.id,
+                error_output=self._profile_step_error(jobs),
+                log_output=f"Profile step {step.name} completed with failure.",
+                metadata_json=metadata,
+            )
+            return
+        await self.workflow_service.complete_step(
+            workflow_step.id,
+            log_output=f"Profile step {step.name} completed.",
+            metadata_json=metadata,
+        )
+
+    async def _fail_profile_workflow_step(
+        self,
+        workflow_step: WorkflowStepRead | None,
+        exc: Exception,
+    ) -> None:
+        if workflow_step is None or self.workflow_service is None:
+            return
+        await self.workflow_service.fail_step(workflow_step.id, error_output=str(exc))
+
+    async def _finish_profile_workflow(
+        self,
+        workflow: WorkflowRunRead | None,
+        profile: InfrastructureProfileRead,
+        status: str,
+        jobs,
+    ) -> None:
+        if workflow is None or self.workflow_service is None:
+            return
+        summary = self._profile_workflow_summary(profile, status, jobs)
+        if status == "success":
+            await self.workflow_service.complete_workflow(workflow.id, result_summary=summary)
+            return
+        await self.workflow_service.fail_workflow(
+            workflow.id,
+            error_message=status,
+            result_summary=summary,
+        )
+
+    async def _fail_profile_workflow(
+        self,
+        workflow: WorkflowRunRead | None,
+        profile: InfrastructureProfileRead,
+        exc: Exception,
+        jobs,
+    ) -> None:
+        if workflow is None or self.workflow_service is None:
+            return
+        await self.workflow_service.fail_workflow(
+            workflow.id,
+            error_message=str(exc),
+            result_summary=self._profile_workflow_summary(profile, "failed", jobs),
+        )
+
+    @staticmethod
+    def _profile_step_failed(jobs) -> bool:
+        return any(job.status in job_failure_states() for job in jobs)
+
+    @staticmethod
+    def _profile_step_error(jobs) -> str:
+        errors = [job.stderr for job in jobs if job.stderr]
+        return "\n".join(errors) if errors else "Profile step failed"
+
+    @staticmethod
+    def _profile_workflow_summary(profile: InfrastructureProfileRead, status: str, jobs) -> dict:
+        return {
+            "profile_id": profile.id,
+            "profile_name": profile.name,
+            "status": status,
+            "job_ids": [str(job.id) for job in jobs],
+            "job_count": len(jobs),
+            "failed_job_count": sum(
+                1 for job in jobs if job.status in job_failure_states()
+            ),
+        }
 
     async def _resolve_step_command(
         self,

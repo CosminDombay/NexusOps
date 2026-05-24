@@ -23,6 +23,14 @@ class AutomationRepository(BaseRepository[Automation]):
         result = await self.session.execute(select(Automation).order_by(Automation.created_at.desc()))
         return list(result.scalars().all())
 
+    async def list_for_target(self, target_server_id: UUID) -> list[Automation]:
+        automations = await self.list()
+        return [
+            automation
+            for automation in automations
+            if str(target_server_id) in {str(item) for item in automation.target_server_ids}
+        ]
+
     async def list_enabled(self) -> list[Automation]:
         result = await self.session.execute(
             select(Automation).where(Automation.enabled.is_(True)).order_by(Automation.name.asc())

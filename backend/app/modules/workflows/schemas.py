@@ -9,6 +9,7 @@ from backend.app.modules.workflows.models import (
     WorkflowTriggerSource,
     WorkflowType,
 )
+from backend.app.modules.orchestration.activity import OperationalActivityRead
 
 
 class WorkflowCreate(BaseModel):
@@ -65,6 +66,7 @@ class WorkflowRunRead(BaseModel):
     duration_seconds: int | None = None
     target_nodes: list[str] = Field(default_factory=list)
     linked_job_ids: list[str] = Field(default_factory=list)
+    activity_timeline: list[OperationalActivityRead] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime
 

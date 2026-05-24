@@ -1,6 +1,7 @@
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.adapters.ssh import ParamikoSshAdapter
+from backend.app.db.session import AsyncSessionLocal
 from backend.app.modules.audit.repository import AuditEventRepository
 from backend.app.modules.audit.service import AuditService
 from backend.app.modules.automations.repository import AutomationRepository
@@ -30,6 +31,7 @@ def build_automation_service(session: AsyncSession) -> AutomationService:
         action_repository=CustomOperationalActionRepository(session),
         credential_service=credential_service,
         audit_service=AuditService(AuditEventRepository(session)),
+        session_factory=AsyncSessionLocal,
     )
     audit_service = AuditService(AuditEventRepository(session))
     workflow_service = WorkflowService(
@@ -52,6 +54,7 @@ def build_automation_service(session: AsyncSession) -> AutomationService:
         repository=InfrastructureProfileRepository(session),
         package_repository=package_repository,
         deployment_service=deployment_service,
+        workflow_service=workflow_service,
     )
     package_service = PackageAutomationService(
         repository=package_repository,

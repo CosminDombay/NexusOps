@@ -14,6 +14,8 @@ from backend.app.modules.runtime_state.repository import (
 )
 from backend.app.modules.runtime_state.schemas import (
     NodeRuntimeEligibility,
+    NodeRuntimeFreshness,
+    NodeRuntimeReconciliation,
     NodeRuntimeState,
     RuntimeRefreshStatusRead,
 )
@@ -259,7 +261,17 @@ class RuntimeSnapshotService:
 
     @staticmethod
     def to_runtime_state(snapshot: NodeRuntimeSnapshot) -> NodeRuntimeState:
+        administrative_state = snapshot.lifecycle_state
+        if administrative_state not in {"archived", "decommissioned", "deleted"}:
+            administrative_state = "active"
+        infrastructure_state = "missing" if not snapshot.provider_guest_exists and snapshot.provider_state != "not_provider_backed" else snapshot.provider_state
+        if infrastructure_state not in {"running", "stopped", "missing"}:
+            infrastructure_state = "unknown"
+        observability_state = snapshot.monitoring_state if snapshot.monitoring_state in {"monitoring_ready", "monitoring_partial", "stale_metrics"} else "missing"
         return NodeRuntimeState(
+            administrative_state=administrative_state,
+            infrastructure_state=infrastructure_state,
+            observability_state=observability_state,
             inventory_state=snapshot.lifecycle_state,
             provider_state=snapshot.provider_state,
             provider_reachable=snapshot.provider_reachable,
@@ -270,6 +282,19 @@ class RuntimeSnapshotService:
             orchestration_state=snapshot.orchestration_state,
             lifecycle_state=snapshot.lifecycle_state,
             eligibility=NodeRuntimeEligibility.model_validate(snapshot.eligibility or {}),
+            reconciliation=NodeRuntimeReconciliation(
+                provider_link_status="linked" if snapshot.provider_guest_exists else "provider_guest_missing",
+                confidence="low" if snapshot.stale_reasons else "medium",
+                drift_indicators=list(snapshot.stale_reasons or []),
+                provider_sync_freshness="stale" if snapshot.stale_reasons else "fresh",
+            ),
+            freshness=NodeRuntimeFreshness(
+                monitoring_refreshed_at=snapshot.last_checked_at if snapshot.refresh_scope == "monitoring" else None,
+                provider_refreshed_at=snapshot.last_checked_at if snapshot.refresh_scope == "provider" else None,
+                inventory_refreshed_at=snapshot.last_checked_at if snapshot.refresh_scope == "inventory" else None,
+                runtime_refreshed_at=snapshot.last_checked_at,
+                confidence="low" if snapshot.stale_reasons else "medium",
+            ),
             degraded_reasons=list(snapshot.degraded_reasons or []),
             stale_reasons=list(snapshot.stale_reasons or []),
             warnings=list(snapshot.warnings or []),

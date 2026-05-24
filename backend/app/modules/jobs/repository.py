@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from uuid import UUID
 
 from sqlalchemy import select
@@ -19,6 +21,14 @@ class JobRepository(BaseRepository[Job]):
 
     async def list(self) -> list[Job]:
         result = await self.session.execute(select(Job).order_by(Job.created_at.desc()))
+        return list(result.scalars().all())
+
+    async def list_for_target(self, target_server_id: UUID) -> list[Job]:
+        result = await self.session.execute(
+            select(Job)
+            .where(Job.target_server_id == target_server_id)
+            .order_by(Job.created_at.desc())
+        )
         return list(result.scalars().all())
 
 

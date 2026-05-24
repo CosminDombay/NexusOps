@@ -8,7 +8,12 @@ from backend.app.common.constants import (
     ManagedNodeType,
     ManagementState,
 )
-from backend.app.modules.runtime_state.schemas import NodeRuntimeEligibility, NodeRuntimeState
+from backend.app.modules.runtime_state.schemas import (
+    NodeRuntimeEligibility,
+    NodeRuntimeFreshness,
+    NodeRuntimeReconciliation,
+    NodeRuntimeState,
+)
 
 
 INACTIVE_LIFECYCLE_STATES = {
@@ -76,6 +81,21 @@ class RuntimeStateService:
             monitoring_state=monitoring_state,
             orchestration_state=orchestration_state,
         )
+        administrative_state = cls._administrative_state(inventory_state)
+        infrastructure_state = cls._infrastructure_state(
+            provider=cls._str(getattr(server, "provider", None)),
+            provider_state=provider_state,
+            provider_guest_exists=provider_guest_exists,
+        )
+        observability_state = cls._observability_state(monitoring_state)
+        reconciliation = cls._reconciliation(
+            server,
+            provider=cls._str(getattr(server, "provider", None)),
+            sync_state=sync_state,
+            provider_guest_exists=provider_guest_exists,
+            metadata=metadata,
+        )
+        freshness = cls._freshness(server, stale_reasons=cls._stale_reasons(server, sync_state=sync_state, metadata=metadata))
 
         eligibility = cls._eligibility(
             provider_state=provider_state,
@@ -109,6 +129,9 @@ class RuntimeStateService:
         )
 
         return NodeRuntimeState(
+            administrative_state=administrative_state,
+            infrastructure_state=infrastructure_state,
+            observability_state=observability_state,
             inventory_state=inventory_state,
             provider_state=provider_state,
             provider_reachable=provider_reachable,
@@ -118,6 +141,8 @@ class RuntimeStateService:
             orchestration_state=orchestration_state,
             lifecycle_state=inventory_state,
             eligibility=eligibility,
+            reconciliation=reconciliation,
+            freshness=freshness,
             degraded_reasons=list(dict.fromkeys(degraded_reasons)),
             stale_reasons=list(dict.fromkeys(stale_reasons)),
             warnings=list(dict.fromkeys(warnings)),
@@ -235,15 +260,40 @@ class RuntimeStateService:
         if orchestration_state == "ready" and monitoring_state == "monitoring_ready":
             return "ready"
         if orchestration_state == "ready":
-            return "runtime_ready"
-        if monitoring_state == "monitoring_ready":
-            return "observable_only"
+            return "degraded"
         if ssh_state in {"unreachable", "error"}:
             return "degraded"
+        if monitoring_state == "stale_metrics":
+            return "stale"
         return "unknown"
 
     @staticmethod
+    def _administrative_state(inventory_state: str) -> str:
+        if inventory_state in {
+            InventoryLifecycleState.ARCHIVED.value,
+            InventoryLifecycleState.DECOMMISSIONED.value,
+            InventoryLifecycleState.DELETED.value,
+        }:
+            return inventory_state
+        return "active"
+
+    @staticmethod
+    def _infrastructure_state(*, provider: str, provider_state: str, provider_guest_exists: bool) -> str:
+        if provider.lower() == "proxmox" and not provider_guest_exists:
+            return "missing"
+        if provider_state in {"running", "stopped"}:
+            return provider_state
+        return "unknown"
+
+    @staticmethod
+    def _observability_state(monitoring_state: str) -> str:
+        if monitoring_state in {"monitoring_ready", "monitoring_partial", "stale_metrics"}:
+            return monitoring_state
+        return "missing"
+
+    @classmethod
     def _eligibility(
+        cls,
         *,
         provider_state: str,
         provider_reachable: bool,
@@ -261,18 +311,73 @@ class RuntimeStateService:
         is_running = provider_state == "running"
         monitorable = active and monitoring_state not in {"disabled", "not_configured"}
 
+        values = {
+            "can_start": provider_lifecycle and not is_running,
+            "can_stop": provider_lifecycle and is_running,
+            "can_reboot": provider_lifecycle and is_running,
+            "can_open_shell": ssh_runtime,
+            "can_run_jobs": ssh_runtime,
+            "can_deploy": ssh_runtime and node_type != ManagedNodeType.HYPERVISOR.value,
+            "can_apply_profiles": ssh_runtime,
+            "can_manage_identity": ssh_runtime,
+            "can_monitor": monitorable,
+            "can_sync_provider": active and provider.lower() == "proxmox",
+        }
+        blockers = {
+            action: cls._eligibility_blockers(
+                action=action,
+                active=active,
+                provider=provider,
+                provider_reachable=provider_reachable,
+                provider_guest_exists=provider_guest_exists,
+                ssh_state=ssh_state,
+                orchestration_state=orchestration_state,
+                node_type=node_type,
+                provider_state=provider_state,
+            )
+            for action, allowed in values.items()
+            if not allowed
+        }
         return NodeRuntimeEligibility(
-            can_start=provider_lifecycle and not is_running,
-            can_stop=provider_lifecycle and is_running,
-            can_reboot=provider_lifecycle and is_running,
-            can_open_shell=ssh_runtime,
-            can_run_jobs=ssh_runtime,
-            can_deploy=ssh_runtime and node_type != ManagedNodeType.HYPERVISOR.value,
-            can_apply_profiles=ssh_runtime,
-            can_manage_identity=ssh_runtime,
-            can_monitor=monitorable,
-            can_sync_provider=active and provider.lower() == "proxmox",
+            **values,
+            blockers=blockers,
         )
+
+    @staticmethod
+    def _eligibility_blockers(
+        *,
+        action: str,
+        active: bool,
+        provider: str,
+        provider_reachable: bool,
+        provider_guest_exists: bool,
+        ssh_state: str,
+        orchestration_state: str,
+        node_type: str,
+        provider_state: str,
+    ) -> list[str]:
+        reasons: list[str] = []
+        if not active:
+            reasons.append("lifecycle_inactive")
+        if action in {"can_start", "can_stop", "can_reboot", "can_sync_provider"}:
+            if provider.lower() != "proxmox":
+                reasons.append("provider_unsupported")
+            if not provider_guest_exists:
+                reasons.append("provider_guest_missing")
+            if not provider_reachable:
+                reasons.append("provider_unreachable")
+            if action in {"can_stop", "can_reboot"} and provider_state != "running":
+                reasons.append("provider_guest_not_running")
+            if action == "can_start" and provider_state == "running":
+                reasons.append("provider_guest_already_running")
+        if action in {"can_open_shell", "can_run_jobs", "can_deploy", "can_apply_profiles", "can_manage_identity"}:
+            if orchestration_state != "ready":
+                reasons.append(f"orchestration_{orchestration_state}")
+            if ssh_state != "ready":
+                reasons.append(f"ssh_{ssh_state}")
+        if action == "can_deploy" and node_type == ManagedNodeType.HYPERVISOR.value:
+            reasons.append("hypervisor_deployments_unsupported")
+        return list(dict.fromkeys(reasons or ["policy_not_satisfied"]))
 
     @staticmethod
     def _degraded_reasons(
@@ -338,6 +443,53 @@ class RuntimeStateService:
         if monitoring_state != "monitoring_ready":
             warnings.append("monitoring_not_ready")
         return warnings
+
+    @classmethod
+    def _reconciliation(
+        cls,
+        server: Any,
+        *,
+        provider: str,
+        sync_state: str,
+        provider_guest_exists: bool,
+        metadata: dict[str, object],
+    ) -> NodeRuntimeReconciliation:
+        provider_link_status = "not_provider_backed"
+        if provider.lower() == "proxmox":
+            provider_link_status = "linked" if provider_guest_exists else "provider_guest_missing"
+        drift_indicators: list[str] = []
+        mismatch_explanations: list[str] = []
+        if sync_state in {InventorySyncStatus.MISMATCH.value, InventorySyncStatus.ORPHANED.value, InventorySyncStatus.STALE.value}:
+            drift_indicators.append(f"sync_{sync_state}")
+        provider_hostname = metadata.get("provider_hostname") or metadata.get("name") or metadata.get("vm_name")
+        if provider_hostname and str(provider_hostname) != cls._str(getattr(server, "hostname", None)):
+            drift_indicators.append("hostname_mismatch")
+            mismatch_explanations.append("Inventory hostname differs from provider guest name")
+        if provider.lower() == "proxmox" and not provider_guest_exists:
+            mismatch_explanations.append("Inventory record is retained without a matching provider object")
+        confidence = "high" if sync_state == InventorySyncStatus.SYNCED.value and provider_guest_exists else "medium"
+        if drift_indicators or sync_state in {InventorySyncStatus.UNKNOWN.value, InventorySyncStatus.ORPHANED.value}:
+            confidence = "low"
+        return NodeRuntimeReconciliation(
+            provider_link_status=provider_link_status,
+            confidence=confidence,
+            drift_indicators=list(dict.fromkeys(drift_indicators)),
+            mismatch_explanations=list(dict.fromkeys(mismatch_explanations)),
+            provider_sync_freshness="stale" if sync_state == InventorySyncStatus.STALE.value else sync_state,
+            last_reconciled_at=getattr(server, "last_sync_at", None) or getattr(server, "last_seen_at", None),
+        )
+
+    @staticmethod
+    def _freshness(server: Any, *, stale_reasons: list[str]) -> NodeRuntimeFreshness:
+        confidence = "low" if stale_reasons else "medium"
+        if getattr(server, "last_seen_at", None) and not stale_reasons:
+            confidence = "high"
+        return NodeRuntimeFreshness(
+            provider_refreshed_at=getattr(server, "last_seen_at", None),
+            inventory_refreshed_at=getattr(server, "updated_at", None),
+            runtime_refreshed_at=datetime.now(UTC),
+            confidence=confidence,
+        )
 
 
 class _ProviderGuestInventoryShim:

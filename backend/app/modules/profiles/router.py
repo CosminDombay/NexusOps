@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.adapters.ssh import ParamikoSshAdapter
-from backend.app.db.session import get_db_session
+from backend.app.db.session import AsyncSessionLocal, get_db_session
 from backend.app.modules.audit.repository import AuditEventRepository
 from backend.app.modules.audit.service import AuditService
 from backend.app.modules.credentials.repository import CredentialRepository
@@ -38,6 +38,8 @@ from backend.app.modules.profiles.service import (
     ProfileService,
     ProfileStepResolutionError,
 )
+from backend.app.modules.workflows.repository import WorkflowRunRepository, WorkflowStepRepository
+from backend.app.modules.workflows.service import WorkflowService
 
 router = APIRouter()
 
@@ -54,6 +56,7 @@ async def get_profile_service(
         action_repository=CustomOperationalActionRepository(session),
         credential_service=credential_service,
         audit_service=AuditService(AuditEventRepository(session)),
+        session_factory=AsyncSessionLocal,
     )
     return ProfileService(
         job_service=job_service,
@@ -66,6 +69,12 @@ async def get_profile_service(
             server_repository=server_repository,
             job_service=job_service,
             credential_service=credential_service,
+        ),
+        workflow_service=WorkflowService(
+            workflow_repository=WorkflowRunRepository(session),
+            step_repository=WorkflowStepRepository(session),
+            server_repository=server_repository,
+            audit_service=AuditService(AuditEventRepository(session)),
         ),
     )
 

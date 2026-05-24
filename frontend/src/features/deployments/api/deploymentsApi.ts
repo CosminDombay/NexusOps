@@ -1,8 +1,10 @@
 import { apiClient } from '../../../lib/api/client';
 import type { CreateDeploymentPayload, Deployment, DeploymentLogs, DeploymentOperation, DeploymentStatusResult, UpdateDeploymentPayload } from '../types/deployment';
 
-export async function listDeployments(): Promise<Deployment[]> {
-  const response = await apiClient.get<Deployment[]>('/deployments');
+export async function listDeployments(filters: { serverId?: string } = {}): Promise<Deployment[]> {
+  const response = await apiClient.get<Deployment[]>('/deployments', {
+    params: filters.serverId ? { server_id: filters.serverId } : undefined,
+  });
   return response.data;
 }
 

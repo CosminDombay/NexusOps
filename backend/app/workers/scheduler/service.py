@@ -74,7 +74,12 @@ class SchedulerService:
         )
 
     async def dispatch_monitoring_validation(self) -> None:
-        task_queue.submit(validate_monitoring_snapshots())
+        task_queue.submit(
+            validate_monitoring_snapshots(),
+            name="monitoring:validation",
+            owner="scheduler",
+            execution_origin="monitoring",
+        )
 
     async def dispatch_automation(self, automation_id: UUID) -> None:
         from backend.app.modules.automations.factory import build_automation_service
@@ -85,7 +90,13 @@ class SchedulerService:
                 automation_id,
                 trigger_source=WorkflowTriggerSource.SCHEDULED,
             )
-        task_queue.submit(execute_automation_workflow(automation_id, workflow.id))
+        task_queue.submit(
+            execute_automation_workflow(automation_id, workflow.id),
+            name=f"automation:{automation_id}",
+            owner="scheduler",
+            execution_origin="automation",
+            correlation_id=str(workflow.id),
+        )
 
     @staticmethod
     def _trigger_for(automation: Automation):

@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.adapters.ssh import ParamikoSshAdapter
-from backend.app.db.session import get_db_session
+from backend.app.db.session import AsyncSessionLocal, get_db_session
 from backend.app.modules.audit.repository import AuditEventRepository
 from backend.app.modules.audit.service import AuditService
 from backend.app.modules.credentials.repository import CredentialRepository
@@ -44,6 +44,7 @@ async def get_package_service(
             ssh_adapter=ParamikoSshAdapter(),
             credential_service=CredentialService(repository=CredentialRepository(session)),
             audit_service=AuditService(AuditEventRepository(session)),
+            session_factory=AsyncSessionLocal,
         ),
         credential_service=CredentialService(repository=CredentialRepository(session)),
     )

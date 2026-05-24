@@ -1,8 +1,10 @@
 import { apiClient } from '../../../lib/api/client';
 import type { Automation, AutomationPayload, AutomationRunResult } from '../types/automation';
 
-export async function listAutomations(): Promise<Automation[]> {
-  const response = await apiClient.get<Automation[]>('/automations');
+export async function listAutomations(filters: { targetServerId?: string } = {}): Promise<Automation[]> {
+  const response = await apiClient.get<Automation[]>('/automations', {
+    params: filters.targetServerId ? { target_server_id: filters.targetServerId } : undefined,
+  });
   return response.data;
 }
 

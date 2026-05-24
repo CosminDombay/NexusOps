@@ -45,6 +45,8 @@ async def test_workflow_creation_and_transitions(client) -> None:
         assert completed.status == WorkflowStatus.SUCCESS
         assert completed.result_summary == {"jobs": ["job-1"]}
         assert completed.steps[0].log_output == "step started\nstep done"
+        assert any(activity.event_type == "workflow.success" for activity in completed.activity_timeline)
+        assert any(activity.source_type == "workflow_step" for activity in completed.activity_timeline)
 
 
 @pytest.mark.asyncio

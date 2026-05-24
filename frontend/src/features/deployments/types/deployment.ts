@@ -1,3 +1,4 @@
+import type { OperationalActivity } from '../../../components/operations/runtimeTypes';
 import type { Job } from '../../jobs/types/job';
 
 export type DeploymentStatus =
@@ -49,6 +50,7 @@ export type DeploymentExecution = {
   result_summary: Record<string, unknown>;
   error_message: string | null;
   target_executions: DeploymentTargetExecution[];
+  activity_timeline: OperationalActivity[];
   created_at: string;
   updated_at: string;
 };

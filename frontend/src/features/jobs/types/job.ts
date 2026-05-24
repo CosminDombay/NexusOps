@@ -1,4 +1,6 @@
-export type JobStatus = 'pending' | 'running' | 'success' | 'failed' | 'cancelled';
+import type { OperationalActivity } from '../../../components/operations/runtimeTypes';
+
+export type JobStatus = 'pending' | 'queued' | 'dispatched' | 'running' | 'completed' | 'success' | 'failed' | 'cancelled' | 'stale';
 
 export type Job = {
   id: string;
@@ -10,8 +12,17 @@ export type Job = {
   stdout: string | null;
   stderr: string | null;
   exit_code: number | null;
+  queued_at: string | null;
+  dispatched_at: string | null;
   started_at: string | null;
   completed_at: string | null;
+  runtime_duration_seconds: number | null;
+  execution_origin: string;
+  correlation_id: string | null;
+  cancellation_requested_at: string | null;
+  runtime_metadata: Record<string, unknown>;
+  output_events: Array<Record<string, unknown>>;
+  activity_timeline: OperationalActivity[];
   created_at: string;
   updated_at: string;
 };
@@ -21,6 +32,7 @@ export type ExecuteJobPayload = {
   command: string;
   operation_type: string;
   credential_ref?: string | null;
+  max_parallel?: number;
 };
 
 export type BulkExecutionResult = {

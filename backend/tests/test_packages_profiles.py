@@ -20,6 +20,9 @@ from backend.app.modules.profiles.schemas import ProfileApplyRequest
 from backend.app.modules.profiles.schemas import InfrastructureProfileCreate
 from backend.app.modules.profiles.repository import InfrastructureProfileRepository
 from backend.app.modules.profiles.service import ProfileService
+from backend.app.modules.workflows.models import WorkflowStatus, WorkflowStepStatus, WorkflowType
+from backend.app.modules.workflows.repository import WorkflowRunRepository, WorkflowStepRepository
+from backend.app.modules.workflows.service import WorkflowService
 
 
 class FakeSshAdapter(SshAdapter):
@@ -115,6 +118,49 @@ async def test_profile_apply_generates_sequential_jobs(client) -> None:
         assert result.jobs[0].operation_type == "profile:docker-host:install-docker"
         assert "get.docker.com" in adapter.calls[0]["command"]
         assert adapter.calls[1]["command"] == "systemctl status docker --no-pager"
+
+
+@pytest.mark.asyncio
+async def test_profile_apply_records_workflow_trace_when_available(client) -> None:
+    session = next(iter(client.app.dependency_overrides.values()))
+    async for db_session in session():
+        server = await InventoryService(ServerRepository(db_session)).create_server(
+            ServerCreate(**server_payload(hostname="profile-workflow-01", ip_address="10.2.0.14"))
+        )
+        adapter = FakeSshAdapter()
+        server_repository = ServerRepository(db_session)
+        workflow_service = WorkflowService(
+            workflow_repository=WorkflowRunRepository(db_session),
+            step_repository=WorkflowStepRepository(db_session),
+            server_repository=server_repository,
+        )
+        service = ProfileService(
+            job_service=JobService(
+                job_repository=JobRepository(db_session),
+                server_repository=server_repository,
+                ssh_adapter=adapter,
+            ),
+            workflow_service=workflow_service,
+        )
+
+        result = await service.apply_profile(
+            "base-linux-server",
+            ProfileApplyRequest(target_server_id=server.id),
+        )
+
+        workflows = await workflow_service.list_workflows(target_server_id=server.id)
+
+        assert result.status == "success"
+        assert len(workflows) == 1
+        assert workflows[0].workflow_type == WorkflowType.PROFILE_EXECUTION
+        assert workflows[0].status == WorkflowStatus.SUCCESS
+        assert workflows[0].result_summary["profile_id"] == "base-linux-server"
+        assert workflows[0].result_summary["job_count"] == len(result.jobs)
+        assert workflows[0].linked_job_ids == sorted(str(job.id) for job in result.jobs)
+        assert workflows[0].activity_timeline
+        assert any(activity.job_ids for activity in workflows[0].activity_timeline)
+        assert all(step.status == WorkflowStepStatus.SUCCESS for step in workflows[0].steps)
+        assert all(step.metadata_json["target_server_id"] == str(server.id) for step in workflows[0].steps)
 
 
 @pytest.mark.asyncio

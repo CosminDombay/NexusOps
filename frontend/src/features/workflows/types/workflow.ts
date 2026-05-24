@@ -1,3 +1,5 @@
+import type { OperationalActivity } from '../../../components/operations/runtimeTypes';
+
 export type WorkflowStatus = 'pending' | 'queued' | 'running' | 'success' | 'failed' | 'cancelled';
 
 export type WorkflowStepStatus = 'pending' | 'running' | 'success' | 'failed' | 'skipped';
@@ -39,6 +41,7 @@ export type WorkflowRun = {
   duration_seconds: number | null;
   target_nodes: string[];
   linked_job_ids: string[];
+  activity_timeline: OperationalActivity[];
   created_at: string;
   updated_at: string;
 };

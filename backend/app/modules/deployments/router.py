@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.adapters.ssh import ParamikoSshAdapter
-from backend.app.db.session import get_db_session
+from backend.app.db.session import AsyncSessionLocal, get_db_session
 from backend.app.modules.audit.repository import AuditEventRepository
 from backend.app.modules.audit.service import AuditService
 from backend.app.modules.credentials.repository import CredentialRepository
@@ -54,6 +54,7 @@ async def get_deployment_service(
             ssh_adapter=ParamikoSshAdapter(),
             credential_service=CredentialService(repository=CredentialRepository(session)),
             audit_service=AuditService(AuditEventRepository(session)),
+            session_factory=AsyncSessionLocal,
         ),
         credential_service=CredentialService(repository=CredentialRepository(session)),
     )
@@ -62,8 +63,9 @@ async def get_deployment_service(
 @router.get("", response_model=list[DeploymentRead])
 async def list_deployments(
     service: Annotated[DockerComposeDeploymentService, Depends(get_deployment_service)],
+    server_id: UUID | None = None,
 ) -> list[DeploymentRead]:
-    return await service.list_deployments()
+    return await service.list_deployments(server_id=server_id)
 
 
 @router.post("", response_model=DeploymentRead, status_code=status.HTTP_201_CREATED)

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import selectinload
 
 from backend.app.common.repository import BaseRepository
@@ -31,6 +31,21 @@ class WorkflowRunRepository(BaseRepository[WorkflowRun]):
             .order_by(WorkflowRun.created_at.desc())
         )
         return list(result.scalars().all())
+
+    async def list_for_target(self, target_server_id: UUID) -> list[WorkflowRun]:
+        result = await self.session.execute(
+            select(WorkflowRun)
+            .outerjoin(WorkflowStep, WorkflowStep.workflow_run_id == WorkflowRun.id)
+            .options(selectinload(WorkflowRun.steps))
+            .where(
+                or_(
+                    WorkflowRun.target_server_id == target_server_id,
+                    WorkflowStep.metadata_json["target_server_id"].as_string() == str(target_server_id),
+                )
+            )
+            .order_by(WorkflowRun.created_at.desc())
+        )
+        return list(result.scalars().unique().all())
 
 
 class WorkflowStepRepository(BaseRepository[WorkflowStep]):

@@ -1,16 +1,8 @@
 import type { JobStatus } from '../types/job';
+import { formatDateTime, formatOperationalLabel } from '../../../components/operations/runtimeFormat';
 
-export function formatDateTime(value: string | null): string {
-  if (!value) {
-    return 'Not started';
-  }
-
-  return new Intl.DateTimeFormat(undefined, {
-    dateStyle: 'medium',
-    timeStyle: 'short',
-  }).format(new Date(value));
-}
+export { formatDateTime };
 
 export function jobStatusLabel(status: JobStatus): string {
-  return status.charAt(0).toUpperCase() + status.slice(1);
+  return formatOperationalLabel(status);
 }

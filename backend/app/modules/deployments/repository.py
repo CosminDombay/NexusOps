@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from uuid import UUID
 
 from sqlalchemy import delete, func, select
@@ -26,6 +28,15 @@ class DeploymentRepository(BaseRepository[Deployment]):
     async def list(self) -> list[Deployment]:
         result = await self.session.execute(select(Deployment).order_by(Deployment.created_at.desc()))
         return list(result.scalars().all())
+
+    async def list_for_server(self, server_id: UUID) -> list[Deployment]:
+        result = await self.session.execute(
+            select(Deployment)
+            .join(DeploymentTarget, DeploymentTarget.deployment_id == Deployment.id)
+            .where(DeploymentTarget.server_id == server_id)
+            .order_by(Deployment.created_at.desc())
+        )
+        return list(result.scalars().unique().all())
 
     async def delete(self, deployment: Deployment) -> None:
         await self.session.delete(deployment)

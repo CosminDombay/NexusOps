@@ -2,6 +2,8 @@ import { ChevronDown } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import type { ReactNode } from 'react';
 
+import { formatOperationalLabel } from './runtimeFormat';
+
 type Tone = 'default' | 'success' | 'warning' | 'danger' | 'info' | 'muted';
 
 const toneClasses: Record<Tone, string> = {
@@ -104,8 +106,4 @@ export function CollapsibleSection({
       <div className="border-t border-zinc-200 p-5">{children}</div>
     </details>
   );
-}
-
-function formatOperationalLabel(value: string): string {
-  return value.replace(/_/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
 }

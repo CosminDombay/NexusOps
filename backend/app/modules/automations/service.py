@@ -8,6 +8,7 @@ from backend.app.modules.inventory.models import InventoryLifecycleState
 from backend.app.modules.inventory.repository import ServerRepository
 from backend.app.modules.jobs.schemas import JobActionExecuteRequest
 from backend.app.modules.jobs.service import JobService
+from backend.app.modules.orchestration.semantics import workflow_failure_states, workflow_runtime_state
 from backend.app.modules.packages.schemas import PackageExecuteRequest
 from backend.app.modules.packages.service import PackageAutomationService
 from backend.app.modules.profiles.schemas import ProfileApplyRequest
@@ -43,9 +44,13 @@ class AutomationService:
         self.profile_service = profile_service
         self.package_service = package_service
 
-    async def list_automations(self) -> list[AutomationRead]:
-        automations = await self.repository.list()
-        workflows = await self.workflow_service.list_workflows()
+    async def list_automations(self, *, target_server_id: UUID | None = None) -> list[AutomationRead]:
+        automations = (
+            await self.repository.list_for_target(target_server_id)
+            if target_server_id is not None
+            else await self.repository.list()
+        )
+        workflows = await self.workflow_service.list_workflows(target_server_id=target_server_id)
         servers = await self.server_repository.list(include_inactive=True)
         return [
             self._to_read(
@@ -258,13 +263,13 @@ class AutomationService:
                         tags=server.tags,
                     )
                 )
-        last_success = next((workflow for workflow in workflows if workflow.status.value == "success"), None)
-        last_failure = next((workflow for workflow in workflows if workflow.status.value == "failed"), None)
+        last_success = next((workflow for workflow in workflows if workflow.status == WorkflowStatus.SUCCESS), None)
+        last_failure = next((workflow for workflow in workflows if workflow.status in workflow_failure_states()), None)
         recent = workflows[:5]
         last = recent[0] if recent else None
         runtime_state = "disabled" if not automation.enabled else "idle"
-        if last and last.status.value in {"queued", "running", "success", "failed", "cancelled", "pending"}:
-            runtime_state = "queued" if last.status.value == "pending" else last.status.value
+        if automation.enabled and last:
+            runtime_state = workflow_runtime_state(last.status)
 
         return AutomationRead.model_validate(automation).model_copy(
             update={

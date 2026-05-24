@@ -5,6 +5,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from backend.app.modules.deployments.models import DeploymentStatus
 from backend.app.modules.jobs.schemas import JobRead
+from backend.app.modules.orchestration.activity import OperationalActivityRead
 
 
 class DeploymentCreate(BaseModel):
@@ -132,6 +133,7 @@ class DeploymentExecutionRead(BaseModel):
     result_summary: dict = Field(default_factory=dict)
     error_message: str | None = None
     target_executions: list[DeploymentTargetExecutionRead] = Field(default_factory=list)
+    activity_timeline: list[OperationalActivityRead] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime
 

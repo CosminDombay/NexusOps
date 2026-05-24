@@ -1,16 +1,21 @@
-from datetime import UTC, datetime
+import asyncio
 from uuid import UUID
+from uuid import uuid4
 
 import structlog
+from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from backend.app.adapters.ssh import SshAdapter
+from backend.app.modules.audit.repository import AuditEventRepository
 from backend.app.modules.audit.service import AuditService
-from backend.app.modules.credentials.service import CredentialNotFoundError, CredentialService
+from backend.app.modules.credentials.repository import CredentialRepository
+from backend.app.modules.credentials.service import CredentialService
 from backend.app.modules.inventory.repository import ServerRepository
-from backend.app.modules.inventory.models import InventoryLifecycleState, ServerSshAuthMethod
+from backend.app.modules.inventory.models import InventoryLifecycleState
 from backend.app.modules.jobs.actions import get_action, list_actions
 from backend.app.modules.jobs.models import CustomOperationalAction, Job, JobStatus
 from backend.app.modules.jobs.repository import CustomOperationalActionRepository, JobRepository
+from backend.app.modules.jobs.runtime import JobExecutionRuntime
 from backend.app.modules.jobs.schemas import (
     BulkExecutionHostResult,
     BulkExecutionRead,
@@ -22,8 +27,18 @@ from backend.app.modules.jobs.schemas import (
     OperationalActionRead,
     OperationalActionUpdate,
 )
+from backend.app.modules.orchestration.activity import job_activity_timeline
+from backend.app.modules.orchestration.semantics import (
+    is_job_failure,
+    is_job_success,
+    orchestration_origin,
+    runtime_metadata,
+)
+from backend.app.modules.orchestration.utils import success_failure_counts
 
 logger = structlog.get_logger(__name__)
+
+DEFAULT_BULK_MAX_PARALLEL = 4
 
 
 class JobNotFoundError(Exception):
@@ -62,6 +77,7 @@ class JobService:
         action_repository: CustomOperationalActionRepository | None = None,
         credential_service: CredentialService | None = None,
         audit_service: AuditService | None = None,
+        session_factory: async_sessionmaker | None = None,
     ) -> None:
         self.job_repository = job_repository
         self.server_repository = server_repository
@@ -69,9 +85,14 @@ class JobService:
         self.action_repository = action_repository
         self.credential_service = credential_service
         self.audit_service = audit_service
+        self.session_factory = session_factory
 
-    async def list_jobs(self) -> list[JobRead]:
-        jobs = await self.job_repository.list()
+    async def list_jobs(self, *, target_server_id: UUID | None = None) -> list[JobRead]:
+        jobs = (
+            await self.job_repository.list_for_target(target_server_id)
+            if target_server_id is not None
+            else await self.job_repository.list()
+        )
         return [await self._to_read(job) for job in jobs]
 
     async def get_job(self, job_id: UUID) -> JobRead:
@@ -167,11 +188,22 @@ class JobService:
         }:
             raise JobTargetNotManagedError("Target server is not managed")
 
+        execution_origin = orchestration_origin(payload.operation_type)
+        correlation_id = str(uuid4())
         job = Job(
             target_server_id=server.id,
             operation_type=payload.operation_type,
             command=payload.redacted_command or payload.command,
             status=JobStatus.PENDING,
+            execution_origin=execution_origin,
+            correlation_id=correlation_id,
+            runtime_metadata=runtime_metadata(
+                operation_type=payload.operation_type,
+                execution_origin=execution_origin,
+                correlation_id=correlation_id,
+                target_hostname=server.hostname,
+                target_server_id=str(server.id),
+            ),
         )
         job = await self.job_repository.create(job)
         await self.job_repository.session.commit()
@@ -181,142 +213,105 @@ class JobService:
             job_id=str(job.id),
             target_server_id=str(server.id),
             operation_type=job.operation_type,
+            correlation_id=job.correlation_id,
         )
 
-        job.status = JobStatus.RUNNING
-        job.started_at = datetime.now(UTC)
-        await self.job_repository.session.commit()
-        await self.job_repository.session.refresh(job)
-
-        try:
-            ssh_user = server.ssh_username
-            ssh_password = (
-                server.ssh_password if server.ssh_auth_method == ServerSshAuthMethod.PASSWORD else None
-            )
-            ssh_private_key_path = (
-                server.ssh_private_key_path if server.ssh_auth_method == ServerSshAuthMethod.KEY else None
-            )
-            ssh_private_key: str | None = None
-            ssh_passphrase: str | None = None
-            credential_ref = payload.credential_ref or (str(server.credential_id) if server.credential_id is not None else None)
-            if credential_ref:
-                if self.credential_service is None:
-                    raise CredentialNotFoundError("Credential service is required for credential-backed execution")
-                credential = await self.credential_service.resolve_credential(credential_ref)
-                ssh_user = credential.username or ssh_user
-                if credential.credential_type in {"password", "ssh_password"}:
-                    ssh_password = credential.secret
-                    ssh_private_key_path = None
-                elif credential.credential_type == "ssh_key":
-                    ssh_password = None
-                    ssh_private_key_path = None
-                    ssh_private_key = credential.private_key
-                    ssh_passphrase = credential.passphrase
-
-            result = await self.ssh_adapter.run_command(
-                host=server.ip_address,
-                port=server.ssh_port,
-                command=payload.command,
-                user=ssh_user,
-                password=ssh_password,
-                private_key_path=ssh_private_key_path,
-                private_key=ssh_private_key,
-                passphrase=ssh_passphrase,
-            )
-            job.stdout = result.stdout
-            job.stderr = result.stderr
-            job.exit_code = result.exit_code
-            job.status = JobStatus.SUCCESS if result.exit_code == 0 else JobStatus.FAILED
-        except Exception as exc:
-            job.stdout = ""
-            job.stderr = str(exc)
-            job.exit_code = None
-            job.status = JobStatus.FAILED
-
-        job.completed_at = datetime.now(UTC)
-        await self.job_repository.session.commit()
-        await self.job_repository.session.refresh(job)
-        if self.audit_service is not None:
-            await self.audit_service.record(
-                event_type=self._audit_event_type(job.operation_type),
-                target_type="server",
-                target_id=server.id,
-                result="success" if job.status == JobStatus.SUCCESS else "failed",
-                metadata={
-                    "job_id": str(job.id),
-                    "operation_type": job.operation_type,
-                    "exit_code": job.exit_code,
-                    "target_hostname": server.hostname,
-                },
-                error=job.stderr if job.status == JobStatus.FAILED else None,
-            )
+        runtime = JobExecutionRuntime(
+            job_repository=self.job_repository,
+            ssh_adapter=self.ssh_adapter,
+            credential_service=self.credential_service,
+            audit_service=self.audit_service,
+        )
+        job = await runtime.run(job=job, server=server, payload=payload)
 
         logger.info(
             "job_completed",
             job_id=str(job.id),
             status=job.status,
             exit_code=job.exit_code,
+            correlation_id=job.correlation_id,
         )
         return await self._to_read(job)
 
     async def execute_bulk(self, payload: JobBulkExecuteRequest) -> BulkExecutionRead:
-        results: list[BulkExecutionHostResult] = []
-        for target_server_id in payload.target_server_ids:
-            server = await self.server_repository.get_by_id(target_server_id)
+        semaphore = asyncio.Semaphore(payload.max_parallel or DEFAULT_BULK_MAX_PARALLEL)
+
+        async def run_target(target_server_id: UUID) -> BulkExecutionHostResult:
             try:
-                job = await self.execute(
-                    JobExecuteRequest(
-                        target_server_id=target_server_id,
-                        operation_type=payload.operation_type,
-                        command=payload.command,
-                        redacted_command=payload.redacted_command,
-                        credential_ref=payload.credential_ref,
-                    )
-                )
-                results.append(
-                    BulkExecutionHostResult(
-                        target_server_id=target_server_id,
-                        target_hostname=job.target_hostname,
-                        success=job.status == JobStatus.SUCCESS,
-                        job=job,
-                        error=job.stderr if job.status == JobStatus.FAILED else None,
-                    )
+                async with semaphore:
+                    job = await self._execute_bulk_target(payload, target_server_id)
+                return BulkExecutionHostResult(
+                    target_server_id=target_server_id,
+                    target_hostname=job.target_hostname,
+                    success=is_job_success(job.status),
+                    job=job,
+                    error=job.stderr if is_job_failure(job.status) else None,
                 )
             except Exception as exc:
-                results.append(
-                    BulkExecutionHostResult(
-                        target_server_id=target_server_id,
-                        target_hostname=server.hostname if server else None,
-                        success=False,
-                        error=str(exc),
-                    )
+                server = await self.server_repository.get_by_id(target_server_id)
+                return BulkExecutionHostResult(
+                    target_server_id=target_server_id,
+                    target_hostname=server.hostname if server else None,
+                    success=False,
+                    error=str(exc),
                 )
 
-        success_count = sum(1 for result in results if result.success)
+        results = list(await asyncio.gather(*(run_target(target_id) for target_id in payload.target_server_ids)))
+        success_count, failure_count = success_failure_counts(results)
         return BulkExecutionRead(
             operation_type=payload.operation_type,
             success_count=success_count,
-            failure_count=len(results) - success_count,
+            failure_count=failure_count,
             results=results,
         )
+
+    async def _execute_bulk_target(self, payload: JobBulkExecuteRequest, target_server_id: UUID) -> JobRead:
+        request = JobExecuteRequest(
+            target_server_id=target_server_id,
+            operation_type=payload.operation_type,
+            command=payload.command,
+            redacted_command=payload.redacted_command,
+            credential_ref=payload.credential_ref,
+        )
+        if self.session_factory is None:
+            return await self.execute(request)
+        async with self.session_factory() as session:
+            service = JobService(
+                job_repository=JobRepository(session),
+                server_repository=ServerRepository(session),
+                ssh_adapter=self.ssh_adapter,
+                action_repository=CustomOperationalActionRepository(session) if self.action_repository is not None else None,
+                credential_service=CredentialService(repository=CredentialRepository(session)) if self.credential_service is not None else None,
+                audit_service=AuditService(AuditEventRepository(session)) if self.audit_service is not None else None,
+                session_factory=self.session_factory,
+            )
+            return await service.execute(request)
 
     async def cancel_job(self, job_id: UUID) -> JobRead:
         job = await self.job_repository.get_by_id(job_id)
         if job is None:
             raise JobNotFoundError("Job not found")
 
-        if job.status in {JobStatus.PENDING, JobStatus.RUNNING}:
-            job.status = JobStatus.CANCELLED
-            job.completed_at = datetime.now(UTC)
-            await self.job_repository.session.commit()
-            await self.job_repository.session.refresh(job)
+        runtime = JobExecutionRuntime(
+            job_repository=self.job_repository,
+            ssh_adapter=self.ssh_adapter,
+            credential_service=self.credential_service,
+            audit_service=self.audit_service,
+        )
+        await runtime.request_cancel(job)
 
         return await self._to_read(job)
 
     async def _to_read(self, job: Job) -> JobRead:
         server = await self.server_repository.get_by_id(job.target_server_id)
         data = JobRead.model_validate(job)
-        return data.model_copy(update={"target_hostname": server.hostname if server else None})
+        target_hostname = server.hostname if server else None
+        return data.model_copy(
+            update={
+                "target_hostname": target_hostname,
+                "activity_timeline": job_activity_timeline(job, target_hostname=target_hostname),
+            }
+        )
 
     @staticmethod
     def _custom_action_to_read(action: CustomOperationalAction) -> OperationalActionRead:
@@ -329,15 +324,3 @@ class JobService:
             destructive=action.destructive,
             is_builtin=False,
         )
-
-    @staticmethod
-    def _audit_event_type(operation_type: str) -> str:
-        prefix = operation_type.split(":", 1)[0]
-        return {
-            "action": "job.action_executed",
-            "package": "package.executed",
-            "profile": "profile.executed",
-            "deployment": "deployment.action_executed",
-            "provisioning": "provisioning.action_executed",
-            "identity": "identity.action_executed",
-        }.get(prefix, "job.executed")

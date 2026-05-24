@@ -109,6 +109,10 @@ async def test_job_service_executes_command_and_persists_success(client) -> None
         assert job.started_at is not None
         assert job.completed_at is not None
         assert job.target_hostname == "job-target-01"
+        assert job.correlation_id is not None
+        assert any(activity.event_type == "job.output.stdout" for activity in job.activity_timeline)
+        assert all(activity.correlation_id == job.correlation_id for activity in job.activity_timeline)
+        assert job.runtime_metadata["target_server_id"] == str(server.id)
         assert adapter.calls == [
             {
                 "host": "10.1.0.10",
