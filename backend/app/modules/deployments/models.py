@@ -102,6 +102,7 @@ class DeploymentExecution(Base, UuidPrimaryKeyMixin, TimestampMixin):
     trigger_source: Mapped[str] = mapped_column(String(100), default="manual", nullable=False, index=True)
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # TODO: promote target success/failure counters and execution owner fields to typed columns.
     result_summary: Mapped[dict[str, object]] = mapped_column(JSON, default=dict, nullable=False)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
 

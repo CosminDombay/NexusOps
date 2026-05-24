@@ -47,7 +47,9 @@ class Job(Base, UuidPrimaryKeyMixin, TimestampMixin):
     execution_origin: Mapped[str] = mapped_column(String(100), default="manual", nullable=False)
     correlation_id: Mapped[str | None] = mapped_column(String(100), index=True)
     cancellation_requested_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # TODO: promote stable runtime metadata keys to typed columns before distributed execution.
     runtime_metadata: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+    # TODO: move high-volume output events to an append-only runtime event table before streaming support.
     output_events: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
 
 

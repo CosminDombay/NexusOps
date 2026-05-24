@@ -10,13 +10,28 @@ from backend.app.modules.orchestration.utils import (
     success_failure_counts,
     summarize_statuses,
 )
+from backend.app.common.variables import VariableResolutionService
+from backend.app.modules.deployments.models import DeploymentStatus
 from backend.app.modules.jobs.models import JobStatus
+from backend.app.modules.orchestration.security import (
+    CommandValidationError,
+    SafeCommandBuilder,
+    SecretSanitizer,
+    redact_sensitive_text,
+)
 from backend.app.modules.orchestration.semantics import (
     is_job_failure,
     is_job_success,
     orchestration_origin,
     runtime_metadata,
 )
+from backend.app.modules.orchestration.transitions import (
+    InvalidDeploymentStateTransitionError,
+    InvalidWorkflowStateTransitionError,
+    validate_deployment_transition,
+    validate_workflow_transition,
+)
+from backend.app.modules.workflows.models import WorkflowStatus
 
 
 class DemoStatus(StrEnum):
@@ -128,3 +143,57 @@ def test_runtime_metadata_uses_consistent_keys() -> None:
         "transport": "fake-ssh",
     }
     assert orchestration_origin("package:docker-engine") == "package"
+
+
+def test_command_builder_rejects_injected_interpolated_values() -> None:
+    builder = SafeCommandBuilder(VariableResolutionService())
+
+    try:
+        builder.resolve_template(
+            "echo {{ value }}",
+            definitions=[{"name": "value", "required": True}],
+            variables={"value": "ok; rm -rf /"},
+            source="test",
+        )
+    except CommandValidationError as exc:
+        assert "Unsafe shell control token" in str(exc)
+    else:
+        raise AssertionError("expected command validation failure")
+
+
+def test_command_builder_escapes_safe_interpolated_values() -> None:
+    builder = SafeCommandBuilder(VariableResolutionService())
+
+    command = builder.resolve_template(
+        "echo {{ value }}",
+        definitions=[{"name": "value", "required": True}],
+        variables={"value": "hello world"},
+        source="test",
+    )
+
+    assert command == "echo 'hello world'"
+
+
+def test_secret_sanitizer_redacts_common_secret_shapes() -> None:
+    sanitizer = SecretSanitizer(["super-secret"])
+
+    assert sanitizer.redact_text("token=abc123 and value=super-secret") == "token=******** and value=********"
+    assert redact_sensitive_text("Bearer abc.def.ghi") == "********"
+
+
+def test_workflow_transition_validator_rejects_terminal_restart() -> None:
+    try:
+        validate_workflow_transition(WorkflowStatus.SUCCESS, WorkflowStatus.RUNNING)
+    except InvalidWorkflowStateTransitionError:
+        pass
+    else:
+        raise AssertionError("expected invalid workflow transition")
+
+
+def test_deployment_transition_validator_rejects_cancelled_to_success() -> None:
+    try:
+        validate_deployment_transition(DeploymentStatus.CANCELLED, DeploymentStatus.SUCCESS)
+    except InvalidDeploymentStateTransitionError:
+        pass
+    else:
+        raise AssertionError("expected invalid deployment transition")

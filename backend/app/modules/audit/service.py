@@ -9,6 +9,7 @@ from backend.app.modules.audit.models import AuditEvent
 from backend.app.modules.audit.repository import AuditEventRepository
 from backend.app.modules.audit.schemas import AuditEventRead
 from backend.app.modules.auth.models import User
+from backend.app.modules.orchestration.security import redact_sensitive_text, redact_sensitive_value
 
 logger = structlog.get_logger(__name__)
 
@@ -42,11 +43,11 @@ class AuditService:
             target_type=target_type,
             target_id=str(target_id) if target_id is not None else None,
             result=result,
-            metadata_json=metadata or {},
+            metadata_json=redact_sensitive_value(metadata or {}),
             source_ip=source_ip,
             correlation_id=correlation_id,
             workflow_run_id=workflow_run_id,
-            error=error,
+            error=redact_sensitive_text(error),
         )
         try:
             async with self.repository.session.begin_nested():

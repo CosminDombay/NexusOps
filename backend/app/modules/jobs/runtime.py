@@ -17,6 +17,7 @@ from backend.app.modules.orchestration.semantics import (
     orchestration_origin,
     runtime_metadata,
 )
+from backend.app.modules.orchestration.security import SecretSanitizer, SSHExecutionError
 from backend.app.modules.orchestration.utils import duration_seconds
 
 
@@ -81,6 +82,7 @@ class JobExecutionRuntime:
         self.credential_service = credential_service
         self.audit_service = audit_service
         self.cancellation_registry = cancellation_registry or execution_cancellations
+        self.secret_sanitizer = SecretSanitizer()
 
     async def run(self, *, job: Job, server, payload: JobExecuteRequest) -> Job:
         correlation_id = job.correlation_id or str(uuid4())
@@ -116,23 +118,24 @@ class JobExecutionRuntime:
                 private_key=ssh_private_key,
                 passphrase=ssh_passphrase,
             )
-            job.stdout = result.stdout
-            job.stderr = result.stderr
+            job.stdout = self.secret_sanitizer.redact_text(result.stdout)
+            job.stderr = self.secret_sanitizer.redact_text(result.stderr)
             job.exit_code = result.exit_code
-            job.output_events = self._output_events(job, stdout=result.stdout, stderr=result.stderr)
+            job.output_events = self._output_events(job, stdout=job.stdout or "", stderr=job.stderr or "")
             next_status = JobStatus.SUCCESS if result.exit_code == 0 else JobStatus.FAILED
             if await self._cancelled(job, transition=False):
                 next_status = JobStatus.CANCELLED
             await self.transition(job, next_status, started_at=started)
         except Exception as exc:
+            safe_error = self.secret_sanitizer.redact_text(str(exc)) or "SSH execution failed"
             if await self._cancelled(job, transition=False):
-                job.stderr = str(exc) or "Job cancelled during execution"
+                job.stderr = safe_error or "Job cancelled during execution"
                 await self.transition(job, JobStatus.CANCELLED, started_at=started)
             else:
                 job.stdout = ""
-                job.stderr = str(exc)
+                job.stderr = safe_error
                 job.exit_code = None
-                job.output_events = self._output_events(job, stderr=str(exc))
+                job.output_events = self._output_events(job, stderr=safe_error)
                 await self.transition(job, JobStatus.FAILED, started_at=started)
 
         await self._audit(job, server)
@@ -197,6 +200,7 @@ class JobExecutionRuntime:
         ssh_private_key_path = server.ssh_private_key_path if server.ssh_auth_method == ServerSshAuthMethod.KEY else None
         ssh_private_key: str | None = None
         ssh_passphrase: str | None = None
+        self.secret_sanitizer.add_secret(ssh_password)
         credential_ref = payload.credential_ref or (str(server.credential_id) if server.credential_id is not None else None)
         if credential_ref:
             if self.credential_service is None:
@@ -205,12 +209,15 @@ class JobExecutionRuntime:
             ssh_user = credential.username or ssh_user
             if credential.credential_type in {"password", "ssh_password"}:
                 ssh_password = credential.secret
+                self.secret_sanitizer.add_secret(ssh_password)
                 ssh_private_key_path = None
             elif credential.credential_type == "ssh_key":
                 ssh_password = None
                 ssh_private_key_path = None
                 ssh_private_key = credential.private_key
                 ssh_passphrase = credential.passphrase
+                self.secret_sanitizer.add_secret(ssh_private_key)
+                self.secret_sanitizer.add_secret(ssh_passphrase)
         return ssh_user, ssh_password, ssh_private_key_path, ssh_private_key, ssh_passphrase
 
     async def _audit(self, job: Job, server) -> None:

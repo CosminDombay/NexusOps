@@ -7,12 +7,13 @@ from backend.app.modules.automations.schemas import AutomationCreate, Automation
 from backend.app.modules.inventory.models import InventoryLifecycleState
 from backend.app.modules.inventory.repository import ServerRepository
 from backend.app.modules.jobs.schemas import JobActionExecuteRequest
-from backend.app.modules.jobs.service import JobService
+from backend.app.modules.jobs.service import JobService, OperationalActionNotFoundError
+from backend.app.modules.orchestration.security import CommandValidationError
 from backend.app.modules.orchestration.semantics import workflow_failure_states, workflow_runtime_state
 from backend.app.modules.packages.schemas import PackageExecuteRequest
-from backend.app.modules.packages.service import PackageAutomationService
+from backend.app.modules.packages.service import PackageAutomationService, PackageDefinitionNotFoundError
 from backend.app.modules.profiles.schemas import ProfileApplyRequest
-from backend.app.modules.profiles.service import ProfileService
+from backend.app.modules.profiles.service import ProfileNotFoundError, ProfileService, ProfileStepResolutionError
 from backend.app.modules.workflows.models import WorkflowStatus, WorkflowTriggerSource, WorkflowType
 from backend.app.modules.workflows.schemas import WorkflowCreate, WorkflowStepCreate
 from backend.app.modules.workflows.service import WorkflowService
@@ -24,6 +25,20 @@ class AutomationNotFoundError(Exception):
 
 class AutomationValidationError(Exception):
     """Raised when automation configuration is invalid."""
+
+
+class AutomationExecutionError(Exception):
+    """Raised when an automation run fails in a known orchestration domain."""
+
+
+AUTOMATION_EXECUTION_ERRORS = (
+    AutomationValidationError,
+    CommandValidationError,
+    OperationalActionNotFoundError,
+    PackageDefinitionNotFoundError,
+    ProfileNotFoundError,
+    ProfileStepResolutionError,
+)
 
 
 class AutomationService:
@@ -170,12 +185,12 @@ class AutomationService:
                         log_output="\n".join((job.stdout or "").strip() for job in jobs if job.stdout),
                         metadata_json={"job_ids": [str(job.id) for job in jobs]},
                     )
-                except Exception as exc:
+                except AUTOMATION_EXECUTION_ERRORS as exc:
                     status = WorkflowStatus.FAILED
                     await self.workflow_service.fail_step(step.id, str(exc))
                     raise
             await self.workflow_service.complete_workflow(workflow_run_id, result_summary=result_summary)
-        except Exception as exc:
+        except AUTOMATION_EXECUTION_ERRORS as exc:
             await self.workflow_service.fail_workflow(workflow_run_id, str(exc), result_summary=result_summary)
         finally:
             automation.last_run_at = datetime.now(UTC)

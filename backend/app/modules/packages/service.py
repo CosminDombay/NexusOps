@@ -6,6 +6,7 @@ from backend.app.common.variables import VariableResolutionError, VariableResolu
 from backend.app.modules.credentials.service import CredentialService
 from backend.app.modules.jobs.schemas import BulkExecutionRead, JobBulkExecuteRequest, JobExecuteRequest, JobRead
 from backend.app.modules.jobs.service import JobService
+from backend.app.modules.orchestration.security import SafeCommandBuilder
 from backend.app.modules.packages.definitions import (
     PackageDefinition,
     get_package_definition,
@@ -52,6 +53,7 @@ class PackageAutomationService:
         self.job_service = job_service
         self.credential_service = credential_service
         self.variable_service = VariableResolutionService()
+        self.command_builder = SafeCommandBuilder(self.variable_service)
 
     async def list_definitions(self) -> list[PackageDefinitionRead]:
         definitions = [self._builtin_to_read(definition) for definition in list_package_definitions()]
@@ -280,15 +282,17 @@ class PackageAutomationService:
         variables: dict[str, str],
     ) -> str:
         try:
-            install = self.variable_service.resolve_text(
+            install = self.command_builder.resolve_template(
                 definition.install_command,
                 definitions=[variable.model_dump() for variable in definition.variables],
                 variables=variables,
+                source=f"package:{definition.id}:install",
             )
-            validation = self.variable_service.resolve_text(
+            validation = self.command_builder.resolve_template(
                 definition.validation_command,
                 definitions=[variable.model_dump() for variable in definition.variables],
                 variables=variables,
+                source=f"package:{definition.id}:validation",
             )
         except VariableResolutionError:
             raise
@@ -306,25 +310,29 @@ class PackageAutomationService:
         runtime_variables = {**safe_variables, **secret_values}
         redacted_variables = {**safe_variables, **{name: "********" for name in secret_values}}
 
-        install = self.variable_service.resolve_text(
+        install = self.command_builder.resolve_template(
             definition.install_command,
             definitions=definitions,
             variables=runtime_variables,
+            source=f"package:{definition.id}:install",
         )
-        validation = self.variable_service.resolve_text(
+        validation = self.command_builder.resolve_template(
             definition.validation_command,
             definitions=definitions,
             variables=runtime_variables,
+            source=f"package:{definition.id}:validation",
         )
-        redacted_install = self.variable_service.resolve_text(
+        redacted_install = self.command_builder.resolve_template(
             definition.install_command,
             definitions=definitions,
             variables=redacted_variables,
+            source=f"package:{definition.id}:install:redacted",
         )
-        redacted_validation = self.variable_service.resolve_text(
+        redacted_validation = self.command_builder.resolve_template(
             definition.validation_command,
             definitions=definitions,
             variables=redacted_variables,
+            source=f"package:{definition.id}:validation:redacted",
         )
         return f"{install} && {validation}", f"{redacted_install} && {redacted_validation}"
 

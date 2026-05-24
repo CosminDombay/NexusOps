@@ -28,6 +28,7 @@ from backend.app.modules.jobs.schemas import (
     OperationalActionUpdate,
 )
 from backend.app.modules.orchestration.activity import job_activity_timeline
+from backend.app.modules.orchestration.security import SafeCommandBuilder
 from backend.app.modules.orchestration.semantics import (
     is_job_failure,
     is_job_success,
@@ -86,6 +87,7 @@ class JobService:
         self.credential_service = credential_service
         self.audit_service = audit_service
         self.session_factory = session_factory
+        self.command_builder = SafeCommandBuilder(variable_service=None)
 
     async def list_jobs(self, *, target_server_id: UUID | None = None) -> list[JobRead]:
         jobs = (
@@ -178,6 +180,11 @@ class JobService:
         )
 
     async def execute(self, payload: JobExecuteRequest) -> JobRead:
+        self.command_builder.validate_command(
+            payload.command,
+            source=payload.operation_type,
+            allow_shell_operators=True,
+        )
         server = await self.server_repository.get_by_id(payload.target_server_id)
         if server is None:
             raise JobTargetNotFoundError("Target server not found")

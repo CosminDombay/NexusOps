@@ -5,6 +5,11 @@ from backend.app.modules.audit.repository import AuditEventRepository
 from backend.app.modules.audit.service import AuditService
 from backend.app.modules.inventory.repository import ServerRepository
 from backend.app.modules.orchestration.activity import workflow_activity_timeline
+from backend.app.modules.orchestration.security import SecretSanitizer, WorkflowExecutionError
+from backend.app.modules.orchestration.transitions import (
+    validate_workflow_step_transition,
+    validate_workflow_transition,
+)
 from backend.app.modules.orchestration.utils import duration_seconds, summarize_statuses
 from backend.app.modules.workflows.models import (
     WorkflowRun,
@@ -28,6 +33,51 @@ class WorkflowInvalidTransitionError(Exception):
     """Raised when a workflow transition is not valid."""
 
 
+class WorkflowTransitionManager:
+    """Owns workflow lifecycle timestamps and transition validation."""
+
+    @staticmethod
+    def transition_run(workflow: WorkflowRun, next_status: WorkflowStatus) -> None:
+        validate_workflow_transition(workflow.status, next_status)
+        now = datetime.now(UTC)
+        workflow.status = next_status
+        if next_status == WorkflowStatus.RUNNING:
+            workflow.started_at = workflow.started_at or now
+        if next_status in {WorkflowStatus.SUCCESS, WorkflowStatus.FAILED, WorkflowStatus.CANCELLED}:
+            workflow.finished_at = workflow.finished_at or now
+
+    @staticmethod
+    def transition_step(step: WorkflowStep, next_status: WorkflowStepStatus) -> None:
+        validate_workflow_step_transition(step.status, next_status)
+        now = datetime.now(UTC)
+        step.status = next_status
+        if next_status == WorkflowStepStatus.RUNNING:
+            step.started_at = step.started_at or now
+        if next_status in {WorkflowStepStatus.SUCCESS, WorkflowStepStatus.FAILED, WorkflowStepStatus.SKIPPED}:
+            step.finished_at = step.finished_at or now
+
+
+class WorkflowSummaryBuilder:
+    """Builds derived workflow read-model fields from steps and metadata."""
+
+    @staticmethod
+    def step_summary(steps: list[WorkflowStepRead]):
+        return summarize_statuses(
+            steps,
+            success_states={WorkflowStepStatus.SUCCESS},
+            failure_states={WorkflowStepStatus.FAILED},
+        )
+
+    @staticmethod
+    def linked_job_ids(steps: list[WorkflowStepRead]) -> list[str]:
+        linked_job_ids: list[str] = []
+        for step in steps:
+            raw_job_ids = step.metadata_json.get("job_ids") if step.metadata_json else None
+            if isinstance(raw_job_ids, list):
+                linked_job_ids.extend(str(job_id) for job_id in raw_job_ids)
+        return sorted(set(linked_job_ids))
+
+
 class WorkflowService:
     def __init__(
         self,
@@ -41,6 +91,9 @@ class WorkflowService:
         self.step_repository = step_repository
         self.server_repository = server_repository
         self.audit_service = audit_service or AuditService(AuditEventRepository(workflow_repository.session))
+        self.transition_manager = WorkflowTransitionManager()
+        self.summary_builder = WorkflowSummaryBuilder()
+        self.secret_sanitizer = SecretSanitizer()
 
     async def list_workflows(self, *, target_server_id: UUID | None = None) -> list[WorkflowRunRead]:
         workflows = (
@@ -73,7 +126,7 @@ class WorkflowService:
 
     async def mark_queued(self, workflow_run_id: UUID) -> WorkflowRunRead:
         workflow = await self._workflow(workflow_run_id)
-        workflow.status = WorkflowStatus.QUEUED
+        self.transition_manager.transition_run(workflow, WorkflowStatus.QUEUED)
         await self.workflow_repository.session.commit()
         await self.workflow_repository.session.refresh(workflow, attribute_names=["steps"])
         await self._audit_workflow(workflow, "workflow.queued", "success")
@@ -81,10 +134,7 @@ class WorkflowService:
 
     async def start_workflow(self, workflow_run_id: UUID) -> WorkflowRunRead:
         workflow = await self._workflow(workflow_run_id)
-        if workflow.status == WorkflowStatus.CANCELLED:
-            raise WorkflowInvalidTransitionError("Cancelled workflow cannot be started")
-        workflow.status = WorkflowStatus.RUNNING
-        workflow.started_at = workflow.started_at or datetime.now(UTC)
+        self.transition_manager.transition_run(workflow, WorkflowStatus.RUNNING)
         await self.workflow_repository.session.commit()
         await self.workflow_repository.session.refresh(workflow, attribute_names=["steps"])
         await self._audit_workflow(workflow, "workflow.started", "success")
@@ -92,9 +142,8 @@ class WorkflowService:
 
     async def complete_workflow(self, workflow_run_id: UUID, result_summary: dict | None = None) -> WorkflowRunRead:
         workflow = await self._workflow(workflow_run_id)
-        workflow.status = WorkflowStatus.SUCCESS
-        workflow.finished_at = datetime.now(UTC)
-        workflow.result_summary = result_summary or workflow.result_summary
+        self.transition_manager.transition_run(workflow, WorkflowStatus.SUCCESS)
+        workflow.result_summary = self.secret_sanitizer.redact_value(result_summary or workflow.result_summary)
         await self.workflow_repository.session.commit()
         await self.workflow_repository.session.refresh(workflow, attribute_names=["steps"])
         await self._audit_workflow(workflow, "workflow.completed", "success")
@@ -102,10 +151,9 @@ class WorkflowService:
 
     async def fail_workflow(self, workflow_run_id: UUID, error_message: str, result_summary: dict | None = None) -> WorkflowRunRead:
         workflow = await self._workflow(workflow_run_id)
-        workflow.status = WorkflowStatus.FAILED
-        workflow.finished_at = datetime.now(UTC)
-        workflow.error_message = error_message
-        workflow.result_summary = result_summary or workflow.result_summary
+        self.transition_manager.transition_run(workflow, WorkflowStatus.FAILED)
+        workflow.error_message = self.secret_sanitizer.redact_text(error_message) or ""
+        workflow.result_summary = self.secret_sanitizer.redact_value(result_summary or workflow.result_summary)
         await self.workflow_repository.session.commit()
         await self.workflow_repository.session.refresh(workflow, attribute_names=["steps"])
         await self._audit_workflow(workflow, "workflow.failed", "failed", error=error_message)
@@ -113,8 +161,7 @@ class WorkflowService:
 
     async def cancel_workflow(self, workflow_run_id: UUID) -> WorkflowRunRead:
         workflow = await self._workflow(workflow_run_id)
-        workflow.status = WorkflowStatus.CANCELLED
-        workflow.finished_at = datetime.now(UTC)
+        self.transition_manager.transition_run(workflow, WorkflowStatus.CANCELLED)
         await self.workflow_repository.session.commit()
         await self.workflow_repository.session.refresh(workflow, attribute_names=["steps"])
         await self._audit_workflow(workflow, "workflow.cancelled", "cancelled")
@@ -136,20 +183,18 @@ class WorkflowService:
 
     async def start_step(self, step_id: UUID) -> WorkflowStepRead:
         step = await self._step(step_id)
-        step.status = WorkflowStepStatus.RUNNING
-        step.started_at = step.started_at or datetime.now(UTC)
+        self.transition_manager.transition_step(step, WorkflowStepStatus.RUNNING)
         await self.step_repository.session.commit()
         await self.step_repository.session.refresh(step)
         return await self._step_to_read(step)
 
     async def complete_step(self, step_id: UUID, log_output: str | None = None, metadata_json: dict | None = None) -> WorkflowStepRead:
         step = await self._step(step_id)
-        step.status = WorkflowStepStatus.SUCCESS
-        step.finished_at = datetime.now(UTC)
+        self.transition_manager.transition_step(step, WorkflowStepStatus.SUCCESS)
         if log_output:
-            step.log_output = self._append_text(step.log_output, log_output)
+            step.log_output = self._append_text(step.log_output, self.secret_sanitizer.redact_text(log_output) or "")
         if metadata_json:
-            step.metadata_json = {**step.metadata_json, **metadata_json}
+            step.metadata_json = {**step.metadata_json, **self.secret_sanitizer.redact_value(metadata_json)}
         await self.step_repository.session.commit()
         await self.step_repository.session.refresh(step)
         return await self._step_to_read(step)
@@ -162,13 +207,12 @@ class WorkflowService:
         metadata_json: dict | None = None,
     ) -> WorkflowStepRead:
         step = await self._step(step_id)
-        step.status = WorkflowStepStatus.FAILED
-        step.finished_at = datetime.now(UTC)
-        step.error_output = self._append_text(step.error_output, error_output)
+        self.transition_manager.transition_step(step, WorkflowStepStatus.FAILED)
+        step.error_output = self._append_text(step.error_output, self.secret_sanitizer.redact_text(error_output) or "")
         if log_output:
-            step.log_output = self._append_text(step.log_output, log_output)
+            step.log_output = self._append_text(step.log_output, self.secret_sanitizer.redact_text(log_output) or "")
         if metadata_json:
-            step.metadata_json = {**step.metadata_json, **metadata_json}
+            step.metadata_json = {**step.metadata_json, **self.secret_sanitizer.redact_value(metadata_json)}
         await self.step_repository.session.commit()
         await self.step_repository.session.refresh(step)
         return await self._step_to_read(step)
@@ -176,9 +220,9 @@ class WorkflowService:
     async def append_log(self, step_id: UUID, message: str, *, stderr: bool = False) -> WorkflowStepRead:
         step = await self._step(step_id)
         if stderr:
-            step.error_output = self._append_text(step.error_output, message)
+            step.error_output = self._append_text(step.error_output, self.secret_sanitizer.redact_text(message) or "")
         else:
-            step.log_output = self._append_text(step.log_output, message)
+            step.log_output = self._append_text(step.log_output, self.secret_sanitizer.redact_text(message) or "")
         await self.step_repository.session.commit()
         await self.step_repository.session.refresh(step)
         return await self._step_to_read(step)
@@ -205,17 +249,8 @@ class WorkflowService:
         data = WorkflowRunRead.model_validate(workflow)
         hostname = await self._hostname(workflow.target_server_id)
         steps = [await self._step_to_read(step) for step in workflow.steps]
-        step_summary = summarize_statuses(
-            steps,
-            success_states={WorkflowStepStatus.SUCCESS},
-            failure_states={WorkflowStepStatus.FAILED},
-        )
+        step_summary = self.summary_builder.step_summary(steps)
         target_nodes = [item for item in {hostname, *[step.target_hostname for step in steps]} if item]
-        linked_job_ids: list[str] = []
-        for step in steps:
-            raw_job_ids = step.metadata_json.get("job_ids") if step.metadata_json else None
-            if isinstance(raw_job_ids, list):
-                linked_job_ids.extend(str(job_id) for job_id in raw_job_ids)
         current_step = next((step.name for step in steps if step.status == WorkflowStepStatus.RUNNING), None)
         return data.model_copy(
             update={
@@ -226,7 +261,7 @@ class WorkflowService:
                 "failed_steps": step_summary.failed_count,
                 "duration_seconds": duration_seconds(workflow.started_at, workflow.finished_at),
                 "target_nodes": target_nodes,
-                "linked_job_ids": sorted(set(linked_job_ids)),
+                "linked_job_ids": self.summary_builder.linked_job_ids(steps),
                 "activity_timeline": workflow_activity_timeline(workflow, steps),
             }
         )

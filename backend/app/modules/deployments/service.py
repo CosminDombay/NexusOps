@@ -36,10 +36,12 @@ from backend.app.modules.inventory.repository import ServerRepository
 from backend.app.modules.jobs.schemas import JobExecuteRequest, JobRead
 from backend.app.modules.jobs.service import JobService, JobTargetNotFoundError, JobTargetNotManagedError
 from backend.app.modules.orchestration.activity import deployment_execution_activity_timeline
+from backend.app.modules.orchestration.security import CommandValidationError, SecretSanitizer
 from backend.app.modules.orchestration.semantics import (
     deployment_execution_failure_states,
     deployment_execution_success_states,
 )
+from backend.app.modules.orchestration.transitions import validate_deployment_transition
 from backend.app.modules.orchestration.utils import (
     aggregate_target_executions,
     duration_seconds,
@@ -53,6 +55,44 @@ class DeploymentNotFoundError(Exception):
 
 class DeploymentValidationError(Exception):
     """Raised when a deployment request is invalid."""
+
+
+class DeploymentStatusRollupService:
+    """Centralizes deployment and target status aggregation."""
+
+    @staticmethod
+    def transition(current: DeploymentStatus, next_status: DeploymentStatus) -> DeploymentStatus:
+        validate_deployment_transition(current, next_status)
+        return next_status
+
+    @staticmethod
+    def rollup(statuses: list[DeploymentStatus], operation: str) -> DeploymentStatus:
+        success_states = {DeploymentStatus.RUNNING, DeploymentStatus.SUCCESS}
+        if operation == "stop":
+            success_states = {DeploymentStatus.STOPPED}
+        return rollup_status(
+            statuses,
+            success_states=success_states,
+            failure_states={DeploymentStatus.FAILED},
+            empty_status=DeploymentStatus.FAILED,
+            all_success_status=DeploymentStatus.STOPPED if operation == "stop" else DeploymentStatus.RUNNING,
+            partial_success_status=DeploymentStatus.PARTIAL_SUCCESS,
+            all_failed_status=DeploymentStatus.FAILED,
+            mixed_status=DeploymentStatus.DEGRADED,
+        )
+
+
+class DeploymentExecutionCoordinator:
+    """Lightweight execution ownership marker for deployment runs."""
+
+    @staticmethod
+    def mark_owned(execution: DeploymentExecution) -> None:
+        # TODO: replace this local marker with distributed leases before multi-worker execution.
+        execution.result_summary = {
+            **(execution.result_summary or {}),
+            "execution_owner": "local-process",
+            "lease_strategy": "in-process",
+        }
 
 
 class DockerComposeDeploymentService:
@@ -81,6 +121,9 @@ class DockerComposeDeploymentService:
         self.server_repository = server_repository
         self.job_service = job_service
         self.credential_service = credential_service
+        self.status_rollup = DeploymentStatusRollupService()
+        self.execution_coordinator = DeploymentExecutionCoordinator()
+        self.secret_sanitizer = SecretSanitizer()
 
     async def list_deployments(self, *, server_id: UUID | None = None) -> list[DeploymentRead]:
         deployments = (
@@ -277,9 +320,9 @@ class DockerComposeDeploymentService:
             raise DeploymentValidationError("Deployment has no matching target hosts")
         for target in targets:
             await self._managed_server(target.server_id)
-        deployment.status = DeploymentStatus.DEPLOYING
+        deployment.status = self.status_rollup.transition(deployment.status, DeploymentStatus.DEPLOYING)
         for target in targets:
-            target.status = DeploymentStatus.DEPLOYING
+            target.status = self.status_rollup.transition(target.status, DeploymentStatus.DEPLOYING)
         await self.repository.session.commit()
 
         execution = await self.execution_repository.create(
@@ -291,6 +334,7 @@ class DockerComposeDeploymentService:
                 started_at=datetime.now(UTC),
             )
         )
+        self.execution_coordinator.mark_owned(execution)
         await self.repository.session.commit()
         return deployment, targets, execution
 
@@ -318,7 +362,7 @@ class DockerComposeDeploymentService:
                 revision_number=await self.revision_repository.next_revision_number(deployment.id),
                 operation=operation,
                 compose_content=deployment.compose_content,
-                env_content=deployment.env_content,
+                env_content=self.secret_sanitizer.redact_text(deployment.env_content),
                 status=DeploymentStatus.DEPLOYING,
             )
         )
@@ -343,24 +387,25 @@ class DockerComposeDeploymentService:
             if job.exit_code == 0 and operation == "stop":
                 next_status = DeploymentStatus.STOPPED
 
-            target.status = next_status
+            target.status = self.status_rollup.transition(target.status, next_status)
             target.last_job_id = job.id
-            revision.status = next_status
+            revision.status = self.status_rollup.transition(revision.status, next_status)
             revision.job_id = job.id
-            revision.stdout = job.stdout
-            revision.stderr = job.stderr
-            target_execution.status = next_status
+            revision.stdout = self.secret_sanitizer.redact_text(job.stdout)
+            revision.stderr = self.secret_sanitizer.redact_text(job.stderr)
+            target_execution.status = self.status_rollup.transition(target_execution.status, next_status)
             target_execution.job_id = job.id
             target_execution.revision_id = revision.id
-            target_execution.stdout = job.stdout
-            target_execution.stderr = job.stderr
+            target_execution.stdout = self.secret_sanitizer.redact_text(job.stdout)
+            target_execution.stderr = self.secret_sanitizer.redact_text(job.stderr)
             target_execution.finished_at = datetime.now(UTC)
-        except Exception as exc:
-            target.status = DeploymentStatus.FAILED
-            revision.status = DeploymentStatus.FAILED
-            revision.stderr = str(exc)
-            target_execution.status = DeploymentStatus.FAILED
-            target_execution.error_message = str(exc)
+        except (CommandValidationError, DeploymentValidationError, JobTargetNotFoundError, JobTargetNotManagedError) as exc:
+            safe_error = self.secret_sanitizer.redact_text(str(exc)) or "Deployment target execution failed"
+            target.status = self.status_rollup.transition(target.status, DeploymentStatus.FAILED)
+            revision.status = self.status_rollup.transition(revision.status, DeploymentStatus.FAILED)
+            revision.stderr = safe_error
+            target_execution.status = self.status_rollup.transition(target_execution.status, DeploymentStatus.FAILED)
+            target_execution.error_message = safe_error
             target_execution.finished_at = datetime.now(UTC)
         await self.repository.session.commit()
         return job, revision, target_execution
@@ -376,8 +421,8 @@ class DockerComposeDeploymentService:
         revisions: list[DeploymentRevision],
         target_executions: list[DeploymentTargetExecution],
     ) -> DeploymentOperationRead:
-        deployment.status = self._rollup_status([target.status for target in targets], operation)
-        execution.status = deployment.status
+        deployment.status = self.status_rollup.rollup([target.status for target in targets], operation)
+        execution.status = self.status_rollup.transition(execution.status, deployment.status)
         execution.finished_at = datetime.now(UTC)
         target_aggregate = aggregate_target_executions(
             target_executions,
@@ -385,7 +430,7 @@ class DockerComposeDeploymentService:
             failure_states=deployment_execution_failure_states(),
         )
         execution.result_summary = target_aggregate.summary.as_result_summary()
-        execution.error_message = (
+        execution.error_message = self.secret_sanitizer.redact_text(
             "\n".join(target_aggregate.summary.failure_messages)
             if target_aggregate.summary.failure_messages
             else None
@@ -544,6 +589,7 @@ class DockerComposeDeploymentService:
             secret = credential.secret or credential.private_key
             if not secret:
                 raise DeploymentValidationError(f"Credential for {clean_key} has no usable secret value")
+            self.secret_sanitizer.add_secret(secret)
             lines.append(f"{clean_key}={self._dotenv_quote(secret)}")
             redacted_lines.append(f"{clean_key}=********")
         return "\n".join(part for part in lines if part), "\n".join(part for part in redacted_lines if part)

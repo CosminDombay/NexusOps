@@ -70,7 +70,9 @@ class WorkflowRun(Base, UuidPrimaryKeyMixin, TimestampMixin):
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     target_server_id: Mapped[UUID | None] = mapped_column(ForeignKey("servers.id"), nullable=True, index=True)
     initiated_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # TODO: formalize context keys per workflow_type before adding workflow chaining.
     context_json: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+    # TODO: promote stable summary counters and correlation fields to typed columns.
     result_summary: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
 
@@ -103,6 +105,7 @@ class WorkflowStep(Base, UuidPrimaryKeyMixin, TimestampMixin):
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     log_output: Mapped[str] = mapped_column(Text, default="", nullable=False)
     error_output: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    # TODO: split target/job linkage metadata into typed columns for queryable runtime visibility.
     metadata_json: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
 
     workflow_run: Mapped[WorkflowRun] = relationship(back_populates="steps")

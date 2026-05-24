@@ -6,6 +6,7 @@ Focused operational references:
 
 - `docs/architecture/orchestration-semantics.md`: orchestration ownership and lifecycle terminology.
 - `docs/architecture/operational-runtime-experience.md`: runtime timeline, explainability, and cancellation semantics.
+- `docs/architecture/security-hardening-and-service-decomposition.md`: transition guards, command safety, secret redaction, and decomposition notes.
 - `docs/architecture/component-usage-and-deployments.md`: practical component usage and deployment setup guide.
 
 ## Folder Structure

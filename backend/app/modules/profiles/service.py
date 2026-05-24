@@ -10,10 +10,11 @@ from backend.app.modules.jobs.models import JobStatus
 from backend.app.modules.jobs.schemas import JobExecuteRequest
 from backend.app.modules.jobs.service import JobService
 from backend.app.modules.orchestration.semantics import job_failure_states, job_success_states
+from backend.app.modules.orchestration.security import CommandValidationError, SafeCommandBuilder
 from backend.app.modules.orchestration.utils import success_failure_counts, summarize_statuses
 from backend.app.modules.packages.definitions import get_package_definition
 from backend.app.modules.packages.repository import PackageDefinitionRepository
-from backend.app.modules.packages.service import PackageAutomationService
+from backend.app.modules.packages.service import PackageAutomationService, PackageDefinitionNotFoundError
 from backend.app.modules.profiles.definitions import InfrastructureProfile, get_profile, list_profiles
 from backend.app.modules.profiles.models import InfrastructureProfileRecord
 from backend.app.modules.profiles.repository import InfrastructureProfileRepository
@@ -52,6 +53,70 @@ class BuiltinProfileError(Exception):
 SYSTEM_TEMPLATE_VERSION = "2026.05.16"
 
 
+class ProfileExecutionService:
+    """Coordinates profile execution flow while ProfileService owns template CRUD."""
+
+    def __init__(self, profile_service: "ProfileService") -> None:
+        self.profile_service = profile_service
+
+    async def apply_profile(
+        self,
+        profile: InfrastructureProfileRead,
+        payload: ProfileApplyRequest,
+    ) -> ProfileApplyRead:
+        jobs = []
+        status = "success"
+        workflow = await self.profile_service._start_profile_workflow(profile, payload)
+        try:
+            step_order = 0
+            for step in profile.steps:
+                if getattr(step, "enabled", True) is False:
+                    continue
+                step_order += 1
+                workflow_step = await self.profile_service._start_profile_workflow_step(
+                    workflow,
+                    profile,
+                    step,
+                    payload,
+                    step_order,
+                )
+                try:
+                    step_jobs = await self.profile_service._execute_profile_step(profile, step, payload)
+                    jobs.extend(step_jobs)
+                    await self.profile_service._finish_profile_workflow_step(
+                        workflow_step,
+                        profile,
+                        step,
+                        step_jobs,
+                    )
+                    if self.profile_service._profile_step_failed(step_jobs) and payload.stop_on_failure:
+                        status = "failed"
+                        break
+                except (ProfileStepResolutionError, VariableResolutionError, CommandValidationError) as exc:
+                    await self.profile_service._fail_profile_workflow_step(workflow_step, exc)
+                    raise
+
+            job_summary = summarize_statuses(
+                jobs,
+                success_states=job_success_states(),
+                failure_states=job_failure_states(),
+            )
+            if job_summary.has_failures and status != "failed":
+                status = "completed_with_failures"
+            await self.profile_service._finish_profile_workflow(workflow, profile, status, jobs)
+        except (ProfileStepResolutionError, VariableResolutionError, CommandValidationError) as exc:
+            await self.profile_service._fail_profile_workflow(workflow, profile, exc, jobs)
+            raise
+
+        return ProfileApplyRead(
+            profile_id=profile.id,
+            target_server_id=payload.target_server_id,
+            status=status,
+            jobs=jobs,
+            message=f"Profile {profile.name} executed {len(jobs)} step(s).",
+        )
+
+
 class ProfileService:
     """Application service for reusable infrastructure profile orchestration."""
 
@@ -70,6 +135,8 @@ class ProfileService:
         self.deployment_service = deployment_service
         self.workflow_service = workflow_service
         self.variable_service = VariableResolutionService()
+        self.command_builder = SafeCommandBuilder(self.variable_service)
+        self.execution_service = ProfileExecutionService(self)
 
     async def list_profiles(self) -> list[InfrastructureProfileRead]:
         profiles = [self._builtin_to_read(profile) for profile in list_profiles()]
@@ -206,58 +273,7 @@ class ProfileService:
 
     async def apply_profile(self, profile_id: str, payload: ProfileApplyRequest) -> ProfileApplyRead:
         profile = await self.get_profile(profile_id)
-
-        jobs = []
-        status = "success"
-        workflow = await self._start_profile_workflow(profile, payload)
-        try:
-            step_order = 0
-            for step in profile.steps:
-                if getattr(step, "enabled", True) is False:
-                    continue
-                step_order += 1
-                workflow_step = await self._start_profile_workflow_step(
-                    workflow,
-                    profile,
-                    step,
-                    payload,
-                    step_order,
-                )
-                try:
-                    step_jobs = await self._execute_profile_step(profile, step, payload)
-                    jobs.extend(step_jobs)
-                    await self._finish_profile_workflow_step(
-                        workflow_step,
-                        profile,
-                        step,
-                        step_jobs,
-                    )
-                    if self._profile_step_failed(step_jobs) and payload.stop_on_failure:
-                        status = "failed"
-                        break
-                except Exception as exc:
-                    await self._fail_profile_workflow_step(workflow_step, exc)
-                    raise
-
-            job_summary = summarize_statuses(
-                jobs,
-                success_states=job_success_states(),
-                failure_states=job_failure_states(),
-            )
-            if job_summary.has_failures and status != "failed":
-                status = "completed_with_failures"
-            await self._finish_profile_workflow(workflow, profile, status, jobs)
-        except Exception as exc:
-            await self._fail_profile_workflow(workflow, profile, exc, jobs)
-            raise
-
-        return ProfileApplyRead(
-            profile_id=profile.id,
-            target_server_id=payload.target_server_id,
-            status=status,
-            jobs=jobs,
-            message=f"Profile {profile.name} executed {len(jobs)} step(s).",
-        )
+        return await self.execution_service.apply_profile(profile, payload)
 
     async def apply_profile_bulk(self, payload: ProfileBulkApplyRequest) -> ProfileBulkApplyRead:
         results: list[ProfileBulkHostResult] = []
@@ -282,7 +298,7 @@ class ProfileService:
                         error=None if result.status == "success" else result.status,
                     )
                 )
-            except Exception as exc:
+            except (ProfileNotFoundError, ProfileStepResolutionError, VariableResolutionError, CommandValidationError) as exc:
                 results.append(
                     ProfileBulkHostResult(
                         target_server_id=target_server_id,
@@ -526,7 +542,7 @@ class ProfileService:
                 package_service = PackageAutomationService(repository=self.package_repository)
                 try:
                     package_read = await package_service.get_definition(reference_id)
-                except Exception:
+                except PackageDefinitionNotFoundError:
                     package_read = None
             if package_read is None:
                 package = get_package_definition(reference_id)
@@ -573,7 +589,7 @@ class ProfileService:
                 )
                 try:
                     package_read = await package_service.get_definition(reference_id)
-                except Exception:
+                except PackageDefinitionNotFoundError:
                     package_read = None
             if package_read is None:
                 package = get_package_definition(reference_id)
@@ -623,8 +639,18 @@ class ProfileService:
         runtime_variables = {**safe_variables, **secret_values}
         redacted_variables = {**safe_variables, **{name: "********" for name in secret_values}}
         return (
-            self.variable_service.resolve_text(text, definitions=definitions, variables=runtime_variables),
-            self.variable_service.resolve_text(text, definitions=definitions, variables=redacted_variables),
+            self.command_builder.resolve_template(
+                text,
+                definitions=definitions,
+                variables=runtime_variables,
+                source="profile",
+            ),
+            self.command_builder.resolve_template(
+                text,
+                definitions=definitions,
+                variables=redacted_variables,
+                source="profile:redacted",
+            ),
         )
 
     async def _resolve_secret_variables(
