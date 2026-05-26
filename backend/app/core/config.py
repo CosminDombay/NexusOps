@@ -40,6 +40,11 @@ class Settings(BaseSettings):
     loki_base_url: str | None = None
     monitoring_timeout_seconds: int = Field(default=10, ge=1, le=60)
     monitoring_validation_interval_seconds: int = Field(default=300, ge=60, le=86400)
+    runtime_refresh_enabled: bool = True
+    runtime_refresh_interval_seconds: int = Field(default=60, ge=30, le=3600)
+    runtime_refresh_min_interval_seconds: int = Field(default=30, ge=10, le=3600)
+    runtime_refresh_concurrency: int = Field(default=4, ge=1, le=20)
+    runtime_refresh_timeout_seconds: int = Field(default=45, ge=10, le=300)
     nexusops_master_key: str | None = None
     nexusops_admin_user: str | None = None
     nexusops_admin_email: str | None = None

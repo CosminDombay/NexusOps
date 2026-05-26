@@ -150,6 +150,7 @@ The implemented system is focused on foundations, visibility, narrowly scoped pr
   - lightweight TCP reachability check against SSH port
   - per-host last health state, timestamp, and error metadata
   - bulk health refresh and health summary endpoints
+  - scheduled runtime refresh updates online/offline state and last-seen metadata
 - Package definitions:
   - Docker Engine
   - Tailscale
@@ -207,6 +208,7 @@ The implemented system is focused on foundations, visibility, narrowly scoped pr
   - multi-target deploy/redeploy/restart/stop/status/log operations through Jobs
   - deployment edit and delete API/UI
   - operational deployment cards with runtime status, per-target state, target hosts, ports, compose source, duration, output summaries, health state, and synchronization state
+  - persisted deployment target runtime state refreshed by manual and scheduled Docker inspection
   - centered responsive create/edit deployment drawer so forms appear only when requested
   - inspect and log panels for operational feedback
   - partial success/failure rollups for multi-target orchestration
@@ -507,6 +509,7 @@ The 2026-05-23 review confirms that the implementation has moved beyond the olde
 - Remote shell WebSocket authentication now uses short-lived scoped remote-access tokens instead of the active JWT.
 - Refresh-token rotation and reuse detection are implemented with persisted token session families. Future work remains around httpOnly refresh-cookie transport and session management UX.
 - Monitoring overview should remain snapshot-first. Avoid live provider discovery or dashboard search during ordinary rendering unless it is behind an explicit refresh path.
+- Runtime visibility is eventually consistent: login and scheduler-triggered refreshes update inventory health and Docker deployment state in the backend, while frontend inventory/deployment pages poll normalized API state without direct infrastructure checks or page reloads.
 
 ## Current Safety Boundary
 

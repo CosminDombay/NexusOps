@@ -206,7 +206,7 @@ Inventory commits are currently performed in the service layer after repository 
 Alembic is configured at the repository root through `alembic.ini` and migration code under `backend/migrations`.
 
 Current migrations create the `servers` and `jobs` tables, inventory SSH authentication metadata, definition tables, provisioning requests, provisioning blueprints, inventory synchronization metadata, integration records and integration sync state, template override/variable metadata, encrypted credentials, credential usages, variables, inventory credential references, deployment credential references, integration credential references, provisioning additional disk metadata, LXC provisioning metadata, and deployment runtime execution tables.
-Security-hardening migrations add refresh-token sessions, remote-access tokens, SSH host-key fingerprint metadata, job execution intent metadata, and append-only job execution events.
+Security-hardening migrations add refresh-token sessions, remote-access tokens, SSH host-key fingerprint metadata, job execution intent metadata, and append-only job execution events. Runtime refresh stabilization adds persisted deployment target runtime state so ordinary deployment reads can show the latest reconciled Docker state without live inspection on every request.
 
 Important migration characteristics:
 
@@ -252,6 +252,11 @@ Important settings include:
 - `WEBSOCKET_RATE_LIMIT_PER_MINUTE`
 - `REMOTE_ACCESS_TOKEN_EXPIRE_SECONDS`
 - `SSH_TRUST_ON_FIRST_USE`
+- `RUNTIME_REFRESH_ENABLED`
+- `RUNTIME_REFRESH_INTERVAL_SECONDS`
+- `RUNTIME_REFRESH_MIN_INTERVAL_SECONDS`
+- `RUNTIME_REFRESH_CONCURRENCY`
+- `RUNTIME_REFRESH_TIMEOUT_SECONDS`
 - `JWT_ALGORITHM`
 
 Proxmox secrets are not committed. They should be supplied by local environment variables or an ignored `.env`.
@@ -445,7 +450,7 @@ Docker Compose deployments persist compose content, optional plaintext env conte
 
 Deployment command history is redacted when credential-backed env values are injected.
 
-Deployment create requests accept both the existing `target_server_id` and a `target_server_ids` list. The service persists all selected targets, runs sequential per-target fanout in the MVP, records target-level status/log summaries/failure reasons, and rolls the deployment execution up to `success`, `failed`, or `partial_success`. Distributed worker queueing, cancellation, and retry scheduling remain future work.
+Deployment create requests accept both the existing `target_server_id` and a `target_server_ids` list. The service persists all selected targets, runs sequential per-target fanout in the MVP, records target-level status/log summaries/failure reasons, and rolls the deployment execution up to `success`, `failed`, or `partial_success`. Runtime refresh inspects Docker Compose state through the existing Jobs/SSH path and persists target runtime fields such as running/stopped/degraded/unreachable, container state, health, missing services, checked timestamp, and runtime errors. Distributed worker queueing, cancellation, and retry scheduling remain future work.
 
 ## Monitoring Readiness Flow
 

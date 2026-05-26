@@ -16,6 +16,8 @@ import {
 } from '../api/serversApi';
 import type { CreateServerPayload, Server, UpdateServerPayload } from '../types/server';
 
+const autoRefreshIntervalMs = 30_000;
+
 type UseServersResult = {
   servers: Server[];
   isLoading: boolean;
@@ -239,6 +241,16 @@ export function useServers(): UseServersResult {
 
   useEffect(() => {
     void refreshServers();
+  }, [refreshServers]);
+
+  useEffect(() => {
+    const intervalId = window.setInterval(() => {
+      if (document.visibilityState === 'visible') {
+        void refreshServers();
+      }
+    }, autoRefreshIntervalMs);
+
+    return () => window.clearInterval(intervalId);
   }, [refreshServers]);
 
   return useMemo(

@@ -13,6 +13,7 @@ from backend.app.modules.automations.models import Automation, AutomationSchedul
 from backend.app.modules.automations.repository import AutomationRepository
 from backend.app.modules.automations.tasks import execute_automation_workflow
 from backend.app.modules.monitoring.tasks import validate_monitoring_snapshots
+from backend.app.modules.runtime_state.tasks import submit_runtime_refresh
 from backend.app.modules.workflows.models import WorkflowTriggerSource
 from backend.app.workers.queue.service import task_queue
 
@@ -26,6 +27,7 @@ class SchedulerService:
     async def start(self) -> None:
         await self.reload_automations()
         self.register_monitoring_validation()
+        self.register_runtime_refresh()
         self.scheduler.start()
         logger.info("scheduler_started")
 
@@ -38,6 +40,7 @@ class SchedulerService:
     async def reload_automations(self) -> None:
         self.scheduler.remove_all_jobs()
         self.register_monitoring_validation()
+        self.register_runtime_refresh()
         try:
             async with AsyncSessionLocal() as session:
                 automations = await AutomationRepository(session).list_enabled()
@@ -73,6 +76,18 @@ class SchedulerService:
             max_instances=1,
         )
 
+    def register_runtime_refresh(self) -> None:
+        if not settings.runtime_refresh_enabled:
+            return
+        self.scheduler.add_job(
+            self.dispatch_runtime_refresh,
+            trigger=IntervalTrigger(seconds=settings.runtime_refresh_interval_seconds),
+            id="runtime:refresh",
+            replace_existing=True,
+            coalesce=True,
+            max_instances=1,
+        )
+
     async def dispatch_monitoring_validation(self) -> None:
         task_queue.submit(
             validate_monitoring_snapshots(),
@@ -97,6 +112,9 @@ class SchedulerService:
             execution_origin="automation",
             correlation_id=str(workflow.id),
         )
+
+    async def dispatch_runtime_refresh(self) -> None:
+        submit_runtime_refresh(reason="scheduler")
 
     @staticmethod
     def _trigger_for(automation: Automation):

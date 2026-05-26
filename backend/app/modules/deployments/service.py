@@ -3,6 +3,9 @@ import re
 from hashlib import sha256
 from uuid import UUID
 
+import structlog
+
+from backend.app.common.constants import InventoryHealthStatus
 from backend.app.modules.deployments.models import (
     Deployment,
     DeploymentExecution,
@@ -19,16 +22,23 @@ from backend.app.modules.deployments.repository import (
     DeploymentTargetExecutionRepository,
 )
 from backend.app.modules.deployments.schemas import (
+    DeploymentContainerRead,
     DeploymentCreate,
     DeploymentLogsRead,
     DeploymentExecutionRead,
     DeploymentOperationRead,
     DeploymentRead,
     DeploymentRevisionRead,
+    DeploymentRuntimeStateRead,
     DeploymentStatusRead,
     DeploymentTargetExecutionRead,
     DeploymentTargetRead,
     DeploymentUpdate,
+)
+from backend.app.modules.deployments.runtime import (
+    DeploymentRuntimeInspector,
+    DeploymentRuntimeState,
+    expected_compose_services,
 )
 from backend.app.modules.credentials.service import CredentialService
 from backend.app.modules.inventory.models import InventoryLifecycleState
@@ -47,6 +57,8 @@ from backend.app.modules.orchestration.utils import (
     duration_seconds,
     rollup_status,
 )
+
+logger = structlog.get_logger(__name__)
 
 
 class DeploymentNotFoundError(Exception):
@@ -67,6 +79,16 @@ class DeploymentStatusRollupService:
 
     @staticmethod
     def rollup(statuses: list[DeploymentStatus], operation: str) -> DeploymentStatus:
+        if operation == "runtime":
+            if not statuses:
+                return DeploymentStatus.FAILED
+            if all(status == DeploymentStatus.RUNNING for status in statuses):
+                return DeploymentStatus.RUNNING
+            if all(status == DeploymentStatus.STOPPED for status in statuses):
+                return DeploymentStatus.STOPPED
+            if all(status == DeploymentStatus.FAILED for status in statuses):
+                return DeploymentStatus.FAILED
+            return DeploymentStatus.DEGRADED
         success_states = {DeploymentStatus.RUNNING, DeploymentStatus.SUCCESS}
         if operation == "stop":
             success_states = {DeploymentStatus.STOPPED}
@@ -93,6 +115,100 @@ class DeploymentExecutionCoordinator:
             "execution_owner": "local-process",
             "lease_strategy": "in-process",
         }
+
+
+class DeploymentRuntimeReconciler:
+    """Queries live Docker Compose state and reconciles deployment runtime status."""
+
+    def __init__(self, deployment_service: "DockerComposeDeploymentService") -> None:
+        self.deployment_service = deployment_service
+
+    async def reconcile(
+        self,
+        deployment: Deployment,
+        targets: list[DeploymentTarget],
+    ) -> dict[UUID, DeploymentRuntimeState]:
+        # TODO: call this from a scheduled reconciliation loop once queue leases exist.
+        states: dict[UUID, DeploymentRuntimeState] = {}
+        for target in targets:
+            states[target.id] = await self.reconcile_target(deployment, target)
+        if states:
+            deployment.status = self.deployment_service.status_rollup.rollup(
+                [state.status for state in states.values()],
+                "runtime",
+            )
+            await self.deployment_service.repository.session.commit()
+            logger.info(
+                "deployment_runtime_reconciled",
+                deployment_id=str(deployment.id),
+                target_count=len(states),
+                status=deployment.status.value,
+            )
+        return states
+
+    async def reconcile_target(
+        self,
+        deployment: Deployment,
+        target: DeploymentTarget,
+    ) -> DeploymentRuntimeState:
+        desired_running = deployment.status not in {
+            DeploymentStatus.DRAFT,
+            DeploymentStatus.STOPPED,
+            DeploymentStatus.CANCELLED,
+        }
+        expected_services = expected_compose_services(deployment.compose_content)
+        command = self.deployment_service._runtime_inspection_command(target, deployment)
+        server = await self.deployment_service.server_repository.get_by_id(target.server_id)
+        if server is not None and server.last_health_status == InventoryHealthStatus.UNREACHABLE:
+            state = DeploymentRuntimeState(
+                target_server_id=target.server_id,
+                status=DeploymentStatus.DEGRADED if desired_running else DeploymentStatus.STOPPED,
+                runtime_state="unreachable",
+                sync_status="unknown",
+                health_state="unreachable",
+                missing_services=sorted(expected_services),
+                error=server.last_health_error or "Target host is unreachable",
+            )
+            self.deployment_service._persist_runtime_state(target, state)
+            logger.warning(
+                "deployment_runtime_target_unreachable",
+                deployment_id=str(deployment.id),
+                target_id=str(target.id),
+                server_id=str(target.server_id),
+                hostname=getattr(server, "hostname", None),
+            )
+            return state
+        try:
+            job = await self.deployment_service.job_service.execute(
+                JobExecuteRequest(
+                    target_server_id=target.server_id,
+                    operation_type=f"deployment:{deployment.id}:runtime-refresh",
+                    command=command,
+                )
+            )
+            if job.exit_code != 0:
+                state = DeploymentRuntimeInspector.failed(
+                    target_server_id=target.server_id,
+                    error=job.stderr or "Runtime inspection failed",
+                    expected_services=expected_services,
+                    desired_running=desired_running,
+                )
+            else:
+                state = DeploymentRuntimeInspector.parse(
+                    target_server_id=target.server_id,
+                    stdout=job.stdout or "",
+                    expected_services=expected_services,
+                    desired_running=desired_running,
+                )
+        except (CommandValidationError, JobTargetNotFoundError, JobTargetNotManagedError) as exc:
+            state = DeploymentRuntimeInspector.failed(
+                target_server_id=target.server_id,
+                error=str(exc),
+                expected_services=expected_services,
+                desired_running=desired_running,
+            )
+        self.deployment_service._persist_runtime_state(target, state)
+        return state
 
 
 class DockerComposeDeploymentService:
@@ -124,6 +240,7 @@ class DockerComposeDeploymentService:
         self.status_rollup = DeploymentStatusRollupService()
         self.execution_coordinator = DeploymentExecutionCoordinator()
         self.secret_sanitizer = SecretSanitizer()
+        self.runtime_reconciler = DeploymentRuntimeReconciler(self)
 
     async def list_deployments(self, *, server_id: UUID | None = None) -> list[DeploymentRead]:
         deployments = (
@@ -223,6 +340,7 @@ class DockerComposeDeploymentService:
 
     async def status(self, deployment_id: UUID) -> DeploymentStatusRead:
         deployment, targets = await self._deployment_and_targets(deployment_id)
+        runtime_states = await self.runtime_reconciler.reconcile(deployment, targets)
         jobs = []
         for target in targets:
             command = self._compose_command(target, deployment, "ps")
@@ -240,7 +358,13 @@ class DockerComposeDeploymentService:
             target_server_id=targets[0].server_id if targets else None,
             job=jobs[0] if jobs else None,
             jobs=jobs,
+            runtime_states=[self._runtime_state_to_read(item) for item in runtime_states.values()],
         )
+
+    async def refresh_runtime(self, deployment_id: UUID) -> DeploymentRead:
+        deployment, targets = await self._deployment_and_targets(deployment_id)
+        runtime_states = await self.runtime_reconciler.reconcile(deployment, targets)
+        return await self._to_read(deployment, runtime_states=runtime_states)
 
     async def logs(self, deployment_id: UUID) -> DeploymentLogsRead:
         deployment, targets = await self._deployment_and_targets(deployment_id)
@@ -440,7 +564,7 @@ class DockerComposeDeploymentService:
             await self.repository.session.refresh(revision)
         await self.repository.session.refresh(execution)
         return DeploymentOperationRead(
-            deployment=await self._to_read(deployment),
+            deployment=await self._to_read(deployment, refresh_runtime=True),
             job=jobs[0] if jobs else None,
             revision=DeploymentRevisionRead.model_validate(revisions[0]) if revisions else None,
             jobs=jobs,
@@ -469,12 +593,28 @@ class DockerComposeDeploymentService:
             raise JobTargetNotManagedError("Target server is not managed")
         return server
 
-    async def _to_read(self, deployment: Deployment) -> DeploymentRead:
+    async def _to_read(
+        self,
+        deployment: Deployment,
+        *,
+        refresh_runtime: bool = False,
+        runtime_states: dict[UUID, DeploymentRuntimeState] | None = None,
+    ) -> DeploymentRead:
         targets = await self.target_repository.list_for_deployment(deployment.id)
-        target_reads = [await self._target_to_read(target) for target in targets]
+        if refresh_runtime and targets and deployment.status != DeploymentStatus.DRAFT:
+            runtime_states = await self.runtime_reconciler.reconcile(deployment, targets)
+        runtime_states = runtime_states or {}
+        target_reads = [await self._target_to_read(target, runtime_state=runtime_states.get(target.id)) for target in targets]
         executions = [await self._execution_to_read(item) for item in await self.execution_repository.list_for_deployment(deployment.id)]
         first_target = targets[0] if targets else None
         first_server = await self.server_repository.get_by_id(first_target.server_id) if first_target else None
+        runtime_state = self._aggregate_runtime_state([target.runtime_state for target in target_reads])
+        health_state = self._aggregate_health_state([target.health_state for target in target_reads], deployment.status)
+        sync_status = "drifted" if any(target.sync_status == "drifted" for target in target_reads) else self._sync_status(deployment, first_target)
+        runtime_checked_at = max(
+            [target.runtime_checked_at for target in target_reads if target.runtime_checked_at],
+            default=None,
+        )
         return DeploymentRead(
             id=deployment.id,
             name=deployment.name,
@@ -483,6 +623,7 @@ class DockerComposeDeploymentService:
             env_content=deployment.env_content,
             credential_refs=deployment.credential_refs,
             status=deployment.status,
+            execution_status=executions[0].status if executions else None,
             target_server_id=first_target.server_id if first_target else None,
             target_server_ids=[target.server_id for target in targets],
             target_hostname=first_server.hostname if first_server else None,
@@ -493,13 +634,21 @@ class DockerComposeDeploymentService:
             ports=self._extract_ports(deployment.compose_content),
             compose_source="inline",
             uptime_seconds=self._uptime_seconds(deployment) if deployment.status == DeploymentStatus.RUNNING else None,
-            health_state=self._health_state(deployment.status),
-            sync_status=self._sync_status(deployment, first_target),
+            runtime_state=runtime_state,
+            health_state=health_state,
+            sync_status=sync_status,
+            runtime_checked_at=runtime_checked_at,
+            runtime_error="; ".join(target.runtime_error for target in target_reads if target.runtime_error) or None,
             created_at=deployment.created_at,
             updated_at=deployment.updated_at,
         )
 
-    async def _target_to_read(self, target: DeploymentTarget) -> DeploymentTargetRead:
+    async def _target_to_read(
+        self,
+        target: DeploymentTarget,
+        *,
+        runtime_state: DeploymentRuntimeState | None = None,
+    ) -> DeploymentTargetRead:
         server = await self.server_repository.get_by_id(target.server_id)
         executions = await self.target_execution_repository.list_for_deployment(target.deployment_id)
         last_execution = next((item for item in executions if item.target_id == target.id), None)
@@ -511,6 +660,26 @@ class DockerComposeDeploymentService:
                 "provider": server.provider if server else None,
                 "readiness": self._server_readiness(server),
                 "last_execution": await self._target_execution_to_read(last_execution) if last_execution else None,
+                "runtime_state": runtime_state.runtime_state if runtime_state else target.runtime_state,
+                "health_state": runtime_state.health_state if runtime_state else target.health_state,
+                "sync_status": runtime_state.sync_status if runtime_state else target.sync_status,
+                "runtime_checked_at": runtime_state.inspected_at if runtime_state else target.runtime_checked_at,
+                "runtime_error": runtime_state.error if runtime_state else target.runtime_error,
+                "containers": [
+                    DeploymentContainerRead(
+                        service=container.service,
+                        name=container.name,
+                        state=container.state,
+                        health=container.health,
+                        uptime_seconds=container.uptime_seconds,
+                        restart_count=container.restart_count,
+                    )
+                    for container in (runtime_state.containers if runtime_state else [])
+                ] if runtime_state else [
+                    DeploymentContainerRead.model_validate(container)
+                    for container in (target.runtime_containers or [])
+                ],
+                "missing_services": runtime_state.missing_services if runtime_state else list(target.missing_services or []),
             }
         )
 
@@ -545,6 +714,51 @@ class DockerComposeDeploymentService:
                 "duration_seconds": duration_seconds(execution.started_at, execution.finished_at),
             }
         )
+
+    @staticmethod
+    def _runtime_state_to_read(state: DeploymentRuntimeState) -> DeploymentRuntimeStateRead:
+        return DeploymentRuntimeStateRead(
+            target_server_id=state.target_server_id,
+            status=state.status,
+            runtime_state=state.runtime_state,
+            sync_status=state.sync_status,
+            health_state=state.health_state,
+            containers=[
+                DeploymentContainerRead(
+                    service=container.service,
+                    name=container.name,
+                    state=container.state,
+                    health=container.health,
+                    uptime_seconds=container.uptime_seconds,
+                    restart_count=container.restart_count,
+                )
+                for container in state.containers
+            ],
+            missing_services=state.missing_services,
+            inspected_at=state.inspected_at,
+            error=state.error,
+        )
+
+    @staticmethod
+    def _persist_runtime_state(target: DeploymentTarget, state: DeploymentRuntimeState) -> None:
+        target.status = state.status
+        target.runtime_state = state.runtime_state
+        target.health_state = state.health_state
+        target.sync_status = state.sync_status
+        target.runtime_checked_at = state.inspected_at
+        target.runtime_error = state.error[:2000] if state.error else None
+        target.runtime_containers = [
+            {
+                "service": container.service,
+                "name": container.name,
+                "state": container.state,
+                "health": container.health,
+                "uptime_seconds": container.uptime_seconds,
+                "restart_count": container.restart_count,
+            }
+            for container in state.containers
+        ]
+        target.missing_services = list(state.missing_services)
 
     async def _operation_commands(self, deployment: Deployment, target: DeploymentTarget, operation: str) -> tuple[str, str]:
         deployment_path = self._deployment_path(target, deployment)
@@ -620,6 +834,20 @@ class DockerComposeDeploymentService:
                 "set -e",
                 f"cd {cls._sh_quote(deployment_path)}",
                 cls._docker_compose(compose_args),
+            ]
+        )
+
+    @classmethod
+    def _runtime_inspection_command(cls, target: DeploymentTarget, deployment: Deployment) -> str:
+        deployment_path = cls._deployment_path(target, deployment)
+        inspect_format = "{{json .}}"
+        return "\n".join(
+            [
+                f"cd {cls._sh_quote(deployment_path)}",
+                "ids=$(docker compose -f docker-compose.yaml --env-file .env ps -q 2>/dev/null || true)",
+                "if [ -z \"$ids\" ]; then project=$(basename \"$PWD\"); ids=$(docker ps -a --filter \"label=com.docker.compose.project=$project\" -q 2>/dev/null || true); fi",
+                "if [ -z \"$ids\" ]; then exit 0; fi",
+                f"docker inspect --format '{inspect_format}' $ids",
             ]
         )
 
@@ -707,3 +935,29 @@ class DockerComposeDeploymentService:
         if deployment.status == target.status:
             return "synced"
         return "drifted"
+
+    @staticmethod
+    def _aggregate_runtime_state(states: list[str]) -> str:
+        filtered = [state for state in states if state and state != "unknown"]
+        if not filtered:
+            return "unknown"
+        if all(state == "running" for state in filtered):
+            return "running"
+        if all(state == "stopped" for state in filtered):
+            return "stopped"
+        if any(state in {"degraded", "missing"} for state in filtered):
+            return "degraded"
+        return "mixed"
+
+    @staticmethod
+    def _aggregate_health_state(states: list[str], status: DeploymentStatus) -> str:
+        filtered = [state for state in states if state and state != "unknown"]
+        if not filtered:
+            return DockerComposeDeploymentService._health_state(status)
+        if all(state == "healthy" for state in filtered):
+            return "healthy"
+        if all(state == "stopped" for state in filtered):
+            return "stopped"
+        if any(state in {"degraded", "unhealthy"} for state in filtered):
+            return "degraded"
+        return "unknown"

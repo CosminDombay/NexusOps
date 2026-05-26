@@ -39,3 +39,8 @@ export async function getDeploymentStatus(deploymentId: string): Promise<Deploym
   const response = await apiClient.get<DeploymentStatusResult>(`/deployments/${deploymentId}/status`);
   return response.data;
 }
+
+export async function refreshDeploymentRuntime(deploymentId: string): Promise<Deployment> {
+  const response = await apiClient.post<Deployment>(`/deployments/${deploymentId}/refresh-runtime`);
+  return response.data;
+}

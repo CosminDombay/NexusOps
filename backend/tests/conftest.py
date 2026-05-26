@@ -88,12 +88,15 @@ def _build_test_client(
         app.dependency_overrides[get_current_user] = override_get_current_user
 
     previous_rate_limit_enabled = settings.rate_limit_enabled
+    previous_runtime_refresh_enabled = settings.runtime_refresh_enabled
     settings.rate_limit_enabled = False
+    settings.runtime_refresh_enabled = False
     try:
         with TestClient(app) as test_client:
             yield test_client
     finally:
         settings.rate_limit_enabled = previous_rate_limit_enabled
+        settings.runtime_refresh_enabled = previous_runtime_refresh_enabled
         app.dependency_overrides.clear()
         asyncio.run(drop_schema())
 

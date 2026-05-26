@@ -35,6 +35,27 @@ export type DeploymentTargetExecution = {
   updated_at: string;
 };
 
+export type DeploymentContainer = {
+  service: string;
+  name: string;
+  state: string;
+  health: string;
+  uptime_seconds: number | null;
+  restart_count: number | null;
+};
+
+export type DeploymentRuntimeState = {
+  target_server_id: string;
+  status: DeploymentStatus;
+  runtime_state: string;
+  sync_status: string;
+  health_state: string;
+  containers: DeploymentContainer[];
+  missing_services: string[];
+  inspected_at: string;
+  error: string | null;
+};
+
 export type DeploymentExecution = {
   id: string;
   deployment_id: string;
@@ -65,6 +86,13 @@ export type DeploymentTarget = {
   readiness: string;
   remote_path: string;
   status: DeploymentStatus;
+  runtime_state: string;
+  health_state: string;
+  sync_status: string;
+  runtime_checked_at: string | null;
+  runtime_error: string | null;
+  containers: DeploymentContainer[];
+  missing_services: string[];
   last_job_id: string | null;
   last_execution: DeploymentTargetExecution | null;
   created_at: string;
@@ -79,6 +107,7 @@ export type Deployment = {
   env_content: string | null;
   credential_refs: Record<string, string>;
   status: DeploymentStatus;
+  execution_status: DeploymentStatus | null;
   target_server_id: string | null;
   target_server_ids?: string[];
   target_hostname: string | null;
@@ -89,8 +118,11 @@ export type Deployment = {
   ports: string[];
   compose_source: string;
   uptime_seconds: number | null;
+  runtime_state: string;
   health_state: string;
   sync_status: string;
+  runtime_checked_at: string | null;
+  runtime_error: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -130,4 +162,5 @@ export type DeploymentStatusResult = {
   target_server_id: string | null;
   job: Job | null;
   jobs: Job[];
+  runtime_states: DeploymentRuntimeState[];
 };

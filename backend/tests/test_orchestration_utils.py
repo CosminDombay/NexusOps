@@ -12,6 +12,10 @@ from backend.app.modules.orchestration.utils import (
 )
 from backend.app.common.variables import VariableResolutionService
 from backend.app.modules.deployments.models import DeploymentStatus
+from backend.app.modules.deployments.runtime import (
+    DeploymentRuntimeInspector,
+    expected_compose_services,
+)
 from backend.app.modules.jobs.models import JobStatus
 from backend.app.modules.orchestration.security import (
     CommandValidationError,
@@ -197,3 +201,47 @@ def test_deployment_transition_validator_rejects_cancelled_to_success() -> None:
         pass
     else:
         raise AssertionError("expected invalid deployment transition")
+
+
+def test_expected_compose_services_reads_service_names() -> None:
+    compose = """
+services:
+  web:
+    image: nginx
+  worker:
+    image: busybox
+volumes:
+  data:
+"""
+
+    assert expected_compose_services(compose) == {"web", "worker"}
+
+
+def test_runtime_inspector_marks_stopped_container_as_drifted() -> None:
+    state = DeploymentRuntimeInspector.parse(
+        target_server_id=uuid4(),
+        stdout='{"Name":"demo-web-1","State":"exited","Config":{"Labels":{}},"Labels":{"com.docker.compose.service":"web"}}\n',
+        expected_services={"web"},
+        desired_running=True,
+    )
+
+    assert state.status == DeploymentStatus.STOPPED
+    assert state.runtime_state == "stopped"
+    assert state.sync_status == "drifted"
+    assert state.health_state == "unhealthy"
+
+
+def test_runtime_inspector_marks_partial_stack_as_degraded() -> None:
+    state = DeploymentRuntimeInspector.parse(
+        target_server_id=uuid4(),
+        stdout=(
+            '{"Name":"demo-web-1","State":"running","Labels":{"com.docker.compose.service":"web"}}\n'
+            '{"Name":"demo-worker-1","State":"exited","Labels":{"com.docker.compose.service":"worker"}}\n'
+        ),
+        expected_services={"web", "worker"},
+        desired_running=True,
+    )
+
+    assert state.status == DeploymentStatus.DEGRADED
+    assert state.runtime_state == "degraded"
+    assert state.sync_status == "drifted"

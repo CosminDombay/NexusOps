@@ -140,6 +140,14 @@ async def get_status(
     return await _run(lambda: service.status(deployment_id))
 
 
+@router.post("/{deployment_id}/refresh-runtime", response_model=DeploymentRead)
+async def refresh_runtime(
+    deployment_id: UUID,
+    service: Annotated[DockerComposeDeploymentService, Depends(get_deployment_service)],
+) -> DeploymentRead:
+    return await _run(lambda: service.refresh_runtime(deployment_id))
+
+
 @router.get("/{deployment_id}/logs", response_model=DeploymentLogsRead)
 async def get_logs(
     deployment_id: UUID,

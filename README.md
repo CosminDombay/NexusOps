@@ -123,6 +123,7 @@ docker compose -f infra/docker-compose.dev.yml up --build
 - Jobs resolve node credentials and execution credential references server-side. Sensitive values are never returned to the frontend, and commands persisted to job history are redacted when runtime secrets are injected.
 - Jobs now persist immutable execution intent metadata, including command hash, command policy result, initiator metadata, correlation ID, and append-only execution events for future runtime expansion.
 - Inventory health checks perform lightweight TCP reachability checks against SSH ports without logging in on each refresh.
+- Runtime refresh runs conservatively in the backend after login and on a scheduler, updating inventory reachability and Docker deployment state so frontend pages can poll normalized state without direct infrastructure checks.
 - Credential records store reusable secret material encrypted with Fernet using `NEXUSOPS_MASTER_KEY`. API responses expose only masked secret status.
 - Production startup fails if required security settings are unsafe, including default `SECRET_KEY`, missing `NEXUSOPS_MASTER_KEY`, disabled Proxmox TLS verification, `DEBUG=true`, or default-looking bootstrap admin credentials.
 - Inventory records can reference a shared `credential_id` for SSH execution while retaining inline SSH metadata for backward-compatible local MVP use.

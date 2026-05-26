@@ -50,7 +50,13 @@ VALID_DEPLOYMENT_TRANSITIONS: dict[DeploymentStatus, set[DeploymentStatus]] = {
     DeploymentStatus.PARTIAL_SUCCESS: {DeploymentStatus.QUEUED, DeploymentStatus.DEPLOYING, DeploymentStatus.RUNNING, DeploymentStatus.STOPPED, DeploymentStatus.DEGRADED, DeploymentStatus.FAILED, DeploymentStatus.CANCELLED},
     DeploymentStatus.DEGRADED: {DeploymentStatus.QUEUED, DeploymentStatus.DEPLOYING, DeploymentStatus.RUNNING, DeploymentStatus.STOPPED, DeploymentStatus.FAILED, DeploymentStatus.CANCELLED},
     DeploymentStatus.STOPPED: {DeploymentStatus.QUEUED, DeploymentStatus.DEPLOYING, DeploymentStatus.RUNNING, DeploymentStatus.FAILED, DeploymentStatus.CANCELLED},
-    DeploymentStatus.FAILED: {DeploymentStatus.QUEUED, DeploymentStatus.DEPLOYING},
+    DeploymentStatus.FAILED: {
+        DeploymentStatus.QUEUED,
+        DeploymentStatus.DEPLOYING,
+        DeploymentStatus.RUNNING,
+        DeploymentStatus.DEGRADED,
+        DeploymentStatus.STOPPED,
+    },
     DeploymentStatus.CANCELLED: set(),
 }
 

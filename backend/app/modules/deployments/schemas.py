@@ -54,8 +54,12 @@ class DeploymentRead(BaseModel):
     ports: list[str] = Field(default_factory=list)
     compose_source: str = "inline"
     uptime_seconds: int | None = None
+    execution_status: DeploymentStatus | None = None
+    runtime_state: str = "unknown"
     health_state: str = "unknown"
     sync_status: str = "unknown"
+    runtime_checked_at: datetime | None = None
+    runtime_error: str | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -72,12 +76,28 @@ class DeploymentTargetRead(BaseModel):
     readiness: str = "unknown"
     remote_path: str
     status: DeploymentStatus
+    runtime_state: str = "unknown"
+    health_state: str = "unknown"
+    sync_status: str = "unknown"
+    runtime_checked_at: datetime | None = None
+    runtime_error: str | None = None
+    containers: list["DeploymentContainerRead"] = Field(default_factory=list)
+    missing_services: list[str] = Field(default_factory=list)
     last_job_id: UUID | None = None
     last_execution: "DeploymentTargetExecutionRead | None" = None
     created_at: datetime
     updated_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class DeploymentContainerRead(BaseModel):
+    service: str
+    name: str
+    state: str
+    health: str = "unknown"
+    uptime_seconds: int | None = None
+    restart_count: int | None = None
 
 
 class DeploymentRevisionRead(BaseModel):
@@ -154,6 +174,19 @@ class DeploymentStatusRead(BaseModel):
     target_server_id: UUID | None = None
     job: JobRead | None = None
     jobs: list[JobRead] = Field(default_factory=list)
+    runtime_states: list["DeploymentRuntimeStateRead"] = Field(default_factory=list)
+
+
+class DeploymentRuntimeStateRead(BaseModel):
+    target_server_id: UUID
+    status: DeploymentStatus
+    runtime_state: str
+    sync_status: str
+    health_state: str
+    containers: list[DeploymentContainerRead] = Field(default_factory=list)
+    missing_services: list[str] = Field(default_factory=list)
+    inspected_at: datetime
+    error: str | None = None
 
 
 class DeploymentLogsRead(BaseModel):

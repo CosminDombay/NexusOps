@@ -5,7 +5,7 @@ from uuid import UUID
 
 import structlog
 
-from backend.app.common.constants import InventoryHealthStatus, InventoryLifecycleState
+from backend.app.common.constants import InventoryHealthStatus, InventoryLifecycleState, ServerStatus
 from backend.app.modules.inventory.models import Server
 from backend.app.modules.inventory.repository import ServerRepository
 from backend.app.modules.inventory.schemas import InventoryHealthCheckResult, InventoryHealthSummary
@@ -136,6 +136,11 @@ class InventoryHealthService:
         server.last_health_status = status
         server.last_health_check_at = checked_at
         server.last_health_error = error
+        if status == InventoryHealthStatus.ONLINE:
+            server.status = ServerStatus.ONLINE
+            server.last_seen_at = checked_at
+        elif status == InventoryHealthStatus.UNREACHABLE:
+            server.status = ServerStatus.OFFLINE
         await self.runtime_snapshots.refresh_inventory_snapshot(server, commit=False)
         await self.runtime_snapshots.record_refresh_status(
             "ssh",

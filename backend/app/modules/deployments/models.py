@@ -58,6 +58,13 @@ class DeploymentTarget(Base, UuidPrimaryKeyMixin, TimestampMixin):
         index=True,
     )
     last_job_id: Mapped[UUID | None] = mapped_column(ForeignKey("jobs.id"), nullable=True)
+    runtime_state: Mapped[str] = mapped_column(String(50), default="unknown", nullable=False, index=True)
+    health_state: Mapped[str] = mapped_column(String(50), default="unknown", nullable=False, index=True)
+    sync_status: Mapped[str] = mapped_column(String(50), default="unknown", nullable=False, index=True)
+    runtime_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    runtime_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    runtime_containers: Mapped[list[dict[str, object]]] = mapped_column(JSON, default=list, nullable=False)
+    missing_services: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
 
 
 class DeploymentRevision(Base, UuidPrimaryKeyMixin, TimestampMixin):

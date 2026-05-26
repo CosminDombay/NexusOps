@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
   Activity,
@@ -36,6 +36,7 @@ import {
   getDeploymentLogs,
   getDeploymentStatus,
   listDeployments,
+  refreshDeploymentRuntime,
   runDeploymentOperation,
   updateDeployment,
 } from './api/deploymentsApi';
@@ -59,6 +60,7 @@ const statusFilters: Array<DeploymentStatus | 'all'> = [
   'failed',
   'draft',
 ];
+const autoRefreshIntervalMs = 30_000;
 
 type DrawerMode = 'create' | 'edit' | null;
 type DeploymentOperationName = 'deploy' | 'redeploy' | 'restart' | 'stop';
@@ -99,7 +101,17 @@ export function DeploymentsPage() {
     [deployments, statusFilter],
   );
 
-  async function refresh() {
+  const refreshDeploymentList = useCallback(async () => {
+    try {
+      const nextDeployments = await listDeployments();
+      setDeployments(nextDeployments);
+      setSelectedDeploymentId((current) => current || nextDeployments[0]?.id || '');
+    } catch (caughtError) {
+      setError(getApiErrorMessage(caughtError));
+    }
+  }, []);
+
+  const refresh = useCallback(async () => {
     setIsLoading(true);
     setError(null);
     try {
@@ -118,7 +130,7 @@ export function DeploymentsPage() {
     } finally {
       setIsLoading(false);
     }
-  }
+  }, []);
 
   function deploymentPayload(targets: string[]): CreateDeploymentPayload {
     return {
@@ -231,6 +243,27 @@ export function DeploymentsPage() {
     try {
       const result = await getDeploymentStatus(deployment.id);
       setInspectOutput(formatJobsOutput(result.jobs.length ? result.jobs : result.job ? [result.job] : []));
+      const refreshed = await refreshDeploymentRuntime(deployment.id);
+      setDeployments((current) =>
+        current.map((item) => (item.id === refreshed.id ? refreshed : item)),
+      );
+    } catch (caughtError) {
+      setError(getApiErrorMessage(caughtError));
+    } finally {
+      setIsWorking(false);
+    }
+  }
+
+  async function refreshRuntime(deployment: Deployment) {
+    setSelectedDeploymentId(deployment.id);
+    setIsWorking(true);
+    setError(null);
+    try {
+      const refreshed = await refreshDeploymentRuntime(deployment.id);
+      setDeployments((current) =>
+        current.map((item) => (item.id === refreshed.id ? refreshed : item)),
+      );
+      setInspectOutput(selectedDeploymentSummary(refreshed));
     } catch (caughtError) {
       setError(getApiErrorMessage(caughtError));
     } finally {
@@ -275,7 +308,17 @@ export function DeploymentsPage() {
 
   useEffect(() => {
     void refresh();
-  }, []);
+  }, [refresh]);
+
+  useEffect(() => {
+    const intervalId = window.setInterval(() => {
+      if (document.visibilityState === 'visible' && !isWorking) {
+        void refreshDeploymentList();
+      }
+    }, autoRefreshIntervalMs);
+
+    return () => window.clearInterval(intervalId);
+  }, [isWorking, refreshDeploymentList]);
 
   return (
     <div className="space-y-5">
@@ -347,6 +390,7 @@ export function DeploymentsPage() {
             onSelect={() => setSelectedDeploymentId(deployment.id)}
             onRun={run}
             onInspect={inspect}
+            onRefreshRuntime={refreshRuntime}
             onLogs={loadLogs}
             onEdit={openEditDrawer}
             onDelete={handleDeleteDeployment}
@@ -408,6 +452,7 @@ function DeploymentCard({
   onSelect,
   onRun,
   onInspect,
+  onRefreshRuntime,
   onLogs,
   onEdit,
   onDelete,
@@ -418,6 +463,7 @@ function DeploymentCard({
   onSelect: () => void;
   onRun: (deployment: Deployment, operation: DeploymentOperationName) => Promise<void>;
   onInspect: (deployment: Deployment) => Promise<void>;
+  onRefreshRuntime: (deployment: Deployment) => Promise<void>;
   onLogs: (deployment: Deployment) => Promise<void>;
   onEdit: (deployment: Deployment) => void;
   onDelete: (deployment: Deployment) => Promise<void>;
@@ -447,13 +493,15 @@ function DeploymentCard({
               )}
             </p>
           </div>
-          <RuntimeBadge value={deployment.status} />
+          <RuntimeBadge value={deployment.runtime_state === 'unknown' ? deployment.status : deployment.runtime_state} />
         </div>
         <div className="mt-4 grid gap-2 sm:grid-cols-2">
           <Info
             label="Ports"
             value={deployment.ports.length ? deployment.ports.join(', ') : 'none'}
           />
+          <Info label="Runtime" value={deployment.runtime_state} />
+          <Info label="Execution" value={deployment.execution_status ?? deployment.status} />
           <Info label="Health" value={deployment.health_state} />
           <Info label="Sync" value={deployment.sync_status} />
           <Info label="Uptime" value={formatDuration(deployment.uptime_seconds)} />
@@ -505,6 +553,12 @@ function DeploymentCard({
           onClick={() => void onInspect(deployment)}
         />
         <ActionButton
+          icon={RefreshCw}
+          label="Runtime"
+          disabled={isWorking}
+          onClick={() => void onRefreshRuntime(deployment)}
+        />
+        <ActionButton
           icon={Terminal}
           label="Logs"
           disabled={isWorking}
@@ -543,6 +597,13 @@ function DeploymentTargets({ deployment }: { deployment: Deployment }) {
             readiness: 'unknown',
             remote_path: deployment.remote_path ?? '',
             status: deployment.status,
+            runtime_state: deployment.runtime_state,
+            health_state: deployment.health_state,
+            sync_status: deployment.sync_status,
+            runtime_checked_at: deployment.runtime_checked_at,
+            runtime_error: deployment.runtime_error,
+            containers: [],
+            missing_services: [],
             last_job_id: null,
             last_execution: null,
             created_at: deployment.created_at,
@@ -572,9 +633,32 @@ function DeploymentTargets({ deployment }: { deployment: Deployment }) {
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <RuntimeBadge value={target.status} />
+            <RuntimeBadge value={target.runtime_state === 'unknown' ? target.status : target.runtime_state} />
             <span className="text-xs text-zinc-500">{formatDuration(target.last_execution?.duration_seconds ?? null)}</span>
           </div>
+          <div className="basis-full text-xs text-zinc-500">
+            runtime {formatLabel(target.runtime_state)} - health {formatLabel(target.health_state)} - sync {formatLabel(target.sync_status)}
+            {target.runtime_checked_at ? ` - checked ${new Date(target.runtime_checked_at).toLocaleString()}` : ''}
+          </div>
+          {target.containers.length ? (
+            <div className="basis-full space-y-1">
+              {target.containers.map((container) => (
+                <div key={`${target.id}-${container.name}`} className="flex flex-wrap items-center gap-2 text-xs text-zinc-600">
+                  <span className="font-semibold text-zinc-800">{container.service}</span>
+                  <span>{container.name}</span>
+                  <RuntimeBadge value={container.state} />
+                  <span>health {formatLabel(container.health)}</span>
+                  {container.restart_count !== null ? <span>restarts {container.restart_count}</span> : null}
+                </div>
+              ))}
+            </div>
+          ) : null}
+          {target.missing_services.length ? (
+            <p className="basis-full text-xs text-amber-700">Missing services: {target.missing_services.join(', ')}</p>
+          ) : null}
+          {target.runtime_error ? (
+            <p className="basis-full text-xs text-rose-700">{target.runtime_error}</p>
+          ) : null}
           {target.last_execution?.error_message ? (
             <p className="basis-full text-xs text-rose-700">{target.last_execution.error_message}</p>
           ) : null}
@@ -929,13 +1013,17 @@ function selectedDeploymentSummary(deployment: Deployment | null): string {
   const execution = deployment.latest_execution;
   return [
     `name: ${deployment.name}`,
+    `runtime: ${formatLabel(deployment.runtime_state)}`,
+    `execution status: ${deployment.execution_status ?? deployment.status}`,
     `status: ${statusLabel(normalizeStatus(deployment.status))}`,
-    `targets: ${deployment.targets.length ? deployment.targets.map((target) => `${target.hostname ?? target.server_id}=${target.status}`).join(', ') : deployment.target_hostname ?? deployment.target_server_id ?? 'none'}`,
+    `targets: ${deployment.targets.length ? deployment.targets.map((target) => `${target.hostname ?? target.server_id}=runtime:${target.runtime_state}/execution:${target.status}`).join(', ') : deployment.target_hostname ?? deployment.target_server_id ?? 'none'}`,
     `latest execution: ${execution ? `${execution.operation} ${execution.status} (${execution.success_count}/${execution.target_count} succeeded)` : 'none'}`,
     `ports: ${deployment.ports.length ? deployment.ports.join(', ') : 'none'}`,
     `compose source: ${deployment.compose_source}`,
     `health: ${deployment.health_state}`,
     `sync: ${deployment.sync_status}`,
+    `runtime checked: ${deployment.runtime_checked_at ? new Date(deployment.runtime_checked_at).toLocaleString() : 'not checked'}`,
+    deployment.runtime_error ? `runtime error: ${deployment.runtime_error}` : '',
     `remote path: ${deployment.remote_path ?? 'none'}`,
-  ].join('\n');
+  ].filter(Boolean).join('\n');
 }

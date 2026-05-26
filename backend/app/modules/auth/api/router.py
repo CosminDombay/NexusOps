@@ -20,6 +20,7 @@ from backend.app.modules.auth.services.auth_service import (
     UserManagementError,
     UserNotFoundError,
 )
+from backend.app.modules.runtime_state.tasks import submit_runtime_refresh
 
 router = APIRouter()
 logger = structlog.get_logger(__name__)
@@ -57,6 +58,7 @@ async def login(
             source_ip=source_ip_from_request(request),
             metadata={"role": token_pair.user.role},
         )
+        submit_runtime_refresh(reason="login")
         return token_pair
     except AuthenticationError as exc:
         await audit_service_from_session(session).record(

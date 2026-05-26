@@ -28,6 +28,7 @@ from backend.app.modules.workflows.service import WorkflowService
 class FakeSshAdapter(SshAdapter):
     def __init__(self) -> None:
         self.calls: list[dict[str, Any]] = []
+        self.inspect_stdout = '{"Name":"demo-web-1","State":{"Status":"running","StartedAt":"2026-05-24T10:00:00Z"},"Config":{"Labels":{"com.docker.compose.service":"web"}},"RestartCount":0}\n'
 
     @property
     def name(self) -> str:
@@ -46,6 +47,12 @@ class FakeSshAdapter(SshAdapter):
         passphrase: str | None = None,
     ) -> SshExecutionResult:
         self.calls.append({"host": host, "command": command, "user": user})
+        if "docker inspect" in command:
+            return SshExecutionResult(
+                exit_code=0,
+                stdout=self.inspect_stdout,
+                stderr="",
+            )
         return SshExecutionResult(exit_code=0, stdout="ok\n", stderr="")
 
     async def upload_file(self, host: str, local_path: str, remote_path: str, user: str) -> None:
@@ -309,6 +316,50 @@ async def test_deployment_service_updates_record_and_marks_draft(client) -> None
         assert "image: caddy:alpine" in updated.compose_content
         assert updated.env_content == "APP_ENV=lab"
         assert updated.remote_path == "/home/ubuntu/nexusops/deployments"
+
+
+@pytest.mark.asyncio
+async def test_deployment_runtime_refresh_persists_stopped_container_state(client) -> None:
+    session = next(iter(client.app.dependency_overrides.values()))
+    async for db_session in session():
+        server = await InventoryService(ServerRepository(db_session)).create_server(
+            ServerCreate(**server_payload(hostname="runtime-drift-01", ip_address="10.2.0.14"))
+        )
+        adapter = FakeSshAdapter()
+        server_repository = ServerRepository(db_session)
+        service = DockerComposeDeploymentService(
+            repository=DeploymentRepository(db_session),
+            target_repository=DeploymentTargetRepository(db_session),
+            revision_repository=DeploymentRevisionRepository(db_session),
+            server_repository=server_repository,
+            job_service=JobService(
+                job_repository=JobRepository(db_session),
+                server_repository=server_repository,
+                ssh_adapter=adapter,
+            ),
+        )
+        deployment = await service.create_deployment(
+            DeploymentCreate(
+                name="runtime-drift",
+                target_server_id=server.id,
+                compose_content="services:\n  web:\n    image: nginx:alpine\n",
+            )
+        )
+        deployed = await service.deploy(deployment.id)
+        assert deployed.deployment.runtime_state == "running"
+
+        adapter.inspect_stdout = '{"Name":"demo-web-1","State":{"Status":"exited","StartedAt":"2026-05-24T10:00:00Z"},"Config":{"Labels":{"com.docker.compose.service":"web"}},"RestartCount":0}\n'
+        refreshed = await service.refresh_runtime(deployment.id)
+
+        assert refreshed.runtime_state == "stopped"
+        assert refreshed.status == "stopped"
+        assert refreshed.sync_status == "drifted"
+        assert refreshed.targets[0].containers[0].state == "exited"
+
+        inspect_calls = len([call for call in adapter.calls if "docker inspect" in call["command"]])
+        listed = await service.list_deployments()
+        assert listed[0].runtime_state == "stopped"
+        assert len([call for call in adapter.calls if "docker inspect" in call["command"]]) == inspect_calls
 
 
 def test_deployment_heredoc_marker_changes_when_content_contains_marker() -> None:
