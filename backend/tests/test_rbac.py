@@ -115,21 +115,44 @@ def test_admin_can_manage_users(auth_client) -> None:
             "role": "operator",
             "is_active": True,
             "is_superuser": False,
+            "session_inactivity_timeout_minutes": 60,
         },
     )
 
     assert create_response.status_code == 201
     user_id = create_response.json()["id"]
+    assert create_response.json()["session_inactivity_timeout_minutes"] == 60
 
     update_response = auth_client.put(
         f"/api/v1/auth/users/{user_id}",
         headers={"Authorization": f"Bearer {token}"},
-        json={"role": "viewer", "is_active": False},
+        json={"role": "viewer", "is_active": False, "session_inactivity_timeout_minutes": 0},
     )
 
     assert update_response.status_code == 200
     assert update_response.json()["role"] == "viewer"
     assert update_response.json()["is_active"] is False
+    assert update_response.json()["session_inactivity_timeout_minutes"] == 0
+
+
+def test_admin_user_session_policy_rejects_too_short_timeout(auth_client) -> None:
+    token = _token_for(auth_client, "admin")
+
+    response = auth_client.post(
+        "/api/v1/auth/users",
+        headers={"Authorization": f"Bearer {token}"},
+        json={
+            "username": "short-session",
+            "email": "short-session@example.com",
+            "password": "Password123!",
+            "role": "viewer",
+            "is_active": True,
+            "is_superuser": False,
+            "session_inactivity_timeout_minutes": 3,
+        },
+    )
+
+    assert response.status_code == 422
 
 
 def test_operator_cannot_manage_users(auth_client) -> None:

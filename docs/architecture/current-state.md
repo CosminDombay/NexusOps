@@ -18,6 +18,7 @@ The implemented system is focused on foundations, visibility, narrowly scoped pr
   - token-version based revocation for logout, password reset, and role/security changes
   - persisted refresh-token sessions with rotation and family reuse detection
   - current-session logout and logout-all session invalidation
+  - per-user inactivity timeout overrides
   - `/api/v1/auth/me` current-user lookup
   - environment-based initial admin bootstrap
   - reusable RBAC dependencies for admin, operator, and viewer access
@@ -467,7 +468,7 @@ The 2026-05-23 review confirms that the implementation has moved beyond the olde
 - Remote Access uses one-time scoped shell tokens for WebSocket setup and stores trusted SSH host-key fingerprints on Inventory records.
 - Production startup validates unsafe configuration and emits structured warnings or errors based on environment.
 - Baseline security middleware adds rate limiting and security headers for public-exposure readiness.
-- RBAC user management is implemented under the auth module and remains admin-only through backend route dependencies.
+- RBAC user management is implemented under the auth module and remains admin-only through backend route dependencies. Users & RBAC includes per-user session inactivity policy controls for system default, 30 minutes, 60 minutes, 90 minutes, and no inactivity timeout.
 - Inventory deletion cleanup is owned by `InventoryService`; it clears active references without hard-deleting historical job logs.
 - Adapter packages are canonicalized under `backend/app/adapters/`.
 - SSH has a concrete Paramiko adapter for key/password command execution.

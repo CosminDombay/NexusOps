@@ -19,7 +19,16 @@ const initialForm: CreateUserPayload = {
   role: 'viewer',
   is_active: true,
   is_superuser: false,
+  session_inactivity_timeout_minutes: null,
 };
+
+const sessionPolicyOptions = [
+  { label: 'Default', value: '' },
+  { label: '30 min', value: '30' },
+  { label: '60 min', value: '60' },
+  { label: '90 min', value: '90' },
+  { label: 'Never', value: '0' },
+];
 
 export function UserManagementPage() {
   const [users, setUsers] = useState<AuthUser[]>([]);
@@ -63,6 +72,7 @@ export function UserManagementPage() {
           role: form.role,
           is_active: form.is_active,
           is_superuser: form.is_superuser,
+          session_inactivity_timeout_minutes: form.session_inactivity_timeout_minutes,
         });
         setUsers((current) => current.map((item) => (item.id === updated.id ? updated : item)));
         setSuccess(`Updated ${updated.username}.`);
@@ -89,6 +99,7 @@ export function UserManagementPage() {
         role: patch.role,
         is_active: patch.is_active,
         is_superuser: patch.is_superuser,
+        session_inactivity_timeout_minutes: patch.session_inactivity_timeout_minutes,
       });
       setUsers((current) => current.map((item) => (item.id === updated.id ? updated : item)));
     } catch (caughtError) {
@@ -133,6 +144,7 @@ export function UserManagementPage() {
       role: user.role,
       is_active: user.is_active,
       is_superuser: user.is_superuser,
+      session_inactivity_timeout_minutes: user.session_inactivity_timeout_minutes ?? null,
     });
     setIsFormOpen(true);
     setError(null);
@@ -200,6 +212,12 @@ export function UserManagementPage() {
             />
           ) : null}
           <RoleSelect value={form.role} onChange={(role) => setForm({ ...form, role })} />
+          <SessionPolicySelect
+            value={form.session_inactivity_timeout_minutes ?? null}
+            onChange={(session_inactivity_timeout_minutes) =>
+              setForm({ ...form, session_inactivity_timeout_minutes })
+            }
+          />
           <Toggle
             label="Active"
             checked={form.is_active}
@@ -234,7 +252,7 @@ export function UserManagementPage() {
             <table className="min-w-full divide-y divide-zinc-200 text-sm">
               <thead className="bg-zinc-50">
                 <tr>
-                  {['User', 'Role', 'State', 'Last login', 'Actions'].map((heading) => (
+                  {['User', 'Role', 'Session', 'State', 'Last login', 'Actions'].map((heading) => (
                     <th
                       key={heading}
                       className="px-5 py-3 text-left text-xs font-semibold uppercase text-zinc-500"
@@ -263,6 +281,15 @@ export function UserManagementPage() {
                         <option value="operator">operator</option>
                         <option value="admin">admin</option>
                       </select>
+                    </td>
+                    <td className="px-5 py-4">
+                      <SessionPolicySelect
+                        compact
+                        value={user.session_inactivity_timeout_minutes ?? null}
+                        onChange={(session_inactivity_timeout_minutes) =>
+                          void patchUser(user, { session_inactivity_timeout_minutes })
+                        }
+                      />
                     </td>
                     <td className="px-5 py-4">
                       <button
@@ -349,6 +376,47 @@ function RoleSelect({ value, onChange }: { value: UserRole; onChange: (value: Us
         <option value="operator">operator</option>
         <option value="admin">admin</option>
       </select>
+    </label>
+  );
+}
+
+function SessionPolicySelect({
+  value,
+  compact = false,
+  onChange,
+}: {
+  value: number | null;
+  compact?: boolean;
+  onChange: (value: number | null) => void;
+}) {
+  const select = (
+    <select
+      className={
+        compact
+          ? 'rounded-md border border-zinc-300 px-2 py-1'
+          : 'mt-1 h-10 w-full rounded-md border border-zinc-300 px-3 text-sm'
+      }
+      value={value === null ? '' : String(value)}
+      onChange={(event) => {
+        onChange(event.target.value === '' ? null : Number(event.target.value));
+      }}
+    >
+      {sessionPolicyOptions.map((option) => (
+        <option key={option.value} value={option.value}>
+          {option.label}
+        </option>
+      ))}
+    </select>
+  );
+
+  if (compact) {
+    return select;
+  }
+
+  return (
+    <label className="text-sm font-medium text-zinc-700">
+      Session policy
+      {select}
     </label>
   );
 }

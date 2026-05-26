@@ -100,6 +100,7 @@ async def refresh(
 
     try:
         refresh_session = await service.validate_refresh_session(
+            user=user,
             token_payload=token_payload,
             refresh_token=payload.refresh_token,
         )

@@ -6,6 +6,16 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from backend.app.modules.auth.models import UserRole
 
 
+def validate_session_timeout(value: int | None) -> int | None:
+    if value is None:
+        return None
+    if value == 0:
+        return value
+    if value < 15 or value > 43200:
+        raise ValueError("Session inactivity timeout must be 0, or between 15 and 43200 minutes")
+    return value
+
+
 class UserRead(BaseModel):
     id: UUID
     email: str
@@ -13,6 +23,7 @@ class UserRead(BaseModel):
     role: UserRole
     is_active: bool
     is_superuser: bool
+    session_inactivity_timeout_minutes: int | None = None
     created_at: datetime
     updated_at: datetime
     last_login_at: datetime | None = None
@@ -57,6 +68,7 @@ class UserCreate(BaseModel):
     role: UserRole = UserRole.VIEWER
     is_active: bool = True
     is_superuser: bool = False
+    session_inactivity_timeout_minutes: int | None = None
 
     @field_validator("email", "username")
     @classmethod
@@ -66,6 +78,11 @@ class UserCreate(BaseModel):
             raise ValueError("Value cannot be blank")
         return stripped
 
+    @field_validator("session_inactivity_timeout_minutes")
+    @classmethod
+    def validate_session_timeout_value(cls, value: int | None) -> int | None:
+        return validate_session_timeout(value)
+
 
 class UserUpdate(BaseModel):
     email: str | None = Field(default=None, min_length=3, max_length=255)
@@ -73,6 +90,7 @@ class UserUpdate(BaseModel):
     role: UserRole | None = None
     is_active: bool | None = None
     is_superuser: bool | None = None
+    session_inactivity_timeout_minutes: int | None = None
 
     @field_validator("email", "username")
     @classmethod
@@ -83,6 +101,11 @@ class UserUpdate(BaseModel):
         if not stripped:
             raise ValueError("Value cannot be blank")
         return stripped
+
+    @field_validator("session_inactivity_timeout_minutes")
+    @classmethod
+    def validate_optional_session_timeout_value(cls, value: int | None) -> int | None:
+        return validate_session_timeout(value)
 
 
 class UserPasswordReset(BaseModel):

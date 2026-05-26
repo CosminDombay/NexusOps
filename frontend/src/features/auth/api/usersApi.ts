@@ -8,6 +8,7 @@ export type CreateUserPayload = {
   role: UserRole;
   is_active: boolean;
   is_superuser: boolean;
+  session_inactivity_timeout_minutes?: number | null;
 };
 
 export type UpdateUserPayload = Partial<Omit<CreateUserPayload, 'password'>>;

@@ -7,6 +7,7 @@ export type AuthUser = {
   role: UserRole;
   is_active: boolean;
   is_superuser: boolean;
+  session_inactivity_timeout_minutes?: number | null;
   created_at: string;
   updated_at: string;
   last_login_at?: string | null;

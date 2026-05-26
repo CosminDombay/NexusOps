@@ -55,6 +55,8 @@ Refresh tokens now have persisted session metadata in `refresh_token_sessions`:
 
 Every refresh rotates the refresh token and revokes the previous token. Reuse of a revoked token is treated as replay and revokes the whole token family. Access tokens include a session ID, so current-session logout can invalidate the session without forcing every other session to log out. `/auth/logout-all` remains available for full account session revocation.
 
+The global inactivity timeout remains configurable through `SESSION_INACTIVITY_TIMEOUT_MINUTES`. Admins can also set a per-user inactivity policy from Users & RBAC: system default, 30 minutes, 60 minutes, 90 minutes, or no inactivity timeout. The `Never` option disables inactivity expiry only; refresh tokens still respect the configured maximum refresh-token lifetime.
+
 The frontend still uses the existing token-storage abstraction to preserve the current UX. This keeps a clean migration path toward httpOnly refresh cookies later.
 
 ## Lifecycle Transition Guards

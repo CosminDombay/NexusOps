@@ -114,7 +114,13 @@ class AuthService:
             session.revoke_reason = "logout"
             await self.repository.session.commit()
 
-    async def validate_refresh_session(self, *, token_payload: dict[str, object], refresh_token: str) -> RefreshTokenSession:
+    async def validate_refresh_session(
+        self,
+        *,
+        user: User,
+        token_payload: dict[str, object],
+        refresh_token: str,
+    ) -> RefreshTokenSession:
         token_id = str(token_payload.get("jti") or "")
         family_id = str(token_payload.get("family") or "")
         if not token_id or not family_id:
@@ -134,11 +140,13 @@ class AuthService:
             session.revoke_reason = "expired"
             await self.repository.session.commit()
             raise AuthenticationError("Refresh token expired")
-        if self._aware(session.last_activity_at) + timedelta(minutes=settings.session_inactivity_timeout_minutes) <= now:
-            session.revoked_at = now
-            session.revoke_reason = "inactive"
-            await self.repository.session.commit()
-            raise AuthenticationError("Session expired due to inactivity")
+        inactivity_timeout_minutes = self._effective_session_inactivity_timeout_minutes(user)
+        if inactivity_timeout_minutes is not None:
+            if self._aware(session.last_activity_at) + timedelta(minutes=inactivity_timeout_minutes) <= now:
+                session.revoked_at = now
+                session.revoke_reason = "inactive"
+                await self.repository.session.commit()
+                raise AuthenticationError("Session expired due to inactivity")
         return session
 
     async def revoke_refresh_family(self, user_id: UUID, family_id: str, *, reason: str) -> None:
@@ -186,6 +194,7 @@ class AuthService:
             role=payload.role,
             is_active=payload.is_active,
             is_superuser=payload.is_superuser,
+            session_inactivity_timeout_minutes=payload.session_inactivity_timeout_minutes,
         )
         await self.repository.create(user)
         await self.repository.session.commit()
@@ -205,7 +214,7 @@ class AuthService:
             raise UserManagementError("Email already exists")
         for key, value in update_data.items():
             setattr(user, key, value)
-        if {"role", "is_active", "is_superuser"} & set(update_data):
+        if {"role", "is_active", "is_superuser", "session_inactivity_timeout_minutes"} & set(update_data):
             user.token_version += 1
         await self.repository.session.commit()
         await self.repository.session.refresh(user)
@@ -268,3 +277,9 @@ class AuthService:
     @staticmethod
     def _aware(value: datetime) -> datetime:
         return value if value.tzinfo else value.replace(tzinfo=UTC)
+
+    @staticmethod
+    def _effective_session_inactivity_timeout_minutes(user: User) -> int | None:
+        if user.session_inactivity_timeout_minutes == 0:
+            return None
+        return user.session_inactivity_timeout_minutes or settings.session_inactivity_timeout_minutes

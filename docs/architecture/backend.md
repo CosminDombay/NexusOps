@@ -75,9 +75,9 @@ Authentication and authorization are separate internally:
 - authentication resolves the current platform user from a JWT access token
 - authorization is expressed through reusable dependencies: `get_current_user()`, `require_admin()`, `require_operator()`, and `require_viewer()`
 
-Access tokens are short lived and include a session ID. Refresh tokens are longer lived, persisted as hashed session records, and rotate on every refresh. Reuse of a revoked refresh token is treated as replay and revokes the whole token family. Startup can bootstrap a local admin from `NEXUSOPS_ADMIN_USER`, `NEXUSOPS_ADMIN_EMAIL`, and `NEXUSOPS_ADMIN_PASSWORD`; admin users are not hardcoded in migrations.
+Access tokens are short lived and include a session ID. Refresh tokens are longer lived, persisted as hashed session records, and rotate on every refresh. Reuse of a revoked refresh token is treated as replay and revokes the whole token family. Session inactivity uses the global `SESSION_INACTIVITY_TIMEOUT_MINUTES` value unless an admin sets a per-user override in Users & RBAC. Startup can bootstrap a local admin from `NEXUSOPS_ADMIN_USER`, `NEXUSOPS_ADMIN_EMAIL`, and `NEXUSOPS_ADMIN_PASSWORD`; admin users are not hardcoded in migrations.
 
-Admin-only user lifecycle endpoints live under `/api/v1/auth/users`. They support listing users, creating users, editing role/status/superuser flags, and resetting passwords. Backend route dependencies enforce admin access regardless of frontend visibility.
+Admin-only user lifecycle endpoints live under `/api/v1/auth/users`. They support listing users, creating users, editing role/status/superuser flags, setting session inactivity policy, and resetting passwords. Backend route dependencies enforce admin access regardless of frontend visibility.
 
 Platform identity remains distinct from Linux infrastructure identity. The auth module controls who can log into NexusOps. The Identity module continues to orchestrate Linux users, groups, SSH keys, sudo snippets, and filesystem permissions on managed hosts.
 

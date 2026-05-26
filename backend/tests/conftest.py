@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from backend.app.db.base import Base
 from backend.app.db.session import get_db_session
 from backend.app.main import app
+from backend.app.core.config import settings
 from backend.app.modules.auth.models import User, UserRole
 from backend.app.modules.auth.security.dependencies import get_current_user
 from backend.app.modules.auth.security.hashing import hash_password
@@ -86,11 +87,15 @@ def _build_test_client(
     if bypass_auth:
         app.dependency_overrides[get_current_user] = override_get_current_user
 
-    with TestClient(app) as test_client:
-        yield test_client
-
-    app.dependency_overrides.clear()
-    asyncio.run(drop_schema())
+    previous_rate_limit_enabled = settings.rate_limit_enabled
+    settings.rate_limit_enabled = False
+    try:
+        with TestClient(app) as test_client:
+            yield test_client
+    finally:
+        settings.rate_limit_enabled = previous_rate_limit_enabled
+        app.dependency_overrides.clear()
+        asyncio.run(drop_schema())
 
 
 @pytest.fixture()
