@@ -26,7 +26,7 @@ The frontend currently implements:
 - admin Users & RBAC page
 - shared contextual drawer shell for secondary create/edit/configuration workflows
 - shared operational components for page-level actions, runtime badges, status pills, toolbars, and collapsible action panels
-- unified Host Tools workspace with files/editor and persistent terminal
+- unified Host Tools workspace with files/editor and persistent resizable terminal
 - route-level lazy loading/code splitting
 
 ## Application Shell
@@ -116,6 +116,7 @@ It uses Axios with:
 - reusable API error formatting
 - bearer token injection from session-scoped auth storage
 - automatic refresh attempt on expired access tokens
+- token-storage abstraction preserved for future migration to safer refresh-token transport
 
 Feature folders define their own API functions and types, but they use the shared client for transport.
 
@@ -215,6 +216,7 @@ The Jobs UI includes:
 - persisted job history
 - tabbed stdout/stderr/command/metadata result viewer
 - larger expandable output inspector
+- server-generated sanitized command snapshots in job history
 - copy and wrap controls for command output
 - responsive table/cards
 - contextual drawer workflow for custom operational action create/edit
@@ -378,6 +380,25 @@ The Deployments UI is now an operational service dashboard rather than a permane
 - execution history and output summaries for deployment runs
 
 Credential-backed env mappings send only credential IDs to the backend; secret values are resolved server-side.
+
+## Host Tools Frontend Flow
+
+```text
+HostToolsPage
+  -> remoteAccessApi
+  -> shared apiClient for shell-token and SFTP requests
+  -> browser WebSocket for shell stream
+```
+
+The Host Tools UI includes:
+
+- file browser and editor for inventory-managed hosts
+- hash-checked file writes through the backend
+- operator/admin role gating
+- shell startup through a short-lived scoped token request before the WebSocket opens
+- resizable terminal area that refits xterm as the panel changes size
+
+The frontend no longer sends the long-lived access token directly as the shell WebSocket query token.
 
 Deployments now pass both `target_server_id` and optional `target_server_ids` in the request shape. The backend persists all selected targets, executes per-target Jobs sequentially in the MVP, and returns per-target execution state so operators can see succeeded, failed, and partially successful rollouts.
 

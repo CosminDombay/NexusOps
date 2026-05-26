@@ -67,11 +67,11 @@ Override the Proxmox dependency or inject a fake adapter/service in the test. Un
 - Proxmox lifecycle actions accept tasks but do not consistently poll and persist task completion/status logs outside provisioning flows.
 - Provisioning and deployments need idempotency keys to prevent duplicate VMs or repeated deploys from retries/double clicks.
 - Secrets handling lacks production vault features: rotation, last-used metadata, usage graph, scoped access, and audit.
-- Remote shell WebSocket auth uses the active JWT as a query parameter. This needs a short-lived scoped remote-access token.
+- Updated 2026-05-26: Remote shell WebSocket auth now uses short-lived, one-time scoped remote-access tokens instead of the active JWT.
 
 ### Medium
 
-- Refresh-token rotation and reuse detection are not implemented.
+- Updated 2026-05-26: Refresh-token rotation and reuse detection are implemented with persisted token session families.
 - RBAC is coarse. Fine-grained permissions, API keys, and service accounts are future work.
 - Provisioning needs stronger preflight validation for VMID availability, IP conflicts, storage existence, cloud-init readiness, and blueprint compatibility.
 - LXC support needs deeper readiness checks for network, gateway, DNS, storage, template metadata, and SSH readiness.

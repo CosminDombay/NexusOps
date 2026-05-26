@@ -31,6 +31,8 @@ class ServerBase(BaseModel):
     ssh_auth_method: ServerSshAuthMethod = ServerSshAuthMethod.KEY
     ssh_password: str | None = Field(default=None, max_length=500)
     ssh_private_key_path: str | None = Field(default=None, max_length=500)
+    trusted_ssh_host_key_sha256: str | None = Field(default=None, max_length=95)
+    trusted_ssh_host_key_accepted_at: datetime | None = None
     credential_id: UUID | None = None
     status: ServerStatus = ServerStatus.UNKNOWN
     provider: str = Field(min_length=1, max_length=100)
@@ -129,6 +131,8 @@ class ServerUpdate(BaseModel):
     ssh_auth_method: ServerSshAuthMethod | None = None
     ssh_password: str | None = Field(default=None, max_length=500)
     ssh_private_key_path: str | None = Field(default=None, max_length=500)
+    trusted_ssh_host_key_sha256: str | None = Field(default=None, max_length=95)
+    trusted_ssh_host_key_accepted_at: datetime | None = None
     credential_id: UUID | None = None
     status: ServerStatus | None = None
     provider: str | None = Field(default=None, min_length=1, max_length=100)

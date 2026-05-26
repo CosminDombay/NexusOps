@@ -140,5 +140,5 @@ The following items remain for later refinement slices:
 - full Docker container runtime management
 - HDS-DEV rebuild blueprint workflow
 - deeper explorer-driven page layouts beyond the shared drawer foundation
-- refresh-token rotation and reuse detection
+- completed 2026-05-26: refresh-token rotation and reuse detection
 - short-lived scoped remote-access tokens for shell WebSockets

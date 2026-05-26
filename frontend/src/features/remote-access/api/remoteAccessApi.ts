@@ -6,6 +6,11 @@ import type {
   RemoteFileWriteResponse,
 } from '../types/remoteAccess';
 
+type RemoteAccessTokenResponse = {
+  token: string;
+  expires_at: string;
+};
+
 export async function listRemoteFiles(serverId: string, path: string): Promise<RemoteDirectoryListing> {
   const response = await apiClient.get<RemoteDirectoryListing>(`/remote-access/hosts/${serverId}/files`, {
     params: { path },
@@ -29,6 +34,11 @@ export async function writeRemoteFile(
     payload,
   );
   return response.data;
+}
+
+export async function createShellToken(serverId: string): Promise<string> {
+  const response = await apiClient.post<RemoteAccessTokenResponse>(`/remote-access/hosts/${serverId}/shell-token`);
+  return response.data.token;
 }
 
 export function buildShellWebSocketUrl(serverId: string, token: string): string {

@@ -5,7 +5,7 @@ from uuid import UUID
 from sqlalchemy import select
 
 from backend.app.common.repository import BaseRepository
-from backend.app.modules.jobs.models import CustomOperationalAction, Job
+from backend.app.modules.jobs.models import CustomOperationalAction, Job, JobExecutionEvent
 
 
 class JobRepository(BaseRepository[Job]):
@@ -51,3 +51,11 @@ class CustomOperationalActionRepository(BaseRepository[CustomOperationalAction])
 
     async def delete(self, action: CustomOperationalAction) -> None:
         await self.session.delete(action)
+
+
+class JobExecutionEventRepository(BaseRepository[JobExecutionEvent]):
+    async def create(self, event: JobExecutionEvent) -> JobExecutionEvent:
+        self.session.add(event)
+        await self.session.flush()
+        await self.session.refresh(event)
+        return event

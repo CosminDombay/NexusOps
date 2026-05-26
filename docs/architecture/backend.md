@@ -11,10 +11,12 @@ Application construction happens in `backend/app/main.py`.
 Responsibilities:
 
 - configure structured logging
+- validate production startup guardrails
 - create the FastAPI app
 - configure CORS
+- install baseline security headers and in-process rate limiting
 - register the versioned API router
-- expose OpenAPI under the configured API prefix
+- expose OpenAPI under the configured API prefix when enabled
 
 The API prefix is controlled by `settings.api_v1_prefix`, currently defaulting to `/api/v1`.
 
@@ -73,7 +75,7 @@ Authentication and authorization are separate internally:
 - authentication resolves the current platform user from a JWT access token
 - authorization is expressed through reusable dependencies: `get_current_user()`, `require_admin()`, `require_operator()`, and `require_viewer()`
 
-Access tokens are short lived, refresh tokens are longer lived, and both include `sub`, `username`, `role`, and `exp` claims. Startup can bootstrap a local admin from `NEXUSOPS_ADMIN_USER`, `NEXUSOPS_ADMIN_EMAIL`, and `NEXUSOPS_ADMIN_PASSWORD`; admin users are not hardcoded in migrations.
+Access tokens are short lived and include a session ID. Refresh tokens are longer lived, persisted as hashed session records, and rotate on every refresh. Reuse of a revoked refresh token is treated as replay and revokes the whole token family. Startup can bootstrap a local admin from `NEXUSOPS_ADMIN_USER`, `NEXUSOPS_ADMIN_EMAIL`, and `NEXUSOPS_ADMIN_PASSWORD`; admin users are not hardcoded in migrations.
 
 Admin-only user lifecycle endpoints live under `/api/v1/auth/users`. They support listing users, creating users, editing role/status/superuser flags, and resetting passwords. Backend route dependencies enforce admin access regardless of frontend visibility.
 
@@ -107,7 +109,9 @@ Jobs follow the same architecture:
 - `actions.py` defines the predefined operational action registry.
 - `schemas.py` defines command, action, and job response contracts.
 
-Operational actions do not duplicate execution logic. They resolve an action into a command and call the same Jobs execution flow used by raw commands. Jobs can resolve SSH authentication from legacy inline inventory metadata, a node-level `credential_id`, or an explicit execution `credential_ref`. When package/profile execution injects sensitive runtime values, Jobs persist the redacted command instead of the in-memory command sent to SSH.
+Operational actions do not duplicate execution logic. They resolve an action into a command and call the same Jobs execution flow used by raw commands. Custom operational action create/update/delete operations are admin-only, while operators can execute available actions. Jobs can resolve SSH authentication from legacy inline inventory metadata, a node-level `credential_id`, or an explicit execution `credential_ref`. When package/profile/deployment/identity execution injects sensitive runtime values, Jobs persist the server-generated redacted command instead of the in-memory command sent to SSH.
+
+Jobs also persist immutable execution intent metadata: actual command, display command, command hash, command policy result, initiator metadata, correlation ID, and append-only execution events. Raw HTTP job requests do not trust client-provided redaction.
 
 Packages and Profiles are lightweight orchestration definitions:
 
@@ -148,7 +152,9 @@ Remote access RBAC is intentionally coarse for this sprint:
 - operators can use shell and browse/read files, but can edit only under `/opt`, `/srv`, `/var/www`, and `/home`
 - viewers have no remote-access capability by default
 
-Shell transcripts and file contents are not persisted. Structured audit hooks record shell session open/close/failure and file list/read/write outcomes without logging command input or file content. The shell WebSocket currently accepts the JWT access token as a query parameter for MVP browser compatibility; this should later become a short-lived remote-access session token scoped to host and operation.
+Shell transcripts and file contents are not persisted. Structured audit hooks record shell session open/close/failure and file list/read/write outcomes without logging command input or file content. The shell WebSocket uses a short-lived, one-time remote-access token scoped to user, server, operation, role, and session. The token is consumed during WebSocket authentication.
+
+Remote access stores trusted SSH host-key fingerprints on Inventory server records. First-use acceptance can store the fingerprint, and later mismatches block the connection. Manual fingerprint approval is available through the remote-access API and is audited.
 
 Variable Manager foundations are implemented under `backend/app/modules/variables/`. Secret variables must reference credentials instead of storing plaintext values.
 
@@ -200,6 +206,7 @@ Inventory commits are currently performed in the service layer after repository 
 Alembic is configured at the repository root through `alembic.ini` and migration code under `backend/migrations`.
 
 Current migrations create the `servers` and `jobs` tables, inventory SSH authentication metadata, definition tables, provisioning requests, provisioning blueprints, inventory synchronization metadata, integration records and integration sync state, template override/variable metadata, encrypted credentials, credential usages, variables, inventory credential references, deployment credential references, integration credential references, provisioning additional disk metadata, LXC provisioning metadata, and deployment runtime execution tables.
+Security-hardening migrations add refresh-token sessions, remote-access tokens, SSH host-key fingerprint metadata, job execution intent metadata, and append-only job execution events.
 
 Important migration characteristics:
 
@@ -237,9 +244,19 @@ Important settings include:
 - `NEXUSOPS_ADMIN_PASSWORD`
 - `ACCESS_TOKEN_EXPIRE_MINUTES`
 - `REFRESH_TOKEN_EXPIRE_DAYS`
+- `SESSION_INACTIVITY_TIMEOUT_MINUTES`
+- `ENABLE_OPENAPI`
+- `RATE_LIMIT_ENABLED`
+- `API_RATE_LIMIT_PER_MINUTE`
+- `LOGIN_RATE_LIMIT_PER_MINUTE`
+- `WEBSOCKET_RATE_LIMIT_PER_MINUTE`
+- `REMOTE_ACCESS_TOKEN_EXPIRE_SECONDS`
+- `SSH_TRUST_ON_FIRST_USE`
 - `JWT_ALGORITHM`
 
 Proxmox secrets are not committed. They should be supplied by local environment variables or an ignored `.env`.
+
+In production, startup fails for unsafe defaults such as `SECRET_KEY=change-me`, missing `NEXUSOPS_MASTER_KEY`, disabled Proxmox TLS verification, `DEBUG=true`, or default-looking bootstrap admin credentials. `CORS_ORIGINS` accepts JSON-array or comma-separated syntax.
 
 Legacy inline SSH passwords and private key paths remain for backward compatibility and local MVP metadata. Shared credentials should use the Credential Manager so reusable secrets are encrypted and resolved server-side.
 
@@ -311,7 +328,8 @@ Operational actions are intentionally lightweight. They are predefined action de
 
 ```text
 Frontend Host Tools page
-  -> /api/v1/remote-access/hosts/{server_id}/shell or /files
+  -> POST /api/v1/remote-access/hosts/{server_id}/shell-token
+  -> WebSocket /api/v1/remote-access/hosts/{server_id}/shell or HTTP /files
   -> RemoteAccessService
   -> ServerRepository resolves Inventory target
   -> reject unmanaged/archived targets

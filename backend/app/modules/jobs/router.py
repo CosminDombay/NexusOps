@@ -11,6 +11,8 @@ from backend.app.modules.audit.service import AuditService
 from backend.app.modules.credentials.repository import CredentialRepository
 from backend.app.modules.credentials.service import CredentialService
 from backend.app.modules.inventory.repository import ServerRepository
+from backend.app.modules.auth.models import User
+from backend.app.modules.auth.security.dependencies import require_admin, require_operator
 from backend.app.modules.jobs.repository import JobRepository
 from backend.app.modules.jobs.repository import CustomOperationalActionRepository
 from backend.app.modules.jobs.schemas import (
@@ -32,6 +34,7 @@ from backend.app.modules.jobs.service import (
     OperationalActionConflictError,
     OperationalActionNotFoundError,
 )
+from backend.app.modules.orchestration.security import CommandValidationError
 
 router = APIRouter()
 
@@ -78,12 +81,15 @@ async def execute_action(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     except OperationalActionNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except CommandValidationError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
 
 
 @router.post("/actions", response_model=OperationalActionRead, status_code=status.HTTP_201_CREATED)
 async def create_action(
     payload: OperationalActionCreate,
     service: Annotated[JobService, Depends(get_job_service)],
+    current_user: Annotated[User, Depends(require_admin)],
 ) -> OperationalActionRead:
     try:
         return await service.create_action(payload)
@@ -96,6 +102,7 @@ async def update_action(
     action_id: str,
     payload: OperationalActionUpdate,
     service: Annotated[JobService, Depends(get_job_service)],
+    current_user: Annotated[User, Depends(require_admin)],
 ) -> OperationalActionRead:
     try:
         return await service.update_action(action_id, payload)
@@ -109,6 +116,7 @@ async def update_action(
 async def delete_action(
     action_id: str,
     service: Annotated[JobService, Depends(get_job_service)],
+    current_user: Annotated[User, Depends(require_admin)],
 ) -> None:
     try:
         await service.delete_action(action_id)
@@ -123,7 +131,11 @@ async def execute_job_bulk(
     payload: JobBulkExecuteRequest,
     service: Annotated[JobService, Depends(get_job_service)],
 ) -> BulkExecutionRead:
-    return await service.execute_bulk(payload)
+    try:
+        safe_payload = payload.model_copy(update={"redacted_command": None})
+        return await service.execute_bulk(safe_payload)
+    except CommandValidationError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
 
 
 @router.get("/{job_id}", response_model=JobRead)
@@ -141,13 +153,17 @@ async def get_job(
 async def execute_job(
     payload: JobExecuteRequest,
     service: Annotated[JobService, Depends(get_job_service)],
+    current_user: Annotated[User, Depends(require_operator)],
 ) -> JobRead:
     try:
-        return await service.execute(payload)
+        safe_payload = payload.model_copy(update={"redacted_command": None})
+        return await service.execute(safe_payload, initiated_by=current_user)
     except JobTargetNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except JobTargetNotManagedError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    except CommandValidationError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
 
 
 @router.post("/{job_id}/cancel", response_model=JobRead)

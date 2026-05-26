@@ -1,5 +1,6 @@
 import asyncio
 import io
+import hashlib
 from pathlib import Path
 
 import paramiko
@@ -13,6 +14,15 @@ logger = structlog.get_logger(__name__)
 
 class SshConnectionError(Exception):
     """Raised when a remote host cannot be reached over SSH."""
+
+
+class TrustOnFirstUsePolicy(paramiko.MissingHostKeyPolicy):
+    def missing_host_key(self, client: paramiko.SSHClient, hostname: str, key: paramiko.PKey) -> None:
+        if not settings.ssh_trust_on_first_use:
+            raise SshConnectionError("SSH host key is not trusted")
+        fingerprint = "SHA256:" + hashlib.sha256(key.asbytes()).hexdigest()
+        logger.warning("ssh_host_key_trusted_on_first_use", host=hostname, fingerprint=fingerprint)
+        client.get_host_keys().add(hostname, key.get_name(), key)
 
 
 class ParamikoSshAdapter(SshAdapter):
@@ -62,7 +72,7 @@ class ParamikoSshAdapter(SshAdapter):
         passphrase: str | None,
     ) -> SshExecutionResult:
         client = paramiko.SSHClient()
-        client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        client.set_missing_host_key_policy(TrustOnFirstUsePolicy())
         key_filename = self._key_filename(private_key_path)
         use_password = password is not None
         use_inline_key = private_key is not None

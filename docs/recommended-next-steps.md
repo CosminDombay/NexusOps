@@ -14,7 +14,7 @@ Created: 2026-05-23
 
 2. Completed on 2026-05-23: add durable audit tables/events for infrastructure mutations, authentication, credentials, provisioning, deployments, inventory reconciliation, remote access, workflows, monitoring validation, and package/profile execution.
 
-3. Replace WebSocket query JWT authentication with short-lived scoped remote-access tokens.
+3. Completed on 2026-05-26: replace WebSocket query JWT authentication with short-lived scoped remote-access tokens.
 
 4. Move provisioning, deployments, and bulk operations into WorkflowRun-backed async execution.
 
@@ -22,11 +22,21 @@ Created: 2026-05-23
 
 6. Partially completed on 2026-05-23: add PostgreSQL Alembic validation in CI. Basic frontend tests still need to be added.
 
-7. Add production startup safety checks for secrets, CORS, and master key configuration.
+7. Completed on 2026-05-26: add production startup safety checks for secrets, CORS, master key configuration, Proxmox TLS verification, default admin credentials, and OpenAPI exposure.
+
+8. Completed on 2026-05-26: add refresh-token rotation, persisted token sessions, token-family reuse detection, and current-session/logout-all invalidation.
+
+9. Completed on 2026-05-26: add SSH host-key trust-on-first-use foundations, stored fingerprints, mismatch blocking, and audited manual approval.
+
+10. Completed on 2026-05-26: add command governance foundations, admin-only custom action CRUD, immutable execution intent metadata, and append-only job execution events.
+
+11. Completed on 2026-05-26: add baseline rate limiting and security headers for future public exposure.
 
 ## Notes
 
 These items came from the project review performed on 2026-05-23. They are intended as future hardening and delivery priorities before broadening destructive infrastructure capabilities.
+
+The 2026-05-26 hardening pass intentionally stayed practical for a bachelor-project homelab orchestrator. Remaining future work is mostly depth rather than foundation: httpOnly refresh-cookie migration, a fuller command approval UI, expired-token cleanup jobs, distributed runtime leases, and frontend tests.
 
 ## Review Findings Added on 2026-05-23
 

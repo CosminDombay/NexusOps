@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.db.session import get_db_session
 from backend.app.modules.auth.models import User, UserRole
-from backend.app.modules.auth.repositories.user_repository import UserRepository
+from backend.app.modules.auth.repositories.user_repository import RefreshTokenSessionRepository, UserRepository
 from backend.app.modules.auth.security.jwt import TokenValidationError, decode_token
 
 bearer_scheme = HTTPBearer(auto_error=False)
@@ -52,6 +52,21 @@ async def get_current_user(
             detail="Token has been revoked",
             headers={"WWW-Authenticate": "Bearer"},
         )
+    if payload.get("sid"):
+        try:
+            refresh_session = await RefreshTokenSessionRepository(session).get_by_id(UUID(str(payload["sid"])))
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid session",
+                headers={"WWW-Authenticate": "Bearer"},
+            ) from exc
+        if refresh_session is None or refresh_session.revoked_at is not None:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Session has been revoked",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
     return user
 
 

@@ -44,3 +44,14 @@ Known backend failure:
 - Backend module routers are the canonical API surface under `backend/app/modules/*/router.py`.
 - Shared API wiring belongs in `backend/app/api/v1/router.py`.
 - Infrastructure boundaries live under `backend/app/adapters/` as abstract contracts only until provider implementations are added.
+# Security-Aware Startup
+
+NexusOps remains local-development friendly by default, but startup now validates production configuration before the API is served.
+
+- `ENVIRONMENT=development` allows local defaults and emits structured warnings for insecure settings.
+- `ENVIRONMENT=staging` keeps the same code paths as production without forcing every production-only guardrail.
+- `ENVIRONMENT=production` fails startup if `SECRET_KEY` is still `change-me`, `DEBUG=true`, `NEXUSOPS_MASTER_KEY` is missing, Proxmox TLS verification is disabled, or the bootstrap admin password looks like a default.
+- `CORS_ORIGINS` accepts either comma-separated origins or JSON array syntax.
+- `ENABLE_OPENAPI=false` hides Swagger/OpenAPI in production.
+
+Local-only escape hatches such as `ALLOW_INSECURE_DEV_TLS` and `ALLOW_INSECURE_DEV_SECRETS` are intended for development and should not be used for production deployments.

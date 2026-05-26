@@ -1,11 +1,13 @@
 from contextlib import asynccontextmanager
 
+import structlog
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from backend.app.api.v1.router import api_v1_router
-from backend.app.core.config import settings
+from backend.app.core.config import ProductionConfigurationError, settings
 from backend.app.core.logging import configure_logging
+from backend.app.core.security import InMemoryRateLimitMiddleware, SecurityHeadersMiddleware
 from backend.app.db.session import AsyncSessionLocal, get_db_session
 from backend.app.modules.auth.repositories.user_repository import UserRepository
 from backend.app.modules.auth.services.auth_service import AuthService
@@ -18,6 +20,14 @@ from backend.app.workers.scheduler.service import scheduler_service
 
 def create_app() -> FastAPI:
     configure_logging()
+    logger = structlog.get_logger(__name__)
+    try:
+        settings.validate_startup_configuration()
+    except ProductionConfigurationError:
+        logger.error("startup.configuration_invalid", environment=settings.environment)
+        raise
+    for warning in settings.startup_warnings():
+        logger.warning("startup.configuration_warning", warning=warning, environment=settings.environment)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -36,7 +46,9 @@ def create_app() -> FastAPI:
     app = FastAPI(
         title="NexusOps API",
         version="0.1.0",
-        openapi_url=f"{settings.api_v1_prefix}/openapi.json",
+        openapi_url=f"{settings.api_v1_prefix}/openapi.json" if settings.enable_openapi or not settings.is_production else None,
+        docs_url="/docs" if settings.enable_openapi or not settings.is_production else None,
+        redoc_url="/redoc" if settings.enable_openapi or not settings.is_production else None,
         lifespan=lifespan,
     )
 
@@ -47,6 +59,8 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+    app.add_middleware(SecurityHeadersMiddleware)
+    app.add_middleware(InMemoryRateLimitMiddleware)
 
     app.include_router(api_v1_router, prefix=settings.api_v1_prefix)
     return app

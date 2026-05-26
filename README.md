@@ -11,7 +11,7 @@ This repository is scaffolded as a modular monolith:
 The current implementation includes the platform foundation, CMDB-style inventory CRUD,
 Proxmox visibility/lifecycle control, template-based VM provisioning with NexusOps provisioning blueprints,
 Proxmox-to-inventory synchronization, SSH-backed job execution, reusable operational actions, package definitions,
-infrastructure profiles, editable operational templates, credential-backed secret injection, Docker Compose deployments, and simple variable-driven execution.
+infrastructure profiles, editable operational templates, credential-backed secret injection, Docker Compose deployments, simple variable-driven execution, and production-aware security guardrails.
 
 The latest monitoring/inventory review is documented in `docs/project-review-2026-05-23-monitoring-inventory.md`.
 
@@ -82,6 +82,7 @@ docker compose -f docker-compose.yml -f docker-compose.db-port.yml up --build
 
 Frontend will be available at `http://localhost:5173`.
 Backend API docs will be available at `http://localhost:8000/docs`.
+In production, set `ENABLE_OPENAPI=false` if you do not want Swagger/OpenAPI exposed.
 
 Stop the Docker stack with:
 
@@ -120,8 +121,10 @@ docker compose -f infra/docker-compose.dev.yml up --build
 - Provisioning supports a root disk plus optional additional disks.
 - Jobs execute SSH commands against inventory targets and persist status, stdout, stderr, exit code, and timestamps.
 - Jobs resolve node credentials and execution credential references server-side. Sensitive values are never returned to the frontend, and commands persisted to job history are redacted when runtime secrets are injected.
+- Jobs now persist immutable execution intent metadata, including command hash, command policy result, initiator metadata, correlation ID, and append-only execution events for future runtime expansion.
 - Inventory health checks perform lightweight TCP reachability checks against SSH ports without logging in on each refresh.
 - Credential records store reusable secret material encrypted with Fernet using `NEXUSOPS_MASTER_KEY`. API responses expose only masked secret status.
+- Production startup fails if required security settings are unsafe, including default `SECRET_KEY`, missing `NEXUSOPS_MASTER_KEY`, disabled Proxmox TLS verification, `DEBUG=true`, or default-looking bootstrap admin credentials.
 - Inventory records can reference a shared `credential_id` for SSH execution while retaining inline SSH metadata for backward-compatible local MVP use.
 - Operational actions provide predefined workflows such as uptime, disk usage, memory usage, Docker checks, Docker restart, and simple installation actions.
 - Package definitions describe reusable install/validation commands for common infrastructure packages and can be extended with custom definitions.
@@ -131,6 +134,8 @@ docker compose -f infra/docker-compose.dev.yml up --build
 - Built-in profiles can be edited as persisted working copies, cloned into user-managed templates, reordered, or restored to the system default.
 - Integration records provide a central place to store and test provider/monitoring connection metadata while runtime adapters still primarily use local environment configuration.
 - Docker Compose deployments store compose/env definitions and execute deploy/redeploy/restart/stop/status/logs through the Jobs -> SSH pipeline. Deployment-specific credential references are resolved server-side into `.env` at runtime and redacted from persisted job command history.
+- Remote shell access uses short-lived, one-time, server-scoped remote-access tokens instead of sending the long-lived auth JWT through the WebSocket URL.
+- SSH connections use a trust-on-first-use fingerprint foundation for remote access and reject later host-key mismatches.
 - Monitoring stores lightweight validation snapshots for managed Inventory nodes, checks node_exporter, promtail, and cAdvisor availability, validates Prometheus as provider-level infrastructure, and links operators to Grafana when configured.
 - Identity orchestration stores Linux users, groups, SSH public keys, and permission templates, then replicates user/group/access/permission changes across selected Inventory-managed hosts through Jobs and SSH.
 - Identity includes guided access profiles such as Administrator, Deployment Operator, Docker Operator, Log Viewer, Read Only, and Service Account. These profiles configure shell, sudo behavior, recommended groups, and defaults while preserving advanced Linux controls.

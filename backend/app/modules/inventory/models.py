@@ -58,6 +58,8 @@ class Server(Base, UuidPrimaryKeyMixin, TimestampMixin):
     )
     ssh_password: Mapped[str | None] = mapped_column(String(500), nullable=True)
     ssh_private_key_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    trusted_ssh_host_key_sha256: Mapped[str | None] = mapped_column(String(95), nullable=True)
+    trusted_ssh_host_key_accepted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     credential_id: Mapped[UUID | None] = mapped_column(
         ForeignKey("credentials.id", ondelete="SET NULL"),
         nullable=True,

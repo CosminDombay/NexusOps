@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
 import shlex
 from collections.abc import Mapping
 from typing import Any
@@ -147,3 +148,36 @@ class SafeCommandBuilder:
     @classmethod
     def _has_dangerous_tokens(cls, value: str) -> bool:
         return any(pattern.search(value) for pattern in cls.DANGEROUS_INTERPOLATION_PATTERNS)
+
+
+@dataclass(frozen=True)
+class CommandPolicyResult:
+    policy: str
+    reason: str | None = None
+
+
+class CommandPolicyEngine:
+    """Small policy layer for shell execution governance."""
+
+    DENIED_PATTERNS = (
+        re.compile(r"\brm\s+-rf\s+/(?:\s|$)"),
+        re.compile(r"\bmkfs(?:\.[a-z0-9]+)?\b"),
+        re.compile(r"\bdd\s+.*\bof=/dev/"),
+    )
+    APPROVAL_PATTERNS = (
+        re.compile(r"\bshutdown\b"),
+        re.compile(r"\breboot\b"),
+        re.compile(r"\bdocker\s+system\s+prune\b"),
+        re.compile(r"\bterraform\s+destroy\b"),
+        re.compile(r"\brm\s+-rf\b"),
+    )
+
+    def evaluate(self, command: str) -> CommandPolicyResult:
+        lowered = command.lower()
+        for pattern in self.DENIED_PATTERNS:
+            if pattern.search(lowered):
+                return CommandPolicyResult("denied", pattern.pattern)
+        for pattern in self.APPROVAL_PATTERNS:
+            if pattern.search(lowered):
+                return CommandPolicyResult("approval_required", pattern.pattern)
+        return CommandPolicyResult("allowed")

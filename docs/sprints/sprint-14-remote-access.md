@@ -44,12 +44,12 @@ Role decisions are implemented as reusable helpers in `RemoteAccessService`, not
 
 ## WebSocket Token Tradeoff
 
-The shell MVP passes the current JWT access token as a WebSocket query parameter because browser WebSocket clients cannot set arbitrary authorization headers in the same way Axios can. This is acceptable for local MVP development but should be hardened.
+The shell MVP originally passed the current JWT access token as a WebSocket query parameter because browser WebSocket clients cannot set arbitrary authorization headers in the same way Axios can. As of the 2026-05-26 hardening pass, the frontend requests a short-lived, one-time scoped remote-access token before opening the shell WebSocket.
 
 Future hardening:
 
-- mint short-lived remote-access session tokens
-- bind remote-access tokens to `server_id`, operation type, role, and expiry
+- completed 2026-05-26: mint short-lived remote-access session tokens
+- completed 2026-05-26: bind remote-access tokens to `server_id`, operation type, role/session, and expiry
 - revoke active shell sessions on logout or role change
 - add optional per-session approval and audit persistence
 

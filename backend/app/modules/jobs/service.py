@@ -1,4 +1,6 @@
 import asyncio
+from datetime import UTC, datetime
+from hashlib import sha256
 from uuid import UUID
 from uuid import uuid4
 
@@ -6,6 +8,7 @@ import structlog
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from backend.app.adapters.ssh import SshAdapter
+from backend.app.modules.auth.models import User
 from backend.app.modules.audit.repository import AuditEventRepository
 from backend.app.modules.audit.service import AuditService
 from backend.app.modules.credentials.repository import CredentialRepository
@@ -13,8 +16,8 @@ from backend.app.modules.credentials.service import CredentialService
 from backend.app.modules.inventory.repository import ServerRepository
 from backend.app.modules.inventory.models import InventoryLifecycleState
 from backend.app.modules.jobs.actions import get_action, list_actions
-from backend.app.modules.jobs.models import CustomOperationalAction, Job, JobStatus
-from backend.app.modules.jobs.repository import CustomOperationalActionRepository, JobRepository
+from backend.app.modules.jobs.models import CustomOperationalAction, Job, JobExecutionEvent, JobStatus
+from backend.app.modules.jobs.repository import CustomOperationalActionRepository, JobExecutionEventRepository, JobRepository
 from backend.app.modules.jobs.runtime import JobExecutionRuntime
 from backend.app.modules.jobs.schemas import (
     BulkExecutionHostResult,
@@ -28,7 +31,7 @@ from backend.app.modules.jobs.schemas import (
     OperationalActionUpdate,
 )
 from backend.app.modules.orchestration.activity import job_activity_timeline
-from backend.app.modules.orchestration.security import SafeCommandBuilder
+from backend.app.modules.orchestration.security import CommandPolicyEngine, CommandValidationError, SafeCommandBuilder, redact_sensitive_text
 from backend.app.modules.orchestration.semantics import (
     is_job_failure,
     is_job_success,
@@ -88,6 +91,7 @@ class JobService:
         self.audit_service = audit_service
         self.session_factory = session_factory
         self.command_builder = SafeCommandBuilder(variable_service=None)
+        self.command_policy = CommandPolicyEngine()
 
     async def list_jobs(self, *, target_server_id: UUID | None = None) -> list[JobRead]:
         jobs = (
@@ -179,12 +183,15 @@ class JobService:
             )
         )
 
-    async def execute(self, payload: JobExecuteRequest) -> JobRead:
+    async def execute(self, payload: JobExecuteRequest, *, initiated_by: User | None = None) -> JobRead:
         self.command_builder.validate_command(
             payload.command,
             source=payload.operation_type,
             allow_shell_operators=True,
         )
+        policy = self.command_policy.evaluate(payload.command)
+        if policy.policy == "denied":
+            raise CommandValidationError(f"Command denied by policy: {policy.reason}")
         server = await self.server_repository.get_by_id(payload.target_server_id)
         if server is None:
             raise JobTargetNotFoundError("Target server not found")
@@ -200,7 +207,13 @@ class JobService:
         job = Job(
             target_server_id=server.id,
             operation_type=payload.operation_type,
-            command=payload.redacted_command or payload.command,
+            command=payload.redacted_command or self._sanitize_command(payload.command),
+            actual_command=payload.command,
+            command_display=payload.redacted_command or self._sanitize_command(payload.command),
+            command_policy=policy.policy,
+            command_hash=sha256(payload.command.encode("utf-8")).hexdigest(),
+            initiated_by_user_id=initiated_by.id if initiated_by and initiated_by.id else None,
+            initiated_by_username=initiated_by.username if initiated_by else None,
             status=JobStatus.PENDING,
             execution_origin=execution_origin,
             correlation_id=correlation_id,
@@ -213,6 +226,23 @@ class JobService:
             ),
         )
         job = await self.job_repository.create(job)
+        await JobExecutionEventRepository(self.job_repository.session).create(
+            JobExecutionEvent(
+                job_id=job.id,
+                event_type="job.intent_created",
+                created_at=datetime.now(UTC),
+                correlation_id=correlation_id,
+                metadata_json={
+                    "operation_type": payload.operation_type,
+                    "target_server_id": str(server.id),
+                    "target_hostname": server.hostname,
+                    "command_hash": job.command_hash,
+                    "command_policy": policy.policy,
+                    "initiated_by_user_id": str(initiated_by.id) if initiated_by and initiated_by.id else None,
+                    "initiated_by_username": initiated_by.username if initiated_by else None,
+                },
+            )
+        )
         await self.job_repository.session.commit()
 
         logger.info(
@@ -331,3 +361,7 @@ class JobService:
             destructive=action.destructive,
             is_builtin=False,
         )
+
+    @staticmethod
+    def _sanitize_command(command: str) -> str:
+        return redact_sensitive_text(command)

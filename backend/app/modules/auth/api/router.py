@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.app.db.session import get_db_session
 from backend.app.modules.audit.service import audit_service_from_session, source_ip_from_request
 from backend.app.modules.auth.models import User
-from backend.app.modules.auth.repositories.user_repository import UserRepository
+from backend.app.modules.auth.repositories.user_repository import RefreshTokenSessionRepository, UserRepository
 from backend.app.modules.auth.schemas.auth import LoginRequest, RefreshRequest, TokenPair, UserCreate, UserPasswordReset, UserRead, UserUpdate
 from backend.app.modules.auth.security.dependencies import get_current_user, require_admin
 from backend.app.modules.auth.security.jwt import TokenValidationError, decode_token
@@ -16,6 +16,7 @@ from backend.app.modules.auth.services.auth_service import (
     AuthenticationError,
     AuthService,
     InactiveUserError,
+    RefreshTokenReplayError,
     UserManagementError,
     UserNotFoundError,
 )
@@ -27,7 +28,10 @@ logger = structlog.get_logger(__name__)
 async def get_auth_service(
     session: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> AuthService:
-    return AuthService(repository=UserRepository(session))
+    return AuthService(
+        repository=UserRepository(session),
+        refresh_repository=RefreshTokenSessionRepository(session),
+    )
 
 
 @router.post("/login", response_model=TokenPair)
@@ -38,7 +42,11 @@ async def login(
     service: Annotated[AuthService, Depends(get_auth_service)],
 ) -> TokenPair:
     try:
-        token_pair = await service.login(payload)
+        token_pair = await service.login(
+            payload,
+            user_agent=request.headers.get("user-agent"),
+            source_ip=source_ip_from_request(request),
+        )
         await audit_service_from_session(session).record(
             event_type="auth.login",
             actor_user_id=token_pair.user.id,
@@ -91,7 +99,16 @@ async def refresh(
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token has been revoked")
 
     try:
-        token_pair = await service.refresh(user)
+        refresh_session = await service.validate_refresh_session(
+            token_payload=token_payload,
+            refresh_token=payload.refresh_token,
+        )
+        token_pair = await service.refresh(
+            user,
+            refresh_session=refresh_session,
+            user_agent=request.headers.get("user-agent"),
+            source_ip=source_ip_from_request(request),
+        )
         await audit_service_from_session(session).record(
             event_type="auth.refresh",
             actor=user,
@@ -103,6 +120,19 @@ async def refresh(
         return token_pair
     except InactiveUserError as exc:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
+    except RefreshTokenReplayError as exc:
+        await audit_service_from_session(session).record(
+            event_type="auth.refresh_replay_detected",
+            actor=user,
+            target_type="user",
+            target_id=user.id,
+            result="failed",
+            source_ip=source_ip_from_request(request),
+            error=str(exc),
+        )
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Refresh token replay detected") from exc
+    except AuthenticationError as exc:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc)) from exc
 
 
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
@@ -112,7 +142,16 @@ async def logout(
     current_user: Annotated[User, Depends(get_current_user)],
     service: Annotated[AuthService, Depends(get_auth_service)],
 ) -> None:
-    await service.revoke_user_tokens(current_user)
+    session_id = None
+    authorization = request.headers.get("authorization", "")
+    if authorization.lower().startswith("bearer "):
+        try:
+            token_payload = decode_token(authorization.split(" ", 1)[1], expected_type="access")
+            sid = token_payload.get("sid")
+            session_id = UUID(str(sid)) if sid else None
+        except (TokenValidationError, ValueError):
+            session_id = None
+    await service.revoke_current_session(current_user, session_id)
     await audit_service_from_session(session).record(
         event_type="auth.logout",
         actor=current_user,
@@ -122,6 +161,24 @@ async def logout(
         source_ip=source_ip_from_request(request),
     )
     logger.info("auth.logout", user_id=str(current_user.id), username=current_user.username)
+
+
+@router.post("/logout-all", status_code=status.HTTP_204_NO_CONTENT)
+async def logout_all(
+    request: Request,
+    session: Annotated[AsyncSession, Depends(get_db_session)],
+    current_user: Annotated[User, Depends(get_current_user)],
+    service: Annotated[AuthService, Depends(get_auth_service)],
+) -> None:
+    await service.revoke_user_tokens(current_user)
+    await audit_service_from_session(session).record(
+        event_type="auth.logout_all",
+        actor=current_user,
+        target_type="user",
+        target_id=current_user.id,
+        result="success",
+        source_ip=source_ip_from_request(request),
+    )
 
 
 @router.get("/me", response_model=UserRead)

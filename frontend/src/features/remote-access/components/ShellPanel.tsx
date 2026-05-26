@@ -4,13 +4,13 @@ import { Terminal } from '@xterm/xterm';
 import '@xterm/xterm/css/xterm.css';
 import { Cable, CircleStop } from 'lucide-react';
 
-import { getStoredAccessToken } from '../../auth/api/tokenStorage';
 import type { Server } from '../../inventory/types/server';
-import { buildShellWebSocketUrl } from '../api/remoteAccessApi';
+import { buildShellWebSocketUrl, createShellToken } from '../api/remoteAccessApi';
 
 type ConnectionState = 'idle' | 'connecting' | 'connected' | 'closed' | 'error';
 
 export function ShellPanel({ server, canUseShell, compact = false }: { server: Server; canUseShell: boolean; compact?: boolean }) {
+  const shellFrame = useRef<HTMLDivElement | null>(null);
   const terminalElement = useRef<HTMLDivElement | null>(null);
   const terminal = useRef<Terminal | null>(null);
   const socket = useRef<WebSocket | null>(null);
@@ -38,9 +38,14 @@ export function ShellPanel({ server, canUseShell, compact = false }: { server: S
     fitAddon.current = fit;
 
     const onResize = () => fit.fit();
+    const resizeObserver = new ResizeObserver(() => fit.fit());
+    if (shellFrame.current) {
+      resizeObserver.observe(shellFrame.current);
+    }
     window.addEventListener('resize', onResize);
     return () => {
       window.removeEventListener('resize', onResize);
+      resizeObserver.disconnect();
       dataSubscription.current?.dispose();
       socket.current?.close();
       term.dispose();
@@ -48,19 +53,21 @@ export function ShellPanel({ server, canUseShell, compact = false }: { server: S
     };
   }, [server.hostname]);
 
-  function connect() {
+  async function connect() {
     if (!canUseShell || status === 'connected' || status === 'connecting') {
-      return;
-    }
-    const token = getStoredAccessToken();
-    if (!token) {
-      setStatus('error');
-      terminal.current?.writeln('\r\nMissing access token. Please sign in again.');
       return;
     }
     setStatus('connecting');
     terminal.current?.writeln('\r\nConnecting...');
-    const ws = new WebSocket(buildShellWebSocketUrl(server.id, token));
+    let scopedToken: string;
+    try {
+      scopedToken = await createShellToken(server.id);
+    } catch {
+      setStatus('error');
+      terminal.current?.writeln('\r\nUnable to create a scoped shell session token.');
+      return;
+    }
+    const ws = new WebSocket(buildShellWebSocketUrl(server.id, scopedToken));
     socket.current = ws;
 
     ws.onopen = () => {
@@ -114,7 +121,7 @@ export function ShellPanel({ server, canUseShell, compact = false }: { server: S
             className="inline-flex items-center gap-2 rounded-md bg-zinc-900 px-3 py-2 text-sm font-semibold text-white hover:bg-zinc-800 disabled:cursor-not-allowed disabled:bg-zinc-400"
             type="button"
             disabled={status === 'connected' || status === 'connecting'}
-            onClick={connect}
+            onClick={() => void connect()}
           >
             <Cable className="h-4 w-4" aria-hidden="true" />
             Connect
@@ -129,7 +136,12 @@ export function ShellPanel({ server, canUseShell, compact = false }: { server: S
           </button>
         </div>
       </div>
-      <div className={`${compact ? 'h-[300px]' : 'h-[520px]'} overflow-hidden rounded-lg border border-zinc-800 bg-zinc-950 p-2 shadow-inner`}>
+      <div
+        ref={shellFrame}
+        className={`${
+          compact ? 'h-[300px] min-h-[220px]' : 'h-[520px] min-h-[280px]'
+        } max-h-[calc(100vh-180px)] resize-y overflow-hidden rounded-lg border border-zinc-800 bg-zinc-950 p-2 shadow-inner`}
+      >
         <div ref={terminalElement} className="h-full" />
       </div>
     </section>

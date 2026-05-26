@@ -16,6 +16,8 @@ The implemented system is focused on foundations, visibility, narrowly scoped pr
   - bcrypt password hashing
   - JWT access and refresh tokens
   - token-version based revocation for logout, password reset, and role/security changes
+  - persisted refresh-token sessions with rotation and family reuse detection
+  - current-session logout and logout-all session invalidation
   - `/api/v1/auth/me` current-user lookup
   - environment-based initial admin bootstrap
   - reusable RBAC dependencies for admin, operator, and viewer access
@@ -104,22 +106,25 @@ The implemented system is focused on foundations, visibility, narrowly scoped pr
   - provisioning UI distinguishes VM and LXC run paths while reusing managed-node registration
 - Jobs and orchestration:
   - execute SSH commands against inventory-managed servers
-  - persist redacted command, status, stdout, stderr, exit code, and timestamps
+  - persist redacted display command, immutable actual command metadata, status, stdout, stderr, exit code, and timestamps
+  - append-only execution intent events, command hashes, command policy results, initiator metadata, and correlation IDs
   - support key-based, password-based, shared-credential, and explicit credential-ref execution
   - expose reusable operational actions backed by the jobs pipeline
-  - custom operational actions with create/update/delete support for operator-defined command sequences
+  - admin-managed custom operational actions with create/update/delete support
   - custom actions can be executed directly from Jobs and referenced by Profiles and Automations
   - frontend Jobs page with shared target selection, action runner, raw command runner, history, and tabbed stdout/stderr/command/metadata result viewer
   - bulk command execution foundation for sequential multi-host fanout
 - Remote access:
   - `/api/v1/remote-access` module for Inventory-bounded shell and file access
-  - WebSocket shell sessions through backend Paramiko channels
+  - WebSocket shell sessions through backend Paramiko channels using short-lived one-time scoped shell tokens
   - SFTP directory listing and file reading
   - hash-checked file writes with stale-write rejection
   - operator write allowlist for `/opt`, `/srv`, `/var/www`, and `/home`
   - admin/operator remote-access authorization and viewer denial
+  - SSH trust-on-first-use fingerprint storage and host-key mismatch blocking
   - lightweight structured audit hooks without command transcript or file-content logging
   - Host Tools frontend page with a unified files/editor workspace above a persistent terminal panel
+  - resizable terminal panel for operational workspace management
 - Workflow engine foundation:
   - persisted workflow runs
   - persisted workflow steps
@@ -459,6 +464,9 @@ The 2026-05-23 review confirms that the implementation has moved beyond the olde
 - Frontend create/edit/configuration workflows should prefer `ContextDrawer` or focused modals over permanent page-level forms.
 - Frontend operational pages should prefer shared page-header actions, operational toolbars, runtime badges, and collapsible action panels over page-local button/form patterns.
 - Remote Access reuses Inventory as the target boundary and Credential Manager resolution for SSH material; it does not accept arbitrary host targets or expose credentials to the frontend.
+- Remote Access uses one-time scoped shell tokens for WebSocket setup and stores trusted SSH host-key fingerprints on Inventory records.
+- Production startup validates unsafe configuration and emits structured warnings or errors based on environment.
+- Baseline security middleware adds rate limiting and security headers for public-exposure readiness.
 - RBAC user management is implemented under the auth module and remains admin-only through backend route dependencies.
 - Inventory deletion cleanup is owned by `InventoryService`; it clears active references without hard-deleting historical job logs.
 - Adapter packages are canonicalized under `backend/app/adapters/`.
@@ -495,8 +503,8 @@ The 2026-05-23 review confirms that the implementation has moved beyond the olde
 - Provisioning blueprints are not yet first-class Workflow/Automation operations.
 - CT/LXC support is operationally wired for discovery, provisioning, lifecycle, and Inventory registration, but advanced filesystem editing, deeper network validation, and richer template/storage discovery remain future work.
 - Monitoring validation is operational with durable validation attempt history and structured failure reasons. Deep log exploration and centralized log indexing remain future work.
-- Remote shell WebSocket authentication uses the current JWT as a query parameter for MVP browser compatibility; a short-lived scoped remote-access token is still planned.
-- Refresh tokens are revoked through token-version changes, but refresh-token rotation/reuse detection is not implemented yet.
+- Remote shell WebSocket authentication now uses short-lived scoped remote-access tokens instead of the active JWT.
+- Refresh-token rotation and reuse detection are implemented with persisted token session families. Future work remains around httpOnly refresh-cookie transport and session management UX.
 - Monitoring overview should remain snapshot-first. Avoid live provider discovery or dashboard search during ordinary rendering unless it is behind an explicit refresh path.
 
 ## Current Safety Boundary

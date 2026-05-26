@@ -59,6 +59,8 @@ class SshConnectionDetails:
     private_key_path: str | None = None
     private_key: str | None = None
     passphrase: str | None = None
+    trusted_host_key_sha256: str | None = None
+    trust_on_first_use: bool = True
 
 
 @dataclass
@@ -75,6 +77,9 @@ class ShellSession:
 
 class ParamikoRemoteAccessAdapter:
     """Paramiko-backed shell and SFTP adapter for remote access."""
+
+    def __init__(self) -> None:
+        self.last_accepted_host_key_sha256: str | None = None
 
     async def open_shell(self, details: SshConnectionDetails) -> ShellSession:
         return await asyncio.to_thread(self._open_shell_sync, details)
@@ -164,7 +169,8 @@ class ParamikoRemoteAccessAdapter:
 
     def _connect(self, details: SshConnectionDetails) -> paramiko.SSHClient:
         client = paramiko.SSHClient()
-        client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        policy = FingerprintPolicy(details.trusted_host_key_sha256, details.trust_on_first_use)
+        client.set_missing_host_key_policy(policy)
         try:
             client.connect(
                 hostname=details.host,
@@ -177,6 +183,8 @@ class ParamikoRemoteAccessAdapter:
                 look_for_keys=details.password is None and details.private_key is None,
                 allow_agent=details.password is None and details.private_key is None,
             )
+            if policy.accepted_fingerprint:
+                self.last_accepted_host_key_sha256 = policy.accepted_fingerprint
             return client
         except Exception as exc:
             client.close()
@@ -269,19 +277,25 @@ class RemoteAccessService:
     async def open_shell(self, server_id: UUID, user: User) -> ShellSession:
         self.require_shell_access(user)
         server = await self.get_managed_server(server_id)
-        return await self.adapter.open_shell(await self.resolve_ssh_details(server))
+        shell = await self.adapter.open_shell(await self.resolve_ssh_details(server))
+        await self.persist_trusted_host_key(server)
+        return shell
 
     async def list_files(self, server_id: UUID, path: str, user: User) -> RemoteDirectoryListing:
         self.require_file_read_access(user)
         server = await self.get_managed_server(server_id)
         normalized = self.normalize_remote_path(path)
-        return await self.adapter.list_directory(await self.resolve_ssh_details(server), normalized)
+        result = await self.adapter.list_directory(await self.resolve_ssh_details(server), normalized)
+        await self.persist_trusted_host_key(server)
+        return result
 
     async def read_file(self, server_id: UUID, path: str, user: User) -> RemoteFileRead:
         self.require_file_read_access(user)
         server = await self.get_managed_server(server_id)
         normalized = self.normalize_remote_path(path)
-        return await self.adapter.read_file(await self.resolve_ssh_details(server), normalized)
+        result = await self.adapter.read_file(await self.resolve_ssh_details(server), normalized)
+        await self.persist_trusted_host_key(server)
+        return result
 
     async def write_file(
         self,
@@ -295,12 +309,21 @@ class RemoteAccessService:
         normalized = self.normalize_remote_path(path)
         self.require_write_path(user, normalized)
         server = await self.get_managed_server(server_id)
-        return await self.adapter.write_file(
+        result = await self.adapter.write_file(
             await self.resolve_ssh_details(server),
             normalized,
             content,
             self.normalize_expected_hash(expected_hash),
         )
+        await self.persist_trusted_host_key(server)
+        return result
+
+    async def persist_trusted_host_key(self, server: Server) -> None:
+        fingerprint = getattr(self.adapter, "last_accepted_host_key_sha256", None)
+        if fingerprint and not server.trusted_ssh_host_key_sha256:
+            server.trusted_ssh_host_key_sha256 = fingerprint
+            server.trusted_ssh_host_key_accepted_at = datetime.now(UTC)
+            await self.server_repository.session.commit()
 
     async def get_managed_server(self, server_id: UUID) -> Server:
         server = await self.server_repository.get_by_id(server_id)
@@ -344,6 +367,8 @@ class RemoteAccessService:
             private_key_path=private_key_path,
             private_key=private_key,
             passphrase=passphrase,
+            trusted_host_key_sha256=server.trusted_ssh_host_key_sha256,
+            trust_on_first_use=settings.ssh_trust_on_first_use,
         )
 
     @staticmethod
@@ -400,3 +425,23 @@ class RemoteAccessService:
         if len(value) != 64 or any(character not in "0123456789abcdef" for character in value):
             raise RemotePathError("expected_hash must be a SHA-256 hex digest")
         return value
+
+
+def host_key_fingerprint_sha256(key: paramiko.PKey) -> str:
+    return "SHA256:" + hashlib.sha256(key.asbytes()).hexdigest()
+
+
+class FingerprintPolicy(paramiko.MissingHostKeyPolicy):
+    def __init__(self, expected_fingerprint: str | None, trust_on_first_use: bool) -> None:
+        self.expected_fingerprint = expected_fingerprint
+        self.trust_on_first_use = trust_on_first_use
+        self.accepted_fingerprint: str | None = None
+
+    def missing_host_key(self, client: paramiko.SSHClient, hostname: str, key: paramiko.PKey) -> None:
+        fingerprint = host_key_fingerprint_sha256(key)
+        if self.expected_fingerprint and fingerprint != self.expected_fingerprint:
+            raise RemoteSshError("SSH host key fingerprint mismatch")
+        if not self.expected_fingerprint and not self.trust_on_first_use:
+            raise RemoteSshError("SSH host key is not trusted")
+        self.accepted_fingerprint = fingerprint
+        client.get_host_keys().add(hostname, key.get_name(), key)
