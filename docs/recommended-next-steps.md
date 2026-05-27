@@ -2,6 +2,8 @@
 
 Created: 2026-05-23
 
+Updated: 2026-05-27
+
 ## Priority Roadmap
 
 1. Completed on 2026-05-23: add CI foundations:
@@ -32,11 +34,32 @@ Created: 2026-05-23
 
 11. Completed on 2026-05-26: add baseline rate limiting and security headers for future public exposure.
 
+12. Prepare deployment runbooks for Docker Compose and on-prem LXC/VM installation.
+
+13. Add a controlled update workflow:
+   - database backup before update
+   - image rebuild or pull
+   - Alembic migration validation
+   - service restart
+   - `/api/v1/health` smoke check
+   - login, inventory, jobs/actions, Proxmox dashboard, and monitoring smoke checks where configured
+
+14. Add frontend tests for the highest-risk workflows:
+   - login/session restore/logout
+   - inventory target selection
+   - jobs action execution form behavior
+   - deployment create/edit/operation flows
+   - remote-access token initiation guardrails
+
+15. Move provisioning, deployments, and bulk operations deeper into WorkflowRun-backed async execution.
+
 ## Notes
 
 These items came from the project review performed on 2026-05-23. They are intended as future hardening and delivery priorities before broadening destructive infrastructure capabilities.
 
 The 2026-05-26 hardening pass intentionally stayed practical for a bachelor-project homelab orchestrator. Remaining future work is mostly depth rather than foundation: httpOnly refresh-cookie migration, a fuller command approval UI, expired-token cleanup jobs, distributed runtime leases, and frontend tests.
+
+The 2026-05-27 preparation pass adds deployment guidance and keeps automated container updates intentionally operator-triggered until backup, rollback, and smoke-test automation are in place.
 
 ## Review Findings Added on 2026-05-23
 

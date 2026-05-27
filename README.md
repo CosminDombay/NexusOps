@@ -13,7 +13,7 @@ Proxmox visibility/lifecycle control, template-based VM provisioning with NexusO
 Proxmox-to-inventory synchronization, SSH-backed job execution, reusable operational actions, package definitions,
 infrastructure profiles, editable operational templates, credential-backed secret injection, Docker Compose deployments, simple variable-driven execution, and production-aware security guardrails.
 
-The latest monitoring/inventory review is documented in `docs/project-review-2026-05-23-monitoring-inventory.md`.
+The latest preparation review is documented in `docs/project-review-2026-05-27-prep.md`.
 
 ## MVP Domains
 
@@ -95,6 +95,8 @@ or:
 ```powershell
 .\scripts\stop-docker.ps1
 ```
+
+For a fuller deployment checklist, including Docker versus on-prem LXC guidance and a controlled container update flow, see `docs/deployment.md`.
 
 ## Local Dev Server Quick Start
 

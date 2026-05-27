@@ -447,6 +447,16 @@ The 2026-05-23 review confirms that the implementation has moved beyond the olde
 - Frontend lint and production build pass on the current working tree.
 - Backend tests are isolated from live infrastructure and pass against fake/synthetic adapters and fixtures.
 
+### Preparation Review on 2026-05-27
+
+The 2026-05-27 review confirms that the app is ready to move into deployment preparation and structured testing:
+
+- Docker Compose is the preferred first deployment path because it builds the backend/frontend, provides PostgreSQL, proxies frontend `/api` calls, and runs Alembic migrations during backend startup.
+- On-prem LXC/VM deployment is viable as a service-style install with PostgreSQL, a Python virtual environment, Uvicorn, a built frontend, and Nginx reverse proxying.
+- Container updates can be automated as an operator-triggered flow: back up PostgreSQL, pull/build images, start the stack, allow migrations to run, and smoke-test health, auth, inventory, jobs/actions, Proxmox, and monitoring.
+- Unattended self-updating should wait until backups, rollback, migration validation, and smoke tests are scripted.
+- The only tracked zero-byte code file is `backend/app/modules/identity/__init__.py`, which is an intentional Python package marker.
+
 ## Architecture Status
 
 - Backend remains organized as a modular monolith.
