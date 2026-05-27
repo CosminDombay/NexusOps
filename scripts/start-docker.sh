@@ -49,9 +49,8 @@ ENV_FILE="$REPO_ROOT/.env"
 
 dotenv_escape() {
   local value="$1"
-  value="${value//\\/\\\\}"
-  value="${value//\"/\\\"}"
-  printf '"%s"' "$value"
+  value="${value//\'/\'\\\'\'}"
+  printf "'%s'" "$value"
 }
 
 get_dotenv_value() {

@@ -45,6 +45,22 @@ If the browser reports a CORS/API failure but `/api/v1/health` works, check Post
 - Migrations on Windows: set `DATABASE_URL`, then run `.venv\Scripts\python.exe -m alembic upgrade head`
 - Migrations on Linux/LXC: set `DATABASE_URL`, then run `.venv/bin/python -m alembic upgrade head`
 
+CI runner entrypoints:
+
+```bash
+./scripts/ci-backend.sh
+./scripts/ci-frontend.sh
+docker compose config --quiet
+docker compose build
+```
+
+Self-hosted deployment entrypoints:
+
+```bash
+./scripts/deploy.sh
+./scripts/healthcheck.sh
+```
+
 ### 2026-05-23 Validation Status
 
 Latest local validation from the project root:

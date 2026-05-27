@@ -9,9 +9,8 @@ ENV_FILE="$REPO_ROOT/.env"
 
 dotenv_escape() {
   local value="$1"
-  value="${value//\\/\\\\}"
-  value="${value//\"/\\\"}"
-  printf '"%s"' "$value"
+  value="${value//\'/\'\\\'\'}"
+  printf "'%s'" "$value"
 }
 
 get_dotenv_value() {
@@ -84,6 +83,10 @@ fi
 if [[ -z "$(get_dotenv_value NEXUSOPS_MASTER_KEY)" ]]; then
   set_dotenv_value NEXUSOPS_MASTER_KEY "$(generate_fernet_key)"
   echo "Generated local NEXUSOPS_MASTER_KEY in .env."
+fi
+
+if grep -q '^CORS_ORIGINS="\["' "$ENV_FILE"; then
+  set_dotenv_value CORS_ORIGINS "[\"http://localhost:5173\",\"http://127.0.0.1:5173\"]"
 fi
 
 if command -v node >/dev/null 2>&1 && command -v npm >/dev/null 2>&1; then

@@ -131,6 +131,24 @@ The older development Compose file is still available:
 docker compose -f infra/docker-compose.dev.yml up --build
 ```
 
+## CI and Deployment Scripts
+
+GitHub Actions and local runner checks should call the reusable Bash scripts:
+
+```bash
+./scripts/ci-backend.sh
+./scripts/ci-frontend.sh
+docker compose config --quiet
+docker compose build
+```
+
+For a self-hosted runner deployment job on the LXC host:
+
+```bash
+./scripts/deploy.sh
+./scripts/healthcheck.sh
+```
+
 ## Implemented Workflows
 
 - Inventory records define managed execution targets.
