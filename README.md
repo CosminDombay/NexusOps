@@ -66,6 +66,12 @@ On Windows PowerShell, you can use:
 .\scripts\start-docker.ps1 -Build
 ```
 
+On Linux or a Proxmox LXC container, use the Bash wrapper:
+
+```bash
+./scripts/start-docker.sh --build
+```
+
 The full Docker stack includes:
 
 - PostgreSQL
@@ -96,6 +102,12 @@ or:
 .\scripts\stop-docker.ps1
 ```
 
+On Linux:
+
+```bash
+./scripts/stop-docker.sh
+```
+
 For a fuller deployment checklist, including Docker versus on-prem LXC guidance and a controlled container update flow, see `docs/deployment.md`.
 
 ## Local Dev Server Quick Start
@@ -104,6 +116,13 @@ For hot-reload local development without fully containerizing the app:
 
 ```powershell
 .\scripts\start-dev.ps1
+```
+
+On Linux or a Proxmox LXC container:
+
+```bash
+./scripts/setup-env.sh
+./scripts/start-dev.sh
 ```
 
 The older development Compose file is still available:
