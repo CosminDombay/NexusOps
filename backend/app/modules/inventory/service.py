@@ -104,10 +104,23 @@ class InventoryService:
                 InventoryLifecycleState.ARCHIVED,
                 InventoryLifecycleState.DECOMMISSIONED,
             }:
-                return await self._restore_archived_proxmox_server(
+                return await self._adopt_existing_proxmox_server(
                     existing,
                     payload=payload,
                     discovered_vm=discovered_vm,
+                    adoption_reason="manual_import_restore",
+                    metadata_flag="restored_from_archive",
+                )
+            if existing.lifecycle_state in {
+                InventoryLifecycleState.DISCOVERED,
+                InventoryLifecycleState.UNMANAGED,
+            }:
+                return await self._adopt_existing_proxmox_server(
+                    existing,
+                    payload=payload,
+                    discovered_vm=discovered_vm,
+                    adoption_reason="manual_import_promote",
+                    metadata_flag="promoted_from_discovery",
                 )
             raise InventoryConflictError("Proxmox VM is already linked to inventory")
 
@@ -172,12 +185,14 @@ class InventoryService:
         )
         return created
 
-    async def _restore_archived_proxmox_server(
+    async def _adopt_existing_proxmox_server(
         self,
         server: Server,
         *,
         payload: ProxmoxInventoryImport,
         discovered_vm: ProxmoxVmRead | None,
+        adoption_reason: str,
+        metadata_flag: str,
     ) -> Server:
         vm_name = discovered_vm.name if discovered_vm else payload.hostname
         server.hostname = payload.hostname
@@ -209,7 +224,7 @@ class InventoryService:
         server.provider_metadata = {
             "integration_id": str(payload.integration_id),
             "vm_name": vm_name,
-            "restored_from_archive": True,
+            metadata_flag: True,
         }
         if discovered_vm and discovered_vm.ip_address:
             server.provider_metadata["detected_ip_address"] = discovered_vm.ip_address
@@ -219,7 +234,7 @@ class InventoryService:
         server.sync_metadata = {
             **server.sync_metadata,
             "source_type": "proxmox",
-            "last_sync_reason": "manual_import_restore",
+            "last_sync_reason": adoption_reason,
             "provider_node": payload.node,
             "provider_type": payload.vm_type,
         }
@@ -228,10 +243,11 @@ class InventoryService:
         await self.repository.session.refresh(server)
         await self.runtime_snapshots.refresh_inventory_snapshot(server)
         logger.info(
-            "proxmox_vm_restored_from_archive",
+            "proxmox_vm_existing_record_adopted",
             server_id=str(server.id),
             vm_id=payload.vm_id,
             hostname=server.hostname,
+            adoption_reason=adoption_reason,
         )
         return server
 

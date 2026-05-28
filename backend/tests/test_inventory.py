@@ -432,3 +432,82 @@ def test_inventory_import_restores_archived_proxmox_record(client, monkeypatch) 
     assert restored["sync_status"] in {"synced", "unknown"}
     assert restored["external_id"] == "106"
     assert restored["managed"] is True
+
+
+def test_inventory_import_promotes_unmanaged_proxmox_record(client, monkeypatch) -> None:
+    async def fake_list_vms(self):
+        return [
+            ProxmoxVmRead(
+                integration_id="11111111-1111-1111-1111-111111111111",
+                vm_id=106,
+                name="hds-tool",
+                node="hellgate",
+                type="qemu",
+                status="running",
+                ip_address="192.168.50.15",
+            )
+        ]
+
+    monkeypatch.setattr(ProxmoxService, "list_vms", fake_list_vms)
+    integration_response = client.post(
+        "/api/v1/integrations",
+        json={
+            "name": "Proxmox Test",
+            "type": "infrastructure_provider",
+            "provider_type": "proxmox",
+            "enabled": True,
+            "config": {
+                "api_url": "https://pve.example:8006/api2/json",
+                "token_id": "root@pam!test",
+                "token_secret": "secret",
+                "verify_ssl": False,
+            },
+            "credential_refs": {},
+        },
+    )
+    assert integration_response.status_code == 201
+    integration_id = integration_response.json()["id"]
+
+    create_response = client.post(
+        "/api/v1/servers",
+        json=server_payload(
+            hostname="hds-tool",
+            ip_address="192.168.50.15",
+            provider="proxmox",
+            external_id="106",
+            vmid="106",
+            integration_id=integration_id,
+            provider_node="hellgate",
+            provider_type="qemu",
+        ),
+    )
+    assert create_response.status_code == 201
+    server_id = create_response.json()["id"]
+    assert client.post(f"/api/v1/servers/{server_id}/unmanage").status_code == 200
+
+    import_response = client.post(
+        "/api/v1/servers/sync/proxmox/import",
+        json={
+            "integration_id": integration_id,
+            "vm_id": 106,
+            "node": "hellgate",
+            "vm_type": "qemu",
+            "hostname": "hds-tool",
+            "ip_address": "192.168.50.15",
+            "operating_system": "Ubuntu LTS 24.04",
+            "environment": "development",
+            "tags": ["promoted"],
+            "ssh_port": 22,
+            "ssh_username": "cerberus",
+            "ssh_auth_method": "key",
+        },
+    )
+
+    assert import_response.status_code == 201
+    promoted = import_response.json()
+    assert promoted["id"] == server_id
+    assert promoted["lifecycle_state"] == "managed"
+    assert promoted["sync_status"] in {"synced", "unknown"}
+    assert promoted["external_id"] == "106"
+    assert promoted["managed"] is True
+    assert promoted["provider_metadata"]["promoted_from_discovery"] is True
