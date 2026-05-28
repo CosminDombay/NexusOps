@@ -1,0 +1,39 @@
+name: NexusOps Staging Deploy
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: staging-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Validate and deploy staging
+    runs-on: self-hosted
+    timeout-minutes: 45
+    environment: staging
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          clean: false
+
+      - name: Set executable permissions
+        run: chmod +x scripts/*.sh
+
+      - name: Backend validation
+        run: ./scripts/ci-backend.sh
+
+      - name: Frontend validation
+        run: ./scripts/ci-frontend.sh
+
+      - name: Deploy stack
+        run: ./scripts/deploy.sh
