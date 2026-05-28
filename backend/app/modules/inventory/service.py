@@ -4,7 +4,7 @@ from uuid import UUID
 
 import structlog
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy import delete, update
+from sqlalchemy import delete, inspect, update
 
 from backend.app.modules.deployments.models import DeploymentTarget
 from backend.app.modules.inventory.models import (
@@ -418,17 +418,22 @@ class InventoryService:
             .where(ProvisioningRequest.server_id == server_id)
             .values(server_id=None)
         )
-        await self.repository.session.execute(
-            update(VirtualMachine)
-            .where(VirtualMachine.server_id == server_id)
-            .values(server_id=None)
-        )
+        if await self._table_exists(VirtualMachine.__tablename__):
+            await self.repository.session.execute(
+                update(VirtualMachine)
+                .where(VirtualMachine.server_id == server_id)
+                .values(server_id=None)
+            )
         await self.repository.session.execute(
             update(WorkflowRun)
             .where(WorkflowRun.target_server_id == server_id)
             .values(target_server_id=None)
         )
         await self.repository.session.execute(delete(DeploymentTarget).where(DeploymentTarget.server_id == server_id))
+
+    async def _table_exists(self, table_name: str) -> bool:
+        connection = await self.repository.session.connection()
+        return await connection.run_sync(lambda sync_connection: inspect(sync_connection).has_table(table_name))
 
     async def _archive_existing_server(self, server: Server) -> None:
         server.managed = False
