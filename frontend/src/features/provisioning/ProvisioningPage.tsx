@@ -431,7 +431,10 @@ export function ProvisioningPage() {
       setRequests((current) => [created, ...current]);
       setNotice({
         tone: created.status === 'completed' ? 'success' : 'danger',
-        message: `Provisioning finished with status ${created.status}.`,
+        message:
+          created.status === 'failed'
+            ? `Provisioning failed: ${created.error_message ?? 'No error details were returned.'}`
+            : `Provisioning finished with status ${created.status}.`,
       });
     } catch (caughtError) {
       setError(getApiErrorMessage(caughtError));

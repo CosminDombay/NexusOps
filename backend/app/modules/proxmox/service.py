@@ -515,7 +515,7 @@ class ProxmoxService:
             cpu_usage=_optional_float(raw_node.get("cpu")),
             memory_used=_optional_int(raw_node.get("mem")),
             memory_total=_optional_int(raw_node.get("maxmem")),
-            storage_used=storage[0] or None,
+            storage_used=storage[0] if storage[1] else None,
             storage_total=storage[1] or None,
             uptime_seconds=_optional_int(raw_node.get("uptime")),
             vm_count=vm_count,
@@ -573,6 +573,12 @@ class ProxmoxService:
         else:
             content_items = []
 
+        total_bytes = _optional_int(raw_storage.get("total") or raw_storage.get("maxdisk"))
+        available_bytes = _optional_int(raw_storage.get("avail"))
+        used_bytes = _optional_int(raw_storage.get("used"))
+        if used_bytes is None and total_bytes is not None and available_bytes is not None:
+            used_bytes = max(total_bytes - available_bytes, 0)
+
         return ProxmoxStorageRead(
             storage=str(raw_storage.get("storage") or raw_storage.get("id") or "unknown"),
             node=_optional_str(raw_storage.get("node")) or default_node,
@@ -581,9 +587,9 @@ class ProxmoxService:
             active=_optional_bool(raw_storage.get("active")),
             enabled=_optional_bool(raw_storage.get("enabled")),
             shared=_optional_bool(raw_storage.get("shared")),
-            used_bytes=_optional_int(raw_storage.get("used")),
-            total_bytes=_optional_int(raw_storage.get("total") or raw_storage.get("maxdisk")),
-            available_bytes=_optional_int(raw_storage.get("avail")),
+            used_bytes=used_bytes,
+            total_bytes=total_bytes,
+            available_bytes=available_bytes,
         )
 
     async def _add_inventory_context(self, vms: list[ProxmoxVmRead]) -> list[ProxmoxVmRead]:

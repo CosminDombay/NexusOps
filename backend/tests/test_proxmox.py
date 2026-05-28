@@ -66,6 +66,18 @@ class FakeProxmoxAdapter(ProxmoxAdapter):
     async def list_vm_templates(self) -> list[dict[str, Any]]:
         return []
 
+    async def list_storage(self, *, node: str | None = None) -> list[dict[str, Any]]:
+        return [
+            {
+                "storage": "local-lvm",
+                "node": node or "pve-01",
+                "type": "lvmthin",
+                "content": "images,rootdir",
+                "total": 3_000_000_000_000,
+                "avail": 1_000_000_000_000,
+            }
+        ]
+
     async def get_vm_status(self, *, node: str, vm_id: int, vm_type: str) -> dict[str, Any]:
         return {
             "vmid": vm_id,
@@ -153,6 +165,8 @@ async def test_proxmox_dashboard_normalizes_cluster_state() -> None:
     assert dashboard.nodes[0].name == "pve-01"
     assert dashboard.nodes[0].vm_count == 2
     assert dashboard.nodes[0].lxc_count == 1
+    assert dashboard.nodes[0].storage_used == 2_000_000_000_000
+    assert dashboard.nodes[0].storage_total == 3_000_000_000_000
     assert dashboard.vms[0].vm_id == 101
 
 

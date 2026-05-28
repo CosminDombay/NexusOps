@@ -94,16 +94,22 @@ export function useProxmoxDashboard(): UseProxmoxDashboardResult {
     setNotification(null);
 
     try {
+      const currentDashboard = await getProxmoxDashboard();
+      setDashboard(currentDashboard);
       const integrationIds = Array.from(
-        new Set((dashboard?.vms ?? []).map((vm) => vm.integration_id).filter((value): value is string => Boolean(value))),
+        new Set((currentDashboard.vms ?? []).map((vm) => vm.integration_id).filter((value): value is string => Boolean(value))),
       );
+      if (!integrationIds.length) {
+        setNotification({ tone: 'success', message: 'No Proxmox integrations need reconciliation.' });
+        return;
+      }
       await Promise.all(integrationIds.map((integrationId) => reconcileProxmoxInventory(integrationId)));
       setNotification({ tone: 'success', message: 'Inventory reconciliation completed.' });
       await refreshDashboard();
     } catch (caughtError) {
       setNotification({ tone: 'error', message: getApiErrorMessage(caughtError) });
     }
-  }, [dashboard?.vms, refreshDashboard]);
+  }, [refreshDashboard]);
 
   const syncHosts = useCallback(async () => {
     setNotification(null);

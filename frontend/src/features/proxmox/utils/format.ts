@@ -1,5 +1,5 @@
 export function formatBytes(value: number | null): string {
-  if (!value) {
+  if (value === null || value === undefined) {
     return 'Unavailable';
   }
 
