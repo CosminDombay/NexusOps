@@ -92,8 +92,27 @@ class HttpProxmoxAdapter(ProxmoxAdapter):
     async def list_storage(self, *, node: str | None = None) -> list[dict[str, Any]]:
         if node:
             data = await self._get(f"nodes/{node}/storage")
-        else:
-            data = await self._get("cluster/resources", params={"type": "storage"})
+            return list(data)
+
+        try:
+            nodes = await self.get_nodes()
+            storage: list[dict[str, Any]] = []
+            for node_data in nodes:
+                node_name = str(node_data.get("node") or "")
+                if not node_name:
+                    continue
+                try:
+                    node_storage = await self._get(f"nodes/{node_name}/storage")
+                except ProxmoxConnectionError:
+                    continue
+                for item in node_storage:
+                    storage.append({**dict(item), "node": item.get("node") or node_name})
+            if storage:
+                return storage
+        except ProxmoxConnectionError:
+            pass
+
+        data = await self._get("cluster/resources", params={"type": "storage"})
         return list(data)
 
     async def get_vm_status(self, *, node: str, vm_id: int, vm_type: str) -> dict[str, Any]:
