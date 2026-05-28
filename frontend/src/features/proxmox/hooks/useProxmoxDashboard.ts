@@ -3,7 +3,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { getApiErrorMessage } from '../../../lib/api/client';
 import { decommissionServer, deleteServer, importProxmoxVm, reconcileProxmoxInventory, restoreServer } from '../../inventory/api/serversApi';
 import type { ImportProxmoxVmPayload } from '../../inventory/types/server';
-import { getProxmoxDashboard, runVmAction, syncProxmoxGuests, syncProxmoxHosts } from '../api/proxmoxApi';
+import { getProxmoxDashboard, runVmAction, sanitizeDiscoveredProxmoxInventory, syncProxmoxGuests, syncProxmoxHosts } from '../api/proxmoxApi';
 import type { ProxmoxDashboard, ProxmoxVmAction } from '../types/proxmox';
 
 type ProxmoxNotification = {
@@ -23,6 +23,7 @@ type UseProxmoxDashboardResult = {
   reconcileInventory: () => Promise<void>;
   syncHosts: () => Promise<void>;
   syncGuests: () => Promise<void>;
+  sanitizeDiscoveredInventory: () => Promise<void>;
   decommissionHost: (serverId: string) => Promise<void>;
   restoreHost: (serverId: string) => Promise<void>;
   removeHostRecord: (serverId: string) => Promise<void>;
@@ -141,6 +142,21 @@ export function useProxmoxDashboard(): UseProxmoxDashboardResult {
     }
   }, [refreshDashboard]);
 
+  const sanitizeDiscoveredInventory = useCallback(async () => {
+    setNotification(null);
+
+    try {
+      const result = await sanitizeDiscoveredProxmoxInventory();
+      setNotification({
+        tone: 'success',
+        message: `${result.deleted_count} stale discovered Proxmox guest record(s) removed.`,
+      });
+      await refreshDashboard();
+    } catch (caughtError) {
+      setNotification({ tone: 'error', message: getApiErrorMessage(caughtError) });
+    }
+  }, [refreshDashboard]);
+
   const decommissionHost = useCallback(
     async (serverId: string) => {
       setNotification(null);
@@ -195,6 +211,7 @@ export function useProxmoxDashboard(): UseProxmoxDashboardResult {
     reconcileInventory,
     syncHosts,
     syncGuests,
+    sanitizeDiscoveredInventory,
     decommissionHost,
     restoreHost,
     removeHostRecord,

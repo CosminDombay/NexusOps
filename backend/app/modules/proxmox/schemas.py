@@ -89,6 +89,13 @@ class ProxmoxGuestSyncRead(BaseModel):
     skipped: list[str] = Field(default_factory=list)
 
 
+class ProxmoxInventorySanitizeRead(BaseModel):
+    deleted_count: int
+    skipped_count: int
+    deleted: list[str] = Field(default_factory=list)
+    skipped: list[str] = Field(default_factory=list)
+
+
 class ProxmoxClusterSummaryRead(BaseModel):
     node_count: int
     online_node_count: int

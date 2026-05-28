@@ -352,6 +352,40 @@ class InventoryService:
         logger.info("server_marked_unmanaged", server_id=str(server.id), hostname=server.hostname)
         return server
 
+    async def sanitize_proxmox_discovered_guests(self) -> tuple[list[str], list[str]]:
+        deleted: list[str] = []
+        skipped: list[str] = []
+
+        for server in await self.repository.list_by_provider("proxmox"):
+            if server.node_type not in {ManagedNodeType.VM, ManagedNodeType.LXC}:
+                continue
+            if server.managed:
+                skipped.append(f"{server.hostname}: managed")
+                continue
+            if server.lifecycle_state not in {
+                InventoryLifecycleState.DISCOVERED,
+                InventoryLifecycleState.UNMANAGED,
+            }:
+                skipped.append(f"{server.hostname}: lifecycle={server.lifecycle_state.value}")
+                continue
+            if not self._is_discovered_proxmox_guest_record(server):
+                skipped.append(f"{server.hostname}: not discovery-created")
+                continue
+
+            await self._cleanup_server_references(server.id)
+            await self.repository.delete(server)
+            deleted.append(server.hostname)
+
+        if deleted:
+            await self.repository.session.commit()
+
+        logger.info(
+            "proxmox_discovered_inventory_sanitized",
+            deleted_count=len(deleted),
+            skipped_count=len(skipped),
+        )
+        return deleted, skipped
+
     async def delete_server(self, server_id: UUID) -> None:
         server = await self.repository.get_by_id(server_id)
         if server is None:
@@ -593,6 +627,14 @@ class InventoryService:
         if not vm.ip_address:
             return False
         return not server.ip_address or server.ip_address == previous_detected_ip
+
+    @staticmethod
+    def _is_discovered_proxmox_guest_record(server: Server) -> bool:
+        return (
+            "discovered" in server.tags
+            or server.sync_metadata.get("last_sync_reason") == "guest_sync"
+            or server.provider_metadata.get("operational_readiness") is not None
+        )
 
     async def _ensure_unique(
         self,

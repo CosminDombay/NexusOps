@@ -97,6 +97,13 @@ export type ProxmoxGuestSyncResult = {
   skipped: string[];
 };
 
+export type ProxmoxInventorySanitizeResult = {
+  deleted_count: number;
+  skipped_count: number;
+  deleted: string[];
+  skipped: string[];
+};
+
 export type ProxmoxVmAction = 'start' | 'stop' | 'reboot' | 'shutdown';
 
 export type ProxmoxVmActionResponse = {

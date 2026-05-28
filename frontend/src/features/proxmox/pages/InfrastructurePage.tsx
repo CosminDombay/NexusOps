@@ -1,4 +1,4 @@
-import { AlertCircle, GitCompareArrows, RefreshCw, ServerIcon } from 'lucide-react';
+import { AlertCircle, GitCompareArrows, RefreshCw, ServerIcon, Trash2 } from 'lucide-react';
 
 import { PageHeader } from '../../../components/layout/PageHeader';
 import { useAuth } from '../../auth/hooks/useAuth';
@@ -24,6 +24,7 @@ export function InfrastructurePage() {
     reconcileInventory,
     syncHosts,
     syncGuests,
+    sanitizeDiscoveredInventory,
     decommissionHost,
     restoreHost,
     removeHostRecord,
@@ -114,6 +115,18 @@ export function InfrastructurePage() {
                 >
                   <GitCompareArrows className="h-4 w-4" aria-hidden="true" />
                   Sync discovered guests
+                </button>
+                <button
+                  className="inline-flex items-center gap-2 rounded-md border border-amber-300 bg-white px-3 py-2 text-sm font-semibold text-amber-700 transition hover:bg-amber-50"
+                  type="button"
+                  onClick={() => {
+                    if (window.confirm('Remove stale unmanaged Proxmox guest discovery records? Managed inventory hosts and hypervisors will be kept.')) {
+                      void sanitizeDiscoveredInventory();
+                    }
+                  }}
+                >
+                  <Trash2 className="h-4 w-4" aria-hidden="true" />
+                  Sanitize stale guests
                 </button>
               </div>
             </div>

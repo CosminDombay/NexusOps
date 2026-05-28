@@ -24,6 +24,7 @@ from backend.app.modules.proxmox.schemas import (
     ProxmoxDashboardRead,
     ProxmoxGuestSyncRead,
     ProxmoxHostSyncRead,
+    ProxmoxInventorySanitizeRead,
     ProxmoxNodeRead,
     ProxmoxNodeDetailRead,
     ProxmoxStorageRead,
@@ -339,6 +340,33 @@ async def sync_proxmox_guests(
         updated_count=updated_count,
         skipped_count=len(skipped),
         guests=guests,
+        skipped=skipped,
+    )
+
+
+@router.post(
+    "/inventory/sanitize-discovered",
+    response_model=ProxmoxInventorySanitizeRead,
+    dependencies=[Depends(require_operator)],
+)
+async def sanitize_discovered_proxmox_inventory(
+    request: Request,
+    session: Annotated[AsyncSession, Depends(get_db_session)],
+    current_user: Annotated[User, Depends(require_operator)],
+) -> ProxmoxInventorySanitizeRead:
+    deleted, skipped = await InventoryService(ServerRepository(session)).sanitize_proxmox_discovered_guests()
+    await audit_service_from_session(session).record(
+        event_type="inventory.proxmox_sanitized",
+        actor=current_user,
+        target_type="inventory",
+        result="success",
+        source_ip=source_ip_from_request(request),
+        metadata={"deleted_count": len(deleted), "skipped_count": len(skipped), "deleted": deleted},
+    )
+    return ProxmoxInventorySanitizeRead(
+        deleted_count=len(deleted),
+        skipped_count=len(skipped),
+        deleted=deleted,
         skipped=skipped,
     )
 

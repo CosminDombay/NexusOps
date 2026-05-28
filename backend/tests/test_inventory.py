@@ -511,3 +511,51 @@ def test_inventory_import_promotes_unmanaged_proxmox_record(client, monkeypatch)
     assert promoted["external_id"] == "106"
     assert promoted["managed"] is True
     assert promoted["provider_metadata"]["promoted_from_discovery"] is True
+
+
+def test_proxmox_sanitize_removes_only_discovered_unmanaged_guests(client) -> None:
+    stale_response = client.post(
+        "/api/v1/servers",
+        json=server_payload(
+            hostname="stale-guest",
+            ip_address="10.0.0.31",
+            vmid="210",
+            external_id="210",
+            node_type="vm",
+            managed=False,
+            management_state="unmanaged",
+            lifecycle_state="unmanaged",
+            sync_status="unmanaged",
+            sync_state="unmanaged",
+            tags=["source:proxmox", "qemu", "discovered"],
+            provider="proxmox",
+            provider_type="qemu",
+            sync_metadata={"last_sync_reason": "guest_sync"},
+        ),
+    )
+    assert stale_response.status_code == 201
+    stale_id = stale_response.json()["id"]
+
+    managed_response = client.post(
+        "/api/v1/servers",
+        json=server_payload(
+            hostname="managed-guest",
+            ip_address="10.0.0.32",
+            vmid="211",
+            external_id="211",
+            node_type="vm",
+            provider="proxmox",
+            provider_type="qemu",
+        ),
+    )
+    assert managed_response.status_code == 201
+    managed_id = managed_response.json()["id"]
+
+    sanitize_response = client.post("/api/v1/proxmox/inventory/sanitize-discovered")
+
+    assert sanitize_response.status_code == 200
+    result = sanitize_response.json()
+    assert result["deleted_count"] == 1
+    assert result["deleted"] == ["stale-guest"]
+    assert client.get(f"/api/v1/servers/{stale_id}").status_code == 404
+    assert client.get(f"/api/v1/servers/{managed_id}").status_code == 200
