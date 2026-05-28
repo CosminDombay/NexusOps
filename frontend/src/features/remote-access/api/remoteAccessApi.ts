@@ -43,7 +43,10 @@ export async function createShellToken(serverId: string): Promise<string> {
 
 export function buildShellWebSocketUrl(serverId: string, token: string): string {
   const apiBase = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000/api/v1';
-  const url = new URL(`${apiBase.replace(/\/$/, '')}/remote-access/hosts/${serverId}/shell`);
+  const url = new URL(
+    `${apiBase.replace(/\/$/, '')}/remote-access/hosts/${serverId}/shell`,
+    window.location.origin,
+  );
   url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
   url.searchParams.set('token', token);
   return url.toString();
