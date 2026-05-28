@@ -35,5 +35,13 @@ jobs:
       - name: Frontend validation
         run: ./scripts/ci-frontend.sh
 
+      - name: Create staging env file
+        env:
+          STAGING_ENV_FILE: ${{ secrets.STAGING_ENV_FILE }}
+        run: |
+          test -n "$STAGING_ENV_FILE"
+          umask 077
+          printf '%s\n' "$STAGING_ENV_FILE" > .env
+
       - name: Deploy stack
         run: ./scripts/deploy.sh
