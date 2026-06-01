@@ -79,9 +79,11 @@ export function ShellPanel({ server, canUseShell, compact = false }: { server: S
       setStatus('error');
       terminal.current?.writeln('\r\nShell connection failed.');
     };
-    ws.onclose = () => {
+    ws.onclose = (event) => {
       setStatus((current) => (current === 'error' ? 'error' : 'closed'));
-      terminal.current?.writeln('\r\nShell session closed.');
+      const reason = event.reason ? ` ${event.reason}` : '';
+      const code = event.code ? ` (code ${event.code})` : '';
+      terminal.current?.writeln(`\r\nShell session closed${code}.${reason}`);
     };
 
     dataSubscription.current?.dispose();
