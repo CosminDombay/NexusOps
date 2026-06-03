@@ -2,7 +2,7 @@ import type { IdentityState } from '../components/common/IdentityPrimitives';
 import type { DiscoveredGroup, DiscoveredUser, LinuxGroup, LinuxUser, PermissionTemplate, SSHKey } from '../types/identity';
 
 export type IdentityEntity =
-  | { id: string; kind: 'user'; state: IdentityState; name: string; user: LinuxUser }
+  | { id: string; kind: 'user'; state: IdentityState; name: string; user: LinuxUser; discoveredHosts: string[] }
   | { id: string; kind: 'group'; state: IdentityState; name: string; group: LinuxGroup; memberCount: number }
   | { id: string; kind: 'discovered-user'; state: IdentityState; name: string; user: DiscoveredUser }
   | { id: string; kind: 'discovered-group'; state: IdentityState; name: string; group: DiscoveredGroup; memberCount: number }
@@ -42,6 +42,7 @@ export function buildIdentityEntities(input: {
       state: user.managed ? 'synced' as const : 'unmanaged' as const,
       name: user.username,
       user,
+      discoveredHosts: input.discoveredUsers.find((candidate) => candidate.username === user.username)?.hosts ?? [],
     })),
     ...input.discoveredUsers.filter((user) => !managedUsernames.has(user.username)).map((user) => ({
       id: `discovered-user:${user.username}`,

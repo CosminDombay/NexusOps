@@ -54,7 +54,8 @@ class AuditService:
                 created = await self.repository.create(event)
             if commit:
                 await self.repository.session.commit()
-            logger.info(
+            log_recorded = logger.error if result == "failed" else logger.info
+            log_recorded(
                 "audit_event_recorded",
                 event_type=event_type,
                 result=result,

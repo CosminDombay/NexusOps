@@ -261,7 +261,8 @@ class JobService:
         )
         job = await runtime.run(job=job, server=server, payload=payload)
 
-        logger.info(
+        log_completed = logger.error if is_job_failure(job.status) else logger.info
+        log_completed(
             "job_completed",
             job_id=str(job.id),
             status=job.status,

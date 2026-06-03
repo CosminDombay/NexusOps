@@ -325,7 +325,7 @@ async def test_linux_group_update_can_rename_and_replicate(client) -> None:
 
 
 @pytest.mark.asyncio
-async def test_linux_user_group_update_does_not_unlock_password(client) -> None:
+async def test_linux_user_group_update_only_runs_group_changes(client) -> None:
     session = next(iter(client.app.dependency_overrides.values()))
     async for db_session in session():
         server = await InventoryService(ServerRepository(db_session)).create_server(
@@ -344,12 +344,19 @@ async def test_linux_user_group_update_does_not_unlock_password(client) -> None:
             ),
         )
 
-        created = await service.create_user(LinuxUserCreate(username="deploy", target_server_ids=[]))
+        created = await service.create_user(
+            LinuxUserCreate(username="deploy", sudo_enabled=True, target_server_ids=[])
+        )
         await service.update_user(
             created.item.id,
-            LinuxUserUpdate(supplementary_groups=["docker"], target_server_ids=[server.id]),
+            LinuxUserUpdate(sudo_enabled=True, supplementary_groups=["docker"], target_server_ids=[server.id]),
         )
 
         command = adapter.calls[0]["command"]
         assert "usermod -aG docker deploy" in command
+        assert "usermod -s" not in command
+        assert "sudoers.d" not in command
+        assert "visudo" not in command
+        assert "chpasswd" not in command
+        assert "passwd -l" not in command
         assert "passwd -u" not in command

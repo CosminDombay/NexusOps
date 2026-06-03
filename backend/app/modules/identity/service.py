@@ -471,12 +471,20 @@ class LinuxUserService:
 
     async def update_user(self, user_id: UUID, payload: LinuxUserUpdate) -> IdentityMutationRead:
         user = await self._user(user_id)
+        shell_changed = payload.shell != user.shell
+        next_home_directory = payload.home_directory or user.home_directory
+        home_changed = next_home_directory != user.home_directory
+        lock_changed = payload.locked != user.locked
+        sudo_changed = (
+            payload.sudo_enabled != user.sudo_enabled
+            or payload.sudo_nopasswd != user.sudo_nopasswd
+        )
         password_command, redacted_password_command = await self._password_commands(
             user.username,
             payload.password_credential_ref if payload.target_server_ids else None,
         )
         user.shell = payload.shell
-        user.home_directory = payload.home_directory or user.home_directory
+        user.home_directory = next_home_directory
         user.sudo_enabled = payload.sudo_enabled
         user.sudo_nopasswd = payload.sudo_nopasswd
         user.locked = payload.locked
@@ -486,7 +494,13 @@ class LinuxUserService:
 
         replication = None
         if payload.target_server_ids:
-            command = self._modify_user_command(user, supplementary_groups=payload.supplementary_groups)
+            command = self._modify_user_command(
+                user,
+                supplementary_groups=payload.supplementary_groups,
+                update_account=shell_changed or home_changed,
+                update_lock=lock_changed,
+                update_sudo=sudo_changed,
+            )
             redacted_command = command
             if password_command and redacted_password_command:
                 command = f"{command} && {password_command}"
@@ -621,18 +635,30 @@ class LinuxUserService:
         user: LinuxUser,
         *,
         supplementary_groups: list[str] | None = None,
+        update_account: bool = True,
+        update_lock: bool = True,
+        update_sudo: bool = True,
     ) -> str:
-        pieces = [
-            f"if ! id -u {quote(user.username)} >/dev/null 2>&1; then "
-            + self._create_user_command(user, supplementary_groups=supplementary_groups)
-            + f"; else sudo usermod -s {quote(user.shell)} -d {quote(user.home_directory)} {quote(user.username)}; fi"
-        ]
-        if user.locked:
-            pieces.append(f"sudo passwd -l {quote(user.username)}")
-        if user.sudo_enabled:
-            pieces.append(self._sudo_command(user))
+        pieces = []
+        if update_account:
+            pieces.append(
+                f"if ! id -u {quote(user.username)} >/dev/null 2>&1; then "
+                + self._create_user_command(user, supplementary_groups=supplementary_groups)
+                + f"; else sudo usermod -s {quote(user.shell)} -d {quote(user.home_directory)} {quote(user.username)}; fi"
+            )
         else:
-            pieces.append(f"sudo rm -f {quote(f'/etc/sudoers.d/nexusops-{user.username}')}")
+            pieces.append(
+                f"if ! id -u {quote(user.username)} >/dev/null 2>&1; then "
+                f"sudo useradd -m -d {quote(user.home_directory)} -s {quote(user.shell)} {quote(user.username)}; "
+                "fi"
+            )
+        if update_lock and user.locked:
+            pieces.append(f"sudo passwd -l {quote(user.username)}")
+        if update_sudo:
+            if user.sudo_enabled:
+                pieces.append(self._sudo_command(user))
+            else:
+                pieces.append(f"sudo rm -f {quote(f'/etc/sudoers.d/nexusops-{user.username}')}")
         group_command = self.supplementary_group_command(user.username, supplementary_groups or [])
         if group_command:
             pieces.append(group_command)

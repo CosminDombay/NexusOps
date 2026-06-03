@@ -77,6 +77,7 @@ function EntityCard({ entity, selected, onClick }: { entity: IdentityEntity; sel
   const Icon = entity.kind.includes('user') || entity.kind.includes('group') ? Users : entity.kind === 'ssh-key' ? KeyRound : Shield;
   const permissions = permissionBadgesFor(entity);
   const memberCount = 'memberCount' in entity ? entity.memberCount : entity.kind === 'discovered-user' ? entity.user.hosts.length : undefined;
+  const hostLabels = hostBadgesFor(entity);
   return (
     <button
       className={`w-full rounded-md border p-3 text-left transition ${selected ? 'border-cyan-300 bg-cyan-400/10' : 'border-slate-700 bg-slate-950/40 hover:border-slate-500 hover:bg-slate-900'}`}
@@ -95,12 +96,28 @@ function EntityCard({ entity, selected, onClick }: { entity: IdentityEntity; sel
       </div>
       <div className="mt-3 flex flex-wrap gap-1.5">
         {typeof memberCount === 'number' ? <PermissionChip label={`${memberCount} ${entity.kind.includes('user') ? 'host' : 'members'}`} /> : null}
+        {hostLabels.map((host) => (
+          <PermissionChip key={host} label={host} tone="observe" />
+        ))}
         {permissions.map((permission) => (
           <PermissionChip key={permission.label} label={permission.label} tone={permission.tone} />
         ))}
       </div>
     </button>
   );
+}
+
+function hostBadgesFor(entity: IdentityEntity): string[] {
+  if (entity.kind === 'discovered-user') return compactHosts(entity.user.hosts);
+  if (entity.kind === 'user') return compactHosts(entity.discoveredHosts);
+  if (entity.kind === 'discovered-group') return compactHosts(entity.group.hosts);
+  return [];
+}
+
+function compactHosts(hosts: string[]): string[] {
+  const uniqueHosts = [...new Set(hosts)].sort();
+  if (uniqueHosts.length <= 2) return uniqueHosts;
+  return [...uniqueHosts.slice(0, 2), `+${uniqueHosts.length - 2} more`];
 }
 
 function permissionBadgesFor(entity: IdentityEntity): Array<{ label: string; tone: 'neutral' | 'privileged' | 'runtime' | 'observe' }> {
