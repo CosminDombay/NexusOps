@@ -208,6 +208,8 @@ def test_expected_compose_services_reads_service_names() -> None:
 services:
   web:
     image: nginx
+    ports:
+      - "8080:80"
   worker:
     image: busybox
 volumes:

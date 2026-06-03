@@ -36,6 +36,7 @@ class FakeDiscoverySshAdapter(SshAdapter):
             {
                 "host": host,
                 "port": port,
+                "command": command,
                 "user": user,
                 "password": password,
                 "private_key_path": private_key_path,
@@ -273,6 +274,32 @@ async def test_host_discovery_uses_attached_ssh_credential() -> None:
     assert adapter.calls[0]["password"] == "proxmox-password"
     assert adapter.calls[0]["private_key_path"] is None
     assert adapter.calls[0]["private_key"] is None
+
+
+@pytest.mark.asyncio
+async def test_host_docker_discovery_uses_sudo_fallback() -> None:
+    server = SimpleNamespace(
+        hostname="docker-01",
+        ip_address="10.0.0.51",
+        operating_system="Ubuntu",
+        ssh_port=22,
+        ssh_username="ubuntu",
+        ssh_auth_method=ServerSshAuthMethod.KEY,
+        ssh_password=None,
+        ssh_private_key_path=None,
+        credential_id=None,
+    )
+    adapter = FakeDiscoverySshAdapter()
+    service = HostDiscoveryService(adapter)
+
+    await service.docker(server)
+
+    command = adapter.calls[0]["command"]
+    assert "nexusops_docker()" in command
+    assert "if sudo docker \"$@\" 2>\"$sudo_err_file\"; then" in command
+    assert "nexusops_docker version" in command
+    assert "nexusops_docker ps --format" in command
+    assert "nexusops_docker network ls" in command
 
 
 def test_inventory_archives_without_deleting_provider_metadata(client) -> None:

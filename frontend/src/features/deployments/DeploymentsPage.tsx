@@ -501,7 +501,7 @@ function DeploymentCard({
             value={deployment.ports.length ? deployment.ports.join(', ') : 'none'}
           />
           <Info label="Runtime" value={deployment.runtime_state} />
-          <Info label="Execution" value={deployment.execution_status ?? deployment.status} />
+          <Info label="Execution" value={deploymentExecutionLabel(deployment.execution_status ?? deployment.status)} />
           <Info label="Health" value={deployment.health_state} />
           <Info label="Sync" value={deployment.sync_status} />
           <Info label="Uptime" value={formatDuration(deployment.uptime_seconds)} />
@@ -524,7 +524,7 @@ function DeploymentCard({
       <div className="mt-4 flex flex-wrap gap-2">
         <ActionButton
           icon={Play}
-          label={deployment.status === 'draft' ? 'Deploy' : 'Start'}
+          label="Deploy"
           disabled={isWorking}
           onClick={() => void onRun(deployment, 'deploy')}
         />
@@ -554,7 +554,7 @@ function DeploymentCard({
         />
         <ActionButton
           icon={RefreshCw}
-          label="Runtime"
+          label="Check runtime"
           disabled={isWorking}
           onClick={() => void onRefreshRuntime(deployment)}
         />
@@ -677,7 +677,7 @@ function DeploymentExecutionSummary({ deployment }: { deployment: Deployment }) 
     <div className="mt-3 rounded-md border border-zinc-200 px-3 py-2 text-sm">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <span className="font-semibold text-zinc-950">{formatLabel(execution.operation)} execution</span>
-        <RuntimeBadge value={execution.status} />
+        <RuntimeBadge value={deploymentExecutionBadgeValue(execution.status)} />
       </div>
       <p className="mt-1 text-xs text-zinc-500">
         {execution.success_count}/{execution.target_count} succeeded
@@ -690,7 +690,7 @@ function DeploymentExecutionSummary({ deployment }: { deployment: Deployment }) 
             <div key={target.id} className="rounded-md bg-zinc-50 px-2 py-1.5 text-xs text-zinc-600">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <span className="font-semibold text-zinc-800">{target.hostname ?? target.server_id}</span>
-                <span>{formatLabel(target.status)}</span>
+                <span>{deploymentExecutionLabel(target.status)}</span>
               </div>
               {target.stderr ? <pre className="mt-1 max-h-20 overflow-auto whitespace-pre-wrap text-rose-700">{target.stderr}</pre> : null}
               {!target.stderr && target.stdout ? <pre className="mt-1 max-h-20 overflow-auto whitespace-pre-wrap text-zinc-500">{target.stdout}</pre> : null}
@@ -999,6 +999,15 @@ function formatDuration(seconds: number | null): string {
 
 function formatLabel(value: string): string {
   return formatOperationalLabel(value);
+}
+
+function deploymentExecutionBadgeValue(status: DeploymentStatus): string {
+  return status === 'running' ? 'success' : status;
+}
+
+function deploymentExecutionLabel(status: DeploymentStatus): string {
+  if (status === 'running') return 'Succeeded';
+  return formatLabel(status);
 }
 
 function formatNodeType(value: string | null): string {

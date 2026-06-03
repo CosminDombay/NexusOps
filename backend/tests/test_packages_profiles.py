@@ -379,9 +379,12 @@ def test_deployment_heredoc_marker_changes_when_content_contains_marker() -> Non
 
 def test_deployment_docker_command_uses_sudo_fallback_wrapper() -> None:
     command = DockerComposeDeploymentService._docker_compose("ps")
+    wrapper = DockerComposeDeploymentService._docker_sudo_fallback_function()
 
     assert command == "nexusops_docker compose -f docker-compose.yaml --env-file .env ps"
-    assert "sudo docker \"$@\"" in DockerComposeDeploymentService._docker_sudo_fallback_function()
+    assert "sudo docker \"$@\"" in wrapper
+    assert "if sudo docker \"$@\" 2>\"$sudo_err_file\"; then" in wrapper
+    assert wrapper.index("if sudo docker") < wrapper.index("cat \"$err_file\" >&2")
 
 
 def test_deployment_heredoc_marker_keeps_changing_until_unique() -> None:

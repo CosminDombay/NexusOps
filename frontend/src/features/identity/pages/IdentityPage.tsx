@@ -309,8 +309,24 @@ export function IdentityPage() {
       supplementary_groups: splitCsv(form.groups),
       target_server_ids: selectedTargetIds,
     };
-    const response = selectedEntity?.kind === 'discovered-user' ? await adoptLinuxUser({ ...payload, target_server_ids: [] }) : await createLinuxUser(payload);
+    const response = selectedEntity?.kind === 'discovered-user'
+      ? await adoptLinuxUser({ ...payload, target_server_ids: [] })
+      : await createLinuxUser(payload);
     setSelectedEntityId(`user:${response.item.id}`);
+    if (selectedEntity?.kind === 'discovered-user' && selectedTargetIds.length) {
+      const syncResponse = await updateLinuxUser(response.item.id, {
+        shell: form.shell,
+        home_directory: response.item.home_directory || `/home/${form.username}`,
+        password_credential_ref: form.passwordCredentialId || null,
+        sudo_enabled: form.sudoMode !== 'none',
+        sudo_nopasswd: form.sudoMode === 'nopasswd',
+        locked: response.item.locked,
+        managed: true,
+        supplementary_groups: splitCsv(form.groups),
+        target_server_ids: selectedTargetIds,
+      });
+      return syncResponse.replication;
+    }
     return response.replication;
   }
 
@@ -332,8 +348,14 @@ export function IdentityPage() {
 
   async function createOrAdoptGroup() {
     const payload = { name: form.groupName, description: form.groupDescription || null, managed: true, target_server_ids: selectedTargetIds };
-    const response = selectedEntity?.kind === 'discovered-group' ? await adoptLinuxGroup({ ...payload, managed: false, target_server_ids: [] }) : await createLinuxGroup(payload);
+    const response = selectedEntity?.kind === 'discovered-group'
+      ? await adoptLinuxGroup({ ...payload, managed: true, target_server_ids: [] })
+      : await createLinuxGroup(payload);
     setSelectedEntityId(`group:${response.item.id}`);
+    if (selectedEntity?.kind === 'discovered-group' && selectedTargetIds.length) {
+      const syncResponse = await replicateLinuxGroup(response.item.id, selectedTargetIds);
+      return syncResponse;
+    }
     return response.replication;
   }
 

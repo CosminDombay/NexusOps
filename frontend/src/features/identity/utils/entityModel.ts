@@ -17,6 +17,8 @@ export function buildIdentityEntities(input: {
   sshKeys: SSHKey[];
   permissions: PermissionTemplate[];
 }): IdentityEntity[] {
+  const managedUsernames = new Set(input.users.map((user) => user.username));
+  const managedGroupNames = new Set(input.groups.map((group) => group.name));
   return [
     ...input.groups.map((group) => ({
       id: `group:${group.id}`,
@@ -26,7 +28,7 @@ export function buildIdentityEntities(input: {
       group,
       memberCount: input.discoveredGroups.find((candidate) => candidate.name === group.name)?.members.length ?? 0,
     })),
-    ...input.discoveredGroups.map((group) => ({
+    ...input.discoveredGroups.filter((group) => !managedGroupNames.has(group.name)).map((group) => ({
       id: `discovered-group:${group.name}`,
       kind: 'discovered-group' as const,
       state: 'discovered' as const,
@@ -41,7 +43,7 @@ export function buildIdentityEntities(input: {
       name: user.username,
       user,
     })),
-    ...input.discoveredUsers.map((user) => ({
+    ...input.discoveredUsers.filter((user) => !managedUsernames.has(user.username)).map((user) => ({
       id: `discovered-user:${user.username}`,
       kind: 'discovered-user' as const,
       state: 'discovered' as const,
@@ -64,4 +66,3 @@ export function buildIdentityEntities(input: {
     })),
   ];
 }
-

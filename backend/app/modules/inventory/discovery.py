@@ -95,12 +95,19 @@ class HostDiscoveryService:
         sections = await self._run_sections(
             server,
             [
-                _CommandSpec("version", "docker version --format '{{.Server.Version}}' 2>/dev/null || true"),
+                _CommandSpec("docker_access", _docker_sudo_fallback_function()),
+                _CommandSpec(
+                    "version",
+                    "nexusops_docker version --format '{{.Server.Version}}' 2>/dev/null || true",
+                ),
                 _CommandSpec(
                     "containers",
-                    "docker ps --format '{{.ID}},{{.Names}},{{.Image}},{{.Status}},{{.Ports}},{{.Label \"com.docker.compose.project\"}}' 2>/dev/null || true",
+                    "nexusops_docker ps --format '{{.ID}},{{.Names}},{{.Image}},{{.Status}},{{.Ports}},{{.Label \"com.docker.compose.project\"}}' 2>/dev/null || true",
                 ),
-                _CommandSpec("networks", "docker network ls --format '{{.Name}},{{.Driver}},{{.Scope}}' 2>/dev/null || true"),
+                _CommandSpec(
+                    "networks",
+                    "nexusops_docker network ls --format '{{.Name}},{{.Driver}},{{.Scope}}' 2>/dev/null || true",
+                ),
             ],
         )
         version = _first_line(sections.get("version"))
@@ -164,6 +171,30 @@ def _sectioned_command(specs: Iterable[_CommandSpec]) -> str:
         parts.append(f"printf '\\n__NEXUSOPS_SECTION__:%s\\n' {label}")
         parts.append(spec.command)
     return "\n".join(parts)
+
+
+def _docker_sudo_fallback_function() -> str:
+    return "\n".join(
+        [
+            "nexusops_docker() {",
+            "  err_file=$(mktemp)",
+            "  if docker \"$@\" 2>\"$err_file\"; then rm -f \"$err_file\"; return 0; fi",
+            "  status=$?",
+            "  if grep -qiE 'permission denied|cannot connect to the docker daemon|docker.sock|dial unix' \"$err_file\"; then",
+            "    sudo_err_file=$(mktemp)",
+            "    if sudo docker \"$@\" 2>\"$sudo_err_file\"; then rm -f \"$err_file\" \"$sudo_err_file\"; return 0; fi",
+            "    sudo_status=$?",
+            "    cat \"$err_file\" >&2",
+            "    cat \"$sudo_err_file\" >&2",
+            "    rm -f \"$err_file\" \"$sudo_err_file\"",
+            "    return \"$sudo_status\"",
+            "  fi",
+            "  cat \"$err_file\" >&2",
+            "  rm -f \"$err_file\"",
+            "  return \"$status\"",
+            "}",
+        ]
+    )
 
 
 def _split_sections(output: str) -> dict[str, str]:

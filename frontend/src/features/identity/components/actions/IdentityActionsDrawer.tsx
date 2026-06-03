@@ -101,6 +101,8 @@ export function IdentityActionsDrawer({
   const groupSelected = selectedKind === 'group' || selectedKind === 'discovered-group';
   const sshSelected = selectedKind === 'ssh-key';
   const permissionSelected = selectedKind === 'permission';
+  const discoveredUserSelected = selectedKind === 'discovered-user';
+  const discoveredGroupSelected = selectedKind === 'discovered-group';
 
   return (
     <aside className="space-y-4 rounded-md border border-slate-700 bg-slate-900/80 p-4">
@@ -131,18 +133,18 @@ export function IdentityActionsDrawer({
             </SelectInput>
             <TextInput label="Groups" value={form.groups} onChange={(value) => onFormChange({ groups: value })} placeholder="docker,www-data" />
             <div className="grid gap-2">
-              <IconButton icon={UserPlus} disabled={!targetsReady || isWorking} label="Create" onClick={onCreateUser} />
-              <IconButton icon={Save} disabled={!users.length || !targetsReady || isWorking} label="Modify" onClick={onUpdateUser} />
-              <IconButton icon={RotateCcw} disabled={!users.length || !targetsReady || isWorking || !form.passwordCredentialId} label="Set selected password" onClick={onUpdateUser} />
-              <IconButton icon={RefreshCw} disabled={!users.length || !targetsReady || isWorking} label="Sync now" onClick={onReplicateUser} />
+              <IconButton icon={UserPlus} disabled={!targetsReady || isWorking} label={discoveredUserSelected ? 'Adopt & sync' : 'Create'} onClick={onCreateUser} />
+              <IconButton icon={Save} disabled={discoveredUserSelected || !users.length || !targetsReady || isWorking} label="Modify" onClick={onUpdateUser} />
+              <IconButton icon={RotateCcw} disabled={discoveredUserSelected || !users.length || !targetsReady || isWorking || !form.passwordCredentialId} label="Set selected password" onClick={onUpdateUser} />
+              <IconButton icon={RefreshCw} disabled={discoveredUserSelected || !users.length || !targetsReady || isWorking} label="Sync now" onClick={onReplicateUser} />
               <div className="grid grid-cols-2 gap-2">
-                <IconButton icon={Lock} disabled={!users.length || !targetsReady || isWorking} label="Lock" onClick={onLockUser} variant="secondary" />
-                <IconButton icon={Unlock} disabled={!users.length || !targetsReady || isWorking} label="Unlock" onClick={onUnlockUser} variant="secondary" />
+                <IconButton icon={Lock} disabled={discoveredUserSelected || !users.length || !targetsReady || isWorking} label="Lock" onClick={onLockUser} variant="secondary" />
+                <IconButton icon={Unlock} disabled={discoveredUserSelected || !users.length || !targetsReady || isWorking} label="Unlock" onClick={onUnlockUser} variant="secondary" />
               </div>
-              <IconButton icon={ShieldOff} disabled={!users.length || !targetsReady || isWorking} label="Disable shell" onClick={onDisableShell} variant="secondary" />
-              <IconButton icon={RotateCcw} disabled={!users.length || !targetsReady || isWorking} label="Expire password" onClick={onExpirePassword} variant="secondary" />
+              <IconButton icon={ShieldOff} disabled={discoveredUserSelected || !users.length || !targetsReady || isWorking} label="Disable shell" onClick={onDisableShell} variant="secondary" />
+              <IconButton icon={RotateCcw} disabled={discoveredUserSelected || !users.length || !targetsReady || isWorking} label="Expire password" onClick={onExpirePassword} variant="secondary" />
               <IconButton icon={Eye} disabled={!targetsReady || isWorking || !form.username.trim()} label="Inspect groups" onClick={onInspectUserGroups} variant="secondary" />
-              <IconButton icon={Trash2} disabled={!users.length || isWorking} label="Delete" onClick={onDeleteUser} variant="danger" />
+              <IconButton icon={Trash2} disabled={discoveredUserSelected || !users.length || isWorking} label="Delete" onClick={onDeleteUser} variant="danger" />
             </div>
           </div>
         </SectionCard>
@@ -155,13 +157,13 @@ export function IdentityActionsDrawer({
             <TextInput label="Description" value={form.groupDescription} onChange={(value) => onFormChange({ groupDescription: value })} />
             <TextInput label="Members" value={form.memberNames} onChange={(value) => onFormChange({ memberNames: value })} placeholder="deploy,cerberus" />
             <div className="grid gap-2">
-              <IconButton icon={Users} disabled={!targetsReady || isWorking} label="Create" onClick={onCreateGroup} />
-              <IconButton icon={Save} disabled={!groups.length || isWorking} label="Update" onClick={onUpdateGroup} />
-              <IconButton icon={RefreshCw} disabled={!groups.length || !targetsReady || isWorking} label="Replicate" onClick={onReplicateGroup} />
-              <IconButton icon={UserPlus} disabled={!groups.length || !targetsReady || isWorking} label="Add members" onClick={onAddMembers} />
-              <IconButton icon={Trash2} disabled={!groups.length || !targetsReady || isWorking} label="Remove members" onClick={onRemoveMembers} variant="secondary" />
+              <IconButton icon={Users} disabled={!targetsReady || isWorking} label={discoveredGroupSelected ? 'Adopt & sync' : 'Create'} onClick={onCreateGroup} />
+              <IconButton icon={Save} disabled={discoveredGroupSelected || !groups.length || isWorking} label="Update" onClick={onUpdateGroup} />
+              <IconButton icon={RefreshCw} disabled={discoveredGroupSelected || !groups.length || !targetsReady || isWorking} label="Replicate" onClick={onReplicateGroup} />
+              <IconButton icon={UserPlus} disabled={discoveredGroupSelected || !groups.length || !targetsReady || isWorking} label="Add members" onClick={onAddMembers} />
+              <IconButton icon={Trash2} disabled={discoveredGroupSelected || !groups.length || !targetsReady || isWorking} label="Remove members" onClick={onRemoveMembers} variant="secondary" />
               <IconButton icon={Eye} disabled={!targetsReady || isWorking || !form.groupName.trim()} label="Inspect members" onClick={onInspectGroupMembers} variant="secondary" />
-              <IconButton icon={Trash2} disabled={!groups.length || isWorking} label="Delete" onClick={onDeleteGroup} variant="danger" />
+              <IconButton icon={Trash2} disabled={discoveredGroupSelected || !groups.length || isWorking} label="Delete" onClick={onDeleteGroup} variant="danger" />
             </div>
           </div>
         </SectionCard>

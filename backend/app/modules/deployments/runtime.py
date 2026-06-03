@@ -47,16 +47,28 @@ class DeploymentRuntimeState:
 def expected_compose_services(compose_content: str) -> set[str]:
     services: set[str] = set()
     in_services = False
+    services_indent = 0
+    service_indent: int | None = None
     for line in compose_content.splitlines():
         if not line.strip() or line.lstrip().startswith("#"):
             continue
-        if re.match(r"^services:\s*$", line):
+        services_match = re.match(r"^(\s*)services:\s*$", line)
+        if services_match:
             in_services = True
+            services_indent = len(services_match.group(1))
+            service_indent = None
             continue
         if in_services:
-            if not line.startswith((" ", "\t")):
+            indent = len(line) - len(line.lstrip(" "))
+            if indent <= services_indent:
                 break
-            match = re.match(r"^\s{2,}([A-Za-z0-9_.-]+):\s*$", line)
+            if line.lstrip().startswith("-"):
+                continue
+            if service_indent is None:
+                service_indent = indent
+            if indent != service_indent:
+                continue
+            match = re.match(r"^\s*([A-Za-z0-9_.-]+):\s*$", line)
             if match:
                 services.add(match.group(1))
     return services
