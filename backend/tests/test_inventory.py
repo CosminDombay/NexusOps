@@ -43,6 +43,7 @@ class FakeDiscoverySshAdapter(SshAdapter):
                 "private_key_path": private_key_path,
                 "private_key": private_key,
                 "passphrase": passphrase,
+                "input_data": input_data,
             }
         )
         return SshExecutionResult(
@@ -301,6 +302,32 @@ async def test_host_docker_discovery_uses_sudo_fallback() -> None:
     assert "nexusops_docker version" in command
     assert "nexusops_docker ps --format" in command
     assert "nexusops_docker network ls" in command
+
+
+@pytest.mark.asyncio
+async def test_host_docker_discovery_feeds_sudo_credential() -> None:
+    credential_id = uuid4()
+    server = SimpleNamespace(
+        hostname="docker-credential-01",
+        ip_address="10.0.0.52",
+        operating_system="Ubuntu",
+        ssh_port=22,
+        ssh_username="ubuntu",
+        ssh_auth_method=ServerSshAuthMethod.KEY,
+        ssh_password=None,
+        ssh_private_key_path=None,
+        credential_id=credential_id,
+    )
+    adapter = FakeDiscoverySshAdapter()
+    service = HostDiscoveryService(adapter, credential_service=FakeCredentialService())
+
+    await service.docker(server)
+
+    assert adapter.calls[0]["password"] == "proxmox-password"
+    assert adapter.calls[0]["input_data"] == "proxmox-password\n"
+    assert "NEXUSOPS_ASKPASS=$(mktemp)" in adapter.calls[0]["command"]
+    assert "sudo() { SUDO_ASKPASS=\"$NEXUSOPS_ASKPASS\" command sudo -A -p '' \"$@\"; }" in adapter.calls[0]["command"]
+    assert "nexusops_docker version" in adapter.calls[0]["command"]
 
 
 def test_inventory_archives_without_deleting_provider_metadata(client) -> None:

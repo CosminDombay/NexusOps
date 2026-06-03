@@ -8,6 +8,7 @@ from typing import Iterable
 
 from backend.app.adapters.ssh.base import SshAdapter
 from backend.app.adapters.ssh.paramiko import SshConnectionError
+from backend.app.adapters.ssh.sudo import prepare_sudo_command
 from backend.app.modules.credentials.service import CredentialNotFoundError, CredentialService
 from backend.app.modules.inventory.models import Server, ServerSshAuthMethod
 from backend.app.modules.inventory.schemas import (
@@ -145,6 +146,8 @@ class HostDiscoveryService:
                 ssh_private_key = credential.private_key
                 ssh_passphrase = credential.passphrase
 
+        command, input_data = prepare_sudo_command(command, ssh_password)
+
         try:
             result = await self.ssh_adapter.run_command(
                 host=server.ip_address,
@@ -155,6 +158,7 @@ class HostDiscoveryService:
                 private_key=ssh_private_key,
                 passphrase=ssh_passphrase,
                 command=command,
+                input_data=input_data,
             )
         except SshConnectionError as exc:
             raise HostDiscoveryError(str(exc)) from exc

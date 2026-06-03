@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
 from backend.app.adapters.ssh import SshAdapter
+from backend.app.adapters.ssh.sudo import prepare_sudo_command
 from backend.app.modules.audit.service import AuditService
 from backend.app.modules.credentials.service import CredentialNotFoundError, CredentialService
 from backend.app.modules.inventory.models import ServerSshAuthMethod
@@ -108,7 +109,7 @@ class JobExecutionRuntime:
         started = job.started_at or datetime.now(UTC)
         try:
             ssh_user, ssh_password, ssh_private_key_path, ssh_private_key, ssh_passphrase = await self._credentials(server, payload)
-            command, input_data = self._sudo_enabled_command(payload.command, ssh_password)
+            command, input_data = prepare_sudo_command(payload.command, ssh_password)
             result = await self.ssh_adapter.run_command(
                 host=server.ip_address,
                 port=server.ssh_port,
@@ -221,22 +222,6 @@ class JobExecutionRuntime:
                 self.secret_sanitizer.add_secret(ssh_private_key)
                 self.secret_sanitizer.add_secret(ssh_passphrase)
         return ssh_user, ssh_password, ssh_private_key_path, ssh_private_key, ssh_passphrase
-
-    @staticmethod
-    def _sudo_enabled_command(command: str, ssh_password: str | None) -> tuple[str, str | None]:
-        if not ssh_password or "sudo" not in command:
-            return command, None
-        return (
-            "\n".join(
-                [
-                    "IFS= read -r NEXUSOPS_SUDO_PASSWORD",
-                    "printf '%s\\n' \"$NEXUSOPS_SUDO_PASSWORD\" | command sudo -S -p '' -v",
-                    "sudo() { command sudo -p '' \"$@\"; }",
-                    command,
-                ]
-            ),
-            f"{ssh_password}\n",
-        )
 
     async def _audit(self, job: Job, server) -> None:
         if self.audit_service is None:
