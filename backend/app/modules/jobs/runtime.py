@@ -226,15 +226,15 @@ class JobExecutionRuntime:
     def _sudo_enabled_command(command: str, ssh_password: str | None) -> tuple[str, str | None]:
         if not ssh_password or "sudo" not in command:
             return command, None
-        sudo_count = max(3, command.count("sudo") + 2)
         return (
             "\n".join(
                 [
-                    "sudo() { command sudo -S -p '' \"$@\"; }",
+                    "IFS= read -r NEXUSOPS_SUDO_PASSWORD",
+                    "sudo() { printf '%s\\n' \"$NEXUSOPS_SUDO_PASSWORD\" | command sudo -S -p '' \"$@\"; }",
                     command,
                 ]
             ),
-            "".join(f"{ssh_password}\n" for _ in range(sudo_count)),
+            f"{ssh_password}\n",
         )
 
     async def _audit(self, job: Job, server) -> None:

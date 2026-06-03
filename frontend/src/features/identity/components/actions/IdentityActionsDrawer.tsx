@@ -131,10 +131,13 @@ export function IdentityActionsDrawer({
               <option value="password">Require password for sudo</option>
               <option value="nopasswd">Passwordless sudo</option>
             </SelectInput>
-            <SelectInput label="Password credential" value={form.passwordCredentialId} onChange={(value) => onFormChange({ passwordCredentialId: value })}>
-              <option value="">Do not set password</option>
+            <SelectInput label="Password / sudo credential" value={form.passwordCredentialId} onChange={(value) => onFormChange({ passwordCredentialId: value })}>
+              <option value="">Use target saved credential</option>
               {passwordCredentials.map((credential) => <option key={credential.id} value={credential.id}>{credential.name}</option>)}
             </SelectInput>
+            <p className="-mt-1 text-xs text-slate-400">
+              Sync and Modify use this for sudo execution. Set selected password uses it as the account password.
+            </p>
             <TextInput label="Groups" value={form.groups} onChange={(value) => onFormChange({ groups: value })} placeholder="docker,www-data" />
             <div className="grid gap-2">
               <IconButton icon={UserPlus} disabled={isWorking} label={discoveredUserSelected ? (targetsReady ? 'Adopt & sync' : 'Adopt') : 'Create'} onClick={onCreateUser} />
