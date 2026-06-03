@@ -108,15 +108,17 @@ class JobExecutionRuntime:
         started = job.started_at or datetime.now(UTC)
         try:
             ssh_user, ssh_password, ssh_private_key_path, ssh_private_key, ssh_passphrase = await self._credentials(server, payload)
+            command, input_data = self._sudo_enabled_command(payload.command, ssh_password)
             result = await self.ssh_adapter.run_command(
                 host=server.ip_address,
                 port=server.ssh_port,
-                command=payload.command,
+                command=command,
                 user=ssh_user,
                 password=ssh_password,
                 private_key_path=ssh_private_key_path,
                 private_key=ssh_private_key,
                 passphrase=ssh_passphrase,
+                input_data=input_data,
             )
             job.stdout = self.secret_sanitizer.redact_text(result.stdout)
             job.stderr = self.secret_sanitizer.redact_text(result.stderr)
@@ -219,6 +221,21 @@ class JobExecutionRuntime:
                 self.secret_sanitizer.add_secret(ssh_private_key)
                 self.secret_sanitizer.add_secret(ssh_passphrase)
         return ssh_user, ssh_password, ssh_private_key_path, ssh_private_key, ssh_passphrase
+
+    @staticmethod
+    def _sudo_enabled_command(command: str, ssh_password: str | None) -> tuple[str, str | None]:
+        if not ssh_password or "sudo" not in command:
+            return command, None
+        sudo_count = max(3, command.count("sudo") + 2)
+        return (
+            "\n".join(
+                [
+                    "sudo() { command sudo -S -p '' \"$@\"; }",
+                    command,
+                ]
+            ),
+            "".join(f"{ssh_password}\n" for _ in range(sudo_count)),
+        )
 
     async def _audit(self, job: Job, server) -> None:
         if self.audit_service is None:

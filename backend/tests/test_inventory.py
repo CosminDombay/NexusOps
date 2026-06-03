@@ -31,6 +31,7 @@ class FakeDiscoverySshAdapter(SshAdapter):
         private_key_path: str | None = None,
         private_key: str | None = None,
         passphrase: str | None = None,
+        input_data: str | None = None,
     ) -> SshExecutionResult:
         self.calls.append(
             {

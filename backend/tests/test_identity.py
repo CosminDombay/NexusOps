@@ -36,8 +36,9 @@ class FakeSshAdapter(SshAdapter):
         private_key_path: str | None = None,
         private_key: str | None = None,
         passphrase: str | None = None,
+        input_data: str | None = None,
     ) -> SshExecutionResult:
-        self.calls.append({"host": host, "command": command, "user": user})
+        self.calls.append({"host": host, "command": command, "user": user, "input_data": input_data})
         return SshExecutionResult(exit_code=0, stdout=self.stdout, stderr="")
 
     async def upload_file(self, host: str, local_path: str, remote_path: str, user: str) -> None:

@@ -50,11 +50,11 @@ export function IdentityExplorer({
       </div>
       <div className="min-h-0 flex-1 space-y-5 overflow-auto p-3">
         {Object.entries(grouped).map(([label, items]) => (
-          <section key={label}>
-            <div className="mb-2 flex items-center justify-between px-1">
+          <details key={label} className="group" open={label !== 'Groups'}>
+            <summary className="mb-2 flex cursor-pointer list-none items-center justify-between rounded-md px-1 py-1 hover:bg-slate-800/70">
               <h3 className="text-xs font-semibold uppercase text-slate-400">{label}</h3>
               <span className="text-xs text-slate-500">{items.length}</span>
-            </div>
+            </summary>
             <div className="space-y-2">
               {items.map((entity) => (
                 <EntityCard
@@ -66,7 +66,7 @@ export function IdentityExplorer({
               ))}
               {!items.length ? <p className="rounded-md border border-dashed border-slate-700 px-3 py-4 text-xs text-slate-500">No {label.toLowerCase()} found.</p> : null}
             </div>
-          </section>
+          </details>
         ))}
       </div>
     </aside>

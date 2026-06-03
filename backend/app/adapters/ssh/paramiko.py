@@ -43,6 +43,7 @@ class ParamikoSshAdapter(SshAdapter):
         private_key_path: str | None = None,
         private_key: str | None = None,
         passphrase: str | None = None,
+        input_data: str | None = None,
     ) -> SshExecutionResult:
         return await asyncio.to_thread(
             self._run_command_sync,
@@ -54,6 +55,7 @@ class ParamikoSshAdapter(SshAdapter):
             private_key_path=private_key_path,
             private_key=private_key,
             passphrase=passphrase,
+            input_data=input_data,
         )
 
     async def upload_file(self, host: str, local_path: str, remote_path: str, user: str) -> None:
@@ -70,6 +72,7 @@ class ParamikoSshAdapter(SshAdapter):
         private_key_path: str | None,
         private_key: str | None,
         passphrase: str | None,
+        input_data: str | None,
     ) -> SshExecutionResult:
         client = paramiko.SSHClient()
         client.set_missing_host_key_policy(TrustOnFirstUsePolicy())
@@ -89,10 +92,14 @@ class ParamikoSshAdapter(SshAdapter):
                 look_for_keys=not use_password and not use_inline_key,
                 allow_agent=not use_password and not use_inline_key,
             )
-            _, stdout_stream, stderr_stream = client.exec_command(
+            stdin_stream, stdout_stream, stderr_stream = client.exec_command(
                 command,
                 timeout=settings.ssh_command_timeout_seconds,
             )
+            if input_data:
+                stdin_stream.write(input_data)
+                stdin_stream.flush()
+                stdin_stream.channel.shutdown_write()
             stdout = stdout_stream.read().decode("utf-8", errors="replace")
             stderr = stderr_stream.read().decode("utf-8", errors="replace")
             exit_code = stdout_stream.channel.recv_exit_status()

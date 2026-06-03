@@ -43,6 +43,7 @@ class FakeSshAdapter(SshAdapter):
         private_key_path: str | None = None,
         private_key: str | None = None,
         passphrase: str | None = None,
+        input_data: str | None = None,
     ) -> SshExecutionResult:
         self.calls.append(
             {
@@ -54,6 +55,7 @@ class FakeSshAdapter(SshAdapter):
                 "private_key_path": private_key_path,
                 "private_key": private_key,
                 "passphrase": passphrase,
+                "input_data": input_data,
             }
         )
         if self.fail_connect:
@@ -123,6 +125,7 @@ async def test_job_service_executes_command_and_persists_success(client) -> None
                 "private_key_path": None,
                 "private_key": None,
                 "passphrase": None,
+                "input_data": None,
             }
         ]
 
@@ -152,6 +155,35 @@ async def test_job_service_uses_password_auth_when_configured(client) -> None:
 
         assert adapter.calls[0]["password"] == "secret"
         assert adapter.calls[0]["private_key_path"] is None
+
+
+@pytest.mark.asyncio
+async def test_job_service_feeds_password_to_sudo_commands(client) -> None:
+    session = next(iter(client.app.dependency_overrides.values()))
+    async for db_session in session():
+        server = await InventoryService(ServerRepository(db_session)).create_server(
+            ServerCreate(
+                **server_payload(
+                    hostname="sudo-target-01",
+                    ip_address="10.1.0.13",
+                    ssh_auth_method="password",
+                    ssh_password="secret",
+                )
+            )
+        )
+        adapter = FakeSshAdapter()
+        service = JobService(
+            job_repository=JobRepository(db_session),
+            server_repository=ServerRepository(db_session),
+            ssh_adapter=adapter,
+        )
+
+        await service.execute(JobExecuteRequest(target_server_id=server.id, command="sudo usermod -aG docker deploy"))
+
+        assert adapter.calls[0]["password"] == "secret"
+        assert adapter.calls[0]["input_data"].startswith("secret\n")
+        assert "sudo() { command sudo -S -p '' \"$@\"; }" in adapter.calls[0]["command"]
+        assert "sudo usermod -aG docker deploy" in adapter.calls[0]["command"]
 
 
 @pytest.mark.asyncio

@@ -133,6 +133,7 @@ class FakeSshAdapter(SshAdapter):
         private_key_path: str | None = None,
         private_key: str | None = None,
         passphrase: str | None = None,
+        input_data: str | None = None,
     ) -> SshExecutionResult:
         return SshExecutionResult(exit_code=0, stdout="ok\n", stderr="")
 

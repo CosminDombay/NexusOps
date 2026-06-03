@@ -21,6 +21,7 @@ npm-debug.log*
 *.log
 screenshots/
 debug-bundles/
+backlog.md
 
 # Environment
 .env

@@ -45,6 +45,7 @@ class FakeSshAdapter(SshAdapter):
         private_key_path: str | None = None,
         private_key: str | None = None,
         passphrase: str | None = None,
+        input_data: str | None = None,
     ) -> SshExecutionResult:
         self.calls.append({"host": host, "command": command, "user": user})
         if "docker inspect" in command:

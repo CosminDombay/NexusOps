@@ -609,9 +609,11 @@ class LinuxUserService:
             raise IdentityValidationError("Password credential has no secret value")
         password_line = f"{username}:{credential.secret}"
         redacted_line = f"{username}:********"
+        password_command = f"printf '%s\\n' {quote(password_line)} | chpasswd"
+        redacted_password_command = f"printf '%s\\n' {quote(redacted_line)} | chpasswd"
         return (
-            f"printf '%s\\n' {quote(password_line)} | sudo chpasswd",
-            f"printf '%s\\n' {quote(redacted_line)} | sudo chpasswd",
+            f"sudo sh -c {quote(password_command)}",
+            f"sudo sh -c {quote(redacted_password_command)}",
         )
 
     def _modify_user_command(
