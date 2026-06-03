@@ -1056,18 +1056,31 @@ export function ProvisioningPage() {
                   </p>
                 </summary>
                 <div className="grid gap-4 border-t border-zinc-200 p-4 md:grid-cols-2">
-                <MultiSelect
+                <BootstrapSelector
                   label="Bootstrap profiles"
+                  helper="Applied after inventory registration. Profiles can run actions, packages, commands, and deployment steps."
                   options={profiles.map((profile) => ({
                     label: profile.name,
                     value: profile.id,
+                    description: profile.description,
+                    meta: [profile.category, `${profile.steps.length} step${profile.steps.length === 1 ? '' : 's'}`],
+                    tags: profile.tags,
+                    builtIn: profile.is_builtin,
                   }))}
                   value={formState.bootstrap_profile_ids}
                   onChange={(value) => updateField('bootstrap_profile_ids', value)}
                 />
-                <MultiSelect
+                <BootstrapSelector
                   label="Bootstrap packages"
-                  options={packages.map((pkg) => ({ label: pkg.name, value: pkg.id }))}
+                  helper="Installed after selected profiles. Use packages for focused one-off server capabilities."
+                  options={packages.map((pkg) => ({
+                    label: pkg.name,
+                    value: pkg.id,
+                    description: pkg.description,
+                    meta: [pkg.category, pkg.supported_os.join(', ') || 'any OS'],
+                    tags: pkg.tags,
+                    builtIn: pkg.is_builtin,
+                  }))}
                   value={formState.bootstrap_package_ids}
                   onChange={(value) => updateField('bootstrap_package_ids', value)}
                 />
@@ -1147,35 +1160,114 @@ function BatchTextInput({
   );
 }
 
-function MultiSelect({
+type BootstrapOption = {
+  label: string;
+  value: string;
+  description: string;
+  meta: string[];
+  tags: string[];
+  builtIn: boolean;
+};
+
+function BootstrapSelector({
   label,
+  helper,
   options,
   value,
   onChange,
 }: {
   label: string;
-  options: Array<{ label: string; value: string }>;
+  helper: string;
+  options: BootstrapOption[];
   value: string[];
   onChange: (value: string[]) => void;
 }) {
+  const selected = new Set(value);
+  const toggle = (nextValue: string) => {
+    if (selected.has(nextValue)) {
+      onChange(value.filter((item) => item !== nextValue));
+      return;
+    }
+    onChange([...value, nextValue]);
+  };
+
   return (
-    <label className="text-sm font-medium text-zinc-700">
-      {label}
-      <select
-        multiple
-        className="mt-1 min-h-32 w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-950 shadow-sm outline-none transition focus:border-zinc-900 focus:ring-2 focus:ring-zinc-900/10"
-        value={value}
-        onChange={(event) =>
-          onChange(Array.from(event.target.selectedOptions).map((option) => option.value))
-        }
-      >
-        {options.map((option) => (
-          <option key={option.value} value={option.value}>
-            {option.label}
-          </option>
-        ))}
-      </select>
-    </label>
+    <section className="rounded-md border border-zinc-200 bg-white">
+      <div className="flex flex-wrap items-start justify-between gap-3 border-b border-zinc-200 px-3 py-3">
+        <div>
+          <h5 className="text-sm font-semibold text-zinc-950">{label}</h5>
+          <p className="mt-1 text-xs leading-5 text-zinc-500">{helper}</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="rounded-full border border-zinc-200 bg-zinc-50 px-2 py-1 text-xs font-semibold text-zinc-600">
+            {value.length} selected
+          </span>
+          {value.length ? (
+            <button
+              className="rounded-md border border-zinc-200 px-2 py-1 text-xs font-semibold text-zinc-600 transition hover:border-zinc-400 hover:text-zinc-950"
+              type="button"
+              onClick={() => onChange([])}
+            >
+              Clear
+            </button>
+          ) : null}
+        </div>
+      </div>
+      <div className="max-h-72 space-y-2 overflow-auto p-3">
+        {options.map((option) => {
+          const checked = selected.has(option.value);
+          return (
+            <button
+              key={option.value}
+              className={`w-full rounded-md border p-3 text-left transition ${
+                checked
+                  ? 'border-cyan-400 bg-cyan-50 ring-1 ring-cyan-200'
+                  : 'border-zinc-200 bg-zinc-50 hover:border-zinc-400 hover:bg-white'
+              }`}
+              type="button"
+              onClick={() => toggle(option.value)}
+            >
+              <div className="flex items-start gap-3">
+                <span
+                  className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded border text-xs font-bold ${
+                    checked ? 'border-cyan-500 bg-cyan-500 text-white' : 'border-zinc-300 bg-white text-transparent'
+                  }`}
+                  aria-hidden="true"
+                >
+                  x
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="flex flex-wrap items-center gap-2">
+                    <span className="text-sm font-semibold text-zinc-950">{option.label}</span>
+                    <span className="rounded-full border border-zinc-200 bg-white px-2 py-0.5 text-[11px] font-semibold uppercase text-zinc-500">
+                      {option.builtIn ? 'Built-in' : 'Custom'}
+                    </span>
+                  </span>
+                  <span className="mt-1 block text-xs leading-5 text-zinc-600">{option.description || 'No description provided.'}</span>
+                  <span className="mt-2 flex flex-wrap gap-1.5">
+                    {option.meta.filter(Boolean).map((item) => (
+                      <span key={item} className="rounded-full bg-zinc-200/70 px-2 py-0.5 text-[11px] font-medium text-zinc-700">
+                        {item}
+                      </span>
+                    ))}
+                    {option.tags.slice(0, 3).map((tag) => (
+                      <span key={tag} className="rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700">
+                        {tag}
+                      </span>
+                    ))}
+                  </span>
+                </span>
+              </div>
+            </button>
+          );
+        })}
+        {!options.length ? (
+          <p className="rounded-md border border-dashed border-zinc-300 px-3 py-6 text-center text-sm text-zinc-500">
+            No bootstrap options available.
+          </p>
+        ) : null}
+      </div>
+    </section>
   );
 }
 
