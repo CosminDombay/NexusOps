@@ -118,7 +118,11 @@ export function IdentityPage() {
   const selectedEntity = entities.find((entity) => entity.id === selectedEntityId) ?? entities[0] ?? null;
   const selectedUser = selectedEntity?.kind === 'user' ? selectedEntity.user : users.find((user) => user.username === form.username) ?? null;
   const selectedGroup = selectedEntity?.kind === 'group' ? selectedEntity.group : groups.find((group) => group.name === form.groupName) ?? null;
-  const selectedDiscoveredUser = selectedEntity?.kind === 'discovered-user' ? selectedEntity.user : undefined;
+  const selectedDiscoveredUser = selectedEntity?.kind === 'discovered-user'
+    ? selectedEntity.user
+    : selectedUser
+      ? discoveredUsers.find((user) => user.username === selectedUser.username)
+      : undefined;
   const selectedDiscoveredGroup = selectedEntity?.kind === 'discovered-group' ? selectedEntity.group : discoveredGroups.find((group) => group.name === form.groupName);
   const selectedKey = selectedEntity?.kind === 'ssh-key' ? selectedEntity.keyRecord : sshKeys[0] ?? null;
 

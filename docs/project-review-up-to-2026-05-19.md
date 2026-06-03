@@ -1,5 +1,7 @@
 # NexusOps Project Review up to 2026-05-19
 
+> Historical snapshot: this review is kept for traceability. Current platform scope and validation status are tracked in `docs/architecture/current-state.md`, `docs/development.md`, and `docs/api.md`.
+
 ## Review Scope
 
 This review covers the platform after the contextual workspace drawer refactor and before the next refinement cycle.
@@ -178,4 +180,3 @@ Result:
 ```text
 81 passed
 ```
-

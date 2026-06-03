@@ -24,6 +24,13 @@ export function UserDetailsPanel({
   const status = user ? (user.locked ? 'locked' : 'active') : 'discovered';
   const passwordCredentials = credentials.filter((credential) => credential.credential_type === 'password' || credential.credential_type === 'ssh_password');
   const discoveredHosts = discoveredUser?.hosts ?? [];
+  const inspectedHosts = membership?.hosts.map((host) => host.target_hostname ?? host.target_server_id) ?? [];
+  const hostOrigins = [...new Set([...discoveredHosts, ...inspectedHosts])].sort();
+  const originDetail = hostOrigins.length
+    ? `${user ? 'Managed record observed on' : 'Discovered on'} ${hostOrigins.join(', ')}`
+    : user
+      ? 'Managed record only. Run discovery or inspect groups to confirm host presence.'
+      : 'No host observation available yet.';
 
   return (
     <div className="space-y-4">
@@ -37,6 +44,7 @@ export function UserDetailsPanel({
               <div>
                 <h2 className="text-xl font-semibold text-white">{username}</h2>
                 <p className="text-sm text-slate-400">{user ? 'Managed Linux account' : 'Discovered Linux account'}</p>
+                <p className="mt-1 max-w-2xl text-xs font-medium text-cyan-100">{originDetail}</p>
               </div>
             </div>
           </div>
@@ -45,7 +53,8 @@ export function UserDetailsPanel({
             <StatusBadge state={user?.locked ? 'failed' : 'synced'} label={status} />
           </div>
         </div>
-        <div className="mt-5 grid gap-3 md:grid-cols-4">
+        <div className="mt-5 grid gap-3 md:grid-cols-5">
+          <MetricTile label="Host origin" value={hostOrigins.length ? `${hostOrigins.length} host${hostOrigins.length === 1 ? '' : 's'}` : 'Not observed'} detail={hostOrigins.join(', ') || 'discovery/inspection needed'} />
           <MetricTile label="Shell" value={<span className="text-sm">{shell}</span>} />
           <MetricTile label="Home" value={<span className="text-sm">{home}</span>} />
           <MetricTile label="Sudo" value={user?.sudo_enabled ? 'Enabled' : 'No'} detail={user?.sudo_nopasswd ? 'passwordless' : user?.sudo_enabled ? 'password required' : undefined} />
@@ -82,13 +91,15 @@ export function UserDetailsPanel({
         )}
       </SectionCard>
 
-      {discoveredHosts.length ? (
-        <SectionCard title="Discovered On">
+      <SectionCard title="Host Origin">
+        {hostOrigins.length ? (
           <div className="flex flex-wrap gap-2">
-            {discoveredHosts.map((host) => <PermissionChip key={host} label={host} tone="observe" />)}
+            {hostOrigins.map((host) => <PermissionChip key={host} label={host} tone="observe" />)}
           </div>
-        </SectionCard>
-      ) : null}
+        ) : (
+          <p className="text-sm text-slate-400">This is a local managed record with no discovered or inspected host observation yet.</p>
+        )}
+      </SectionCard>
 
       <div className="grid gap-4 xl:grid-cols-2">
         <SectionCard title="SSH Keys">

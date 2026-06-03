@@ -232,7 +232,8 @@ backend/app/adapters/
 - full workflow chaining and rollback orchestration
 - provisioning and deployment idempotency keys
 - Proxmox task audit/status persistence for all lifecycle actions
-- CI pipeline and PostgreSQL-backed migration validation
+- frontend automated test coverage
+- broader PostgreSQL-backed service/integration validation beyond Alembic migration smoke tests
 
 ## Operational Safety
 
@@ -254,7 +255,7 @@ backend/app/adapters/
 - Built-in package/profile templates may be listed and executed, but only custom persisted definitions should be editable/deletable.
 - Destructive operational actions should require frontend confirmation.
 - Remote access is for inventory-managed hosts only. Do not add arbitrary host/IP shell access.
-- Remote shell WebSocket authentication currently uses the active JWT as a query parameter for MVP browser compatibility; replace it with a short-lived scoped remote-access token before production use.
+- Remote shell WebSocket authentication uses short-lived scoped remote-access tokens issued by the backend; do not reintroduce long-lived JWT query tokens.
 - Integration records may reference credentials, but they are not a full vault or rotation system.
 - SSH passwords and private key paths are temporary local MVP metadata; do not treat them as production-grade secret management.
 - Secrets must not be committed. Proxmox token values belong in local environment variables or ignored `.env` files.
@@ -266,7 +267,7 @@ Before finalizing substantial changes:
 
 - `cd frontend && npm run lint`
 - `cd frontend && npm run build`
-- `.venv\Scripts\python.exe -m pytest backend\tests`
+- `DEBUG=false .venv/bin/python -m pytest backend/tests -q`
 - verify Alembic migrations when database models change
 - smoke-test inventory after backend changes
 - smoke-test `/api/v1/proxmox/dashboard` after Proxmox changes

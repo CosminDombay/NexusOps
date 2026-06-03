@@ -61,8 +61,24 @@ After updating, verify:
 - `/api/v1/jobs` and `/api/v1/jobs/actions`
 - `/api/v1/proxmox/dashboard` when Proxmox is configured
 - monitoring page when monitoring integrations are configured
+- Identity discovery, adopt/create, group membership sync, and sudo credential-backed replication on a known test node
+- Docker deployment create/deploy/runtime refresh/log visibility on a known Docker-capable node
+- deployment/runtime status is recent, includes checked timestamps/errors, and does not show stale "running" state without an observed runtime refresh
 
 Fully automated container updates are possible, but they should wait until image tagging, backup retention, rollback, migration checks, and post-update smoke tests are scripted.
+
+## Staging Runner Notes
+
+The current GitHub staging workflow validates backend and frontend scripts on a self-hosted runner before deploying. Because the runner checkout may preserve files for speed, keep generated logs, screenshots, frontend `dist`, local SQLite files, and other local artifacts out of commits and periodically clean stale runner artifacts.
+
+Recommended smoke-test priority during V1 stabilization:
+
+1. Auth login/session restore/logout.
+2. Inventory import/re-import and stale-record self-sanitize.
+3. Node SSH connectivity and Host Tools.
+4. Docker deployment deploy/redeploy/runtime refresh/logs.
+5. Identity user/group discovery, adoption, modification, and sudo credential-backed sync.
+6. Jobs/actions, packages, profiles, workflows, and automations.
 
 ## On-Prem LXC Or VM Deployment
 

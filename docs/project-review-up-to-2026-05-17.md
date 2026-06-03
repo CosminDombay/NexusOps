@@ -1,5 +1,7 @@
 # NexusOps Project Review - Up to 2026-05-17
 
+> Historical snapshot: this file preserves the 2026-05-17 review. Several gaps listed here, including user management, audit persistence, token hardening, and CI pipeline coverage, have since been completed or partially completed. Use `docs/architecture/current-state.md`, `docs/development.md`, `docs/recommended-next-steps.md`, and `docs/api.md` for current status.
+
 ## Executive Summary
 
 NexusOps is a self-hosted infrastructure orchestration platform built as a modular monolith. The project has evolved from a basic inventory application into an operational control plane for lab/server infrastructure.

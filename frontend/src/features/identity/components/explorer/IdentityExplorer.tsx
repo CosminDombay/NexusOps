@@ -76,8 +76,9 @@ export function IdentityExplorer({
 function EntityCard({ entity, selected, onClick }: { entity: IdentityEntity; selected: boolean; onClick: () => void }) {
   const Icon = entity.kind.includes('user') || entity.kind.includes('group') ? Users : entity.kind === 'ssh-key' ? KeyRound : Shield;
   const permissions = permissionBadgesFor(entity);
-  const memberCount = 'memberCount' in entity ? entity.memberCount : entity.kind === 'discovered-user' ? entity.user.hosts.length : undefined;
+  const memberCount = 'memberCount' in entity ? entity.memberCount : undefined;
   const hostLabels = hostBadgesFor(entity);
+  const originLabel = originSummaryFor(entity, hostLabels);
   return (
     <button
       className={`w-full rounded-md border p-3 text-left transition ${selected ? 'border-cyan-300 bg-cyan-400/10' : 'border-slate-700 bg-slate-950/40 hover:border-slate-500 hover:bg-slate-900'}`}
@@ -94,11 +95,14 @@ function EntityCard({ entity, selected, onClick }: { entity: IdentityEntity; sel
         </div>
         <StatusBadge state={entity.state} />
       </div>
+      {originLabel ? (
+        <div className="mt-3 rounded-md border border-slate-700 bg-slate-950/50 px-2.5 py-2">
+          <p className="text-[11px] font-semibold uppercase text-slate-500">Host origin</p>
+          <p className="mt-1 text-xs font-medium text-cyan-100">{originLabel}</p>
+        </div>
+      ) : null}
       <div className="mt-3 flex flex-wrap gap-1.5">
-        {typeof memberCount === 'number' ? <PermissionChip label={`${memberCount} ${entity.kind.includes('user') ? 'host' : 'members'}`} /> : null}
-        {hostLabels.map((host) => (
-          <PermissionChip key={host} label={host} tone="observe" />
-        ))}
+        {typeof memberCount === 'number' ? <PermissionChip label={`${memberCount} members`} /> : null}
         {permissions.map((permission) => (
           <PermissionChip key={permission.label} label={permission.label} tone={permission.tone} />
         ))}
@@ -112,6 +116,19 @@ function hostBadgesFor(entity: IdentityEntity): string[] {
   if (entity.kind === 'user') return compactHosts(entity.discoveredHosts);
   if (entity.kind === 'discovered-group') return compactHosts(entity.group.hosts);
   return [];
+}
+
+function originSummaryFor(entity: IdentityEntity, hosts: string[]): string | null {
+  if (entity.kind === 'discovered-user' || entity.kind === 'discovered-group') {
+    return hosts.length ? `Discovered on ${hosts.join(', ')}` : 'Discovered object, host unknown';
+  }
+  if (entity.kind === 'user') {
+    return hosts.length ? `Managed record, observed on ${hosts.join(', ')}` : 'Managed record, no host observation yet';
+  }
+  if (entity.kind === 'group') {
+    return 'Managed record, inspect members for host state';
+  }
+  return null;
 }
 
 function compactHosts(hosts: string[]): string[] {

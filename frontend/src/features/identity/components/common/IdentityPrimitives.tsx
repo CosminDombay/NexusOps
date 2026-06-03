@@ -35,7 +35,7 @@ export function MetricTile({ label, value, detail }: { label: string; value: Rea
     <div className="rounded-md border border-slate-700 bg-slate-950/40 px-3 py-2">
       <p className="text-xs font-semibold uppercase text-slate-400">{label}</p>
       <div className="mt-1 text-lg font-semibold text-white">{value}</div>
-      {detail ? <p className="mt-1 text-xs text-slate-400">{detail}</p> : null}
+      {detail ? <p className="mt-1 break-words text-xs text-slate-400">{detail}</p> : null}
     </div>
   );
 }
@@ -111,4 +111,3 @@ export function SelectInput({ label, value, onChange, children }: { label: strin
     </label>
   );
 }
-

@@ -41,6 +41,8 @@ This backlog captures near-term product and engineering improvements from the Ma
 - Add confirmation dialogs for deployment stop/redeploy and any operation likely to disrupt services.
 - Make job/deployment logs easier to read with wrapping, copy, search, timestamps, and stdout/stderr tabs.
 - Turn Identity live discovery results into richer, filterable tables with per-host drilldowns for users, groups, memberships, and replication drift.
+- Rework Identity around target-first workflows so selected hosts, discovered observations, managed desired state, and drift/reconciliation status are visible in one place.
+- Split Identity password controls into "account password to set" and "execution/sudo credential" to reduce operator confusion during sync/replication.
 
 ## Backend Improvements
 
@@ -61,12 +63,14 @@ This backlog captures near-term product and engineering improvements from the Ma
 ### Reliability and Safety
 
 - Add idempotency keys for provisioning and deployment operations to prevent accidental duplicate VM creation or repeated deploys.
+- Add idempotency keys for Identity replication, package/profile execution, and destructive operations as well as provisioning/deployments.
 - Add stronger validation around Proxmox VMID availability, IP conflicts, blueprint compatibility, disk storage existence, and template cloud-init readiness before starting a clone.
 - Poll Proxmox lifecycle tasks to completion for start/stop/reboot/shutdown, not only provisioning tasks.
 - Store Proxmox task logs/status snapshots for later debugging.
 - Add rollback/cleanup strategy for provisioning failures after clone but before inventory registration.
 - Deepen CT/LXC readiness checks beyond the current discovery/provisioning/lifecycle foundation: interface detection, gateway reachability, DNS validation, SSH readiness polling, storage discovery, and richer template metadata.
 - Add cancellation support for queued/running Jobs and long-running provisioning workflows where technically possible.
+- Add distributed execution leases before running multiple backend workers or self-hosted deployment runners against the same queue/runtime tables.
 - Add optimistic locking or version fields for editable definitions and blueprints to avoid accidental overwrite.
 - Continue expanding structured error types for provider failures so the frontend can show actionable messages instead of generic API errors. Monitoring validation already exposes structured component failure reasons.
 
@@ -74,6 +78,7 @@ This backlog captures near-term product and engineering improvements from the Ma
 
 - Convert inline inventory SSH passwords/private key paths into credential references where possible, leaving legacy fields only for migration/local MVP fallback.
 - Add credential usage tracking for deployments, integrations, inventory records, packages, and profiles.
+- Add credential usage tracking for Identity execution/sudo credentials and remote-access SSH credentials.
 - Add credential rotation workflow and "last used" metadata.
 - Avoid returning sensitive-ish config fields in integration/deployment reads unless redacted.
 - Decide whether deployment plaintext `.env` content should remain supported or be split into explicit non-secret env vars plus credential-backed secret env vars.
@@ -84,6 +89,8 @@ This backlog captures near-term product and engineering improvements from the Ma
 - Add backend tests for provisioning blueprints, additional disks, deployment credential env injection, integration credential refs, LXC provisioning, hypervisor reconciliation, deployment target executions, and monitoring readiness derivation.
 - Add backend tests around monitoring snapshot refresh boundaries so overview reads remain database-bounded.
 - Add frontend tests for provisioning blueprint fill/save/delete, inventory edit modal behavior, and deployment credential env rows.
+- Add Playwright smoke tests for login, target selection, deployment deploy button visibility, Identity discovery/adopt/sync, credential edit, and inventory import.
+- Add feature-specific staging smoke suites such as `smoke:identity`, `smoke:deployments`, `smoke:inventory`, and `smoke:auth`.
 - Keep CI coverage healthy for lint, frontend build, backend tests, Alembic migration validation, and artifact hygiene.
 - Add deeper migration tests against PostgreSQL beyond the current Alembic head/current/upgrade/downgrade CI smoke.
 - Add contract tests around `VITE_API_BASE_URL`, CORS origins, and common local startup failures.

@@ -33,7 +33,7 @@ Access tokens are short-lived and refresh tokens are longer-lived. JWT payloads 
 - `role`
 - `exp`
 
-The current frontend stores access and refresh tokens in `localStorage` for the MVP. This is simple and survives refreshes, but it is exposed to browser JavaScript if an XSS flaw is introduced. A later hardening sprint should move toward an in-memory access token plus a safer refresh-token transport strategy.
+The frontend now stores access and refresh tokens in `sessionStorage` and clears legacy local-storage auth keys. This reduces persistence compared with `localStorage`, but tokens remain JavaScript-readable. A later hardening sprint should move refresh tokens to httpOnly, SameSite, Secure cookies with CSRF protection.
 
 For local development, `scripts/start-dev.ps1` can prompt for bootstrap admin values and save them to the ignored root `.env` file. This avoids committing a default account while keeping first startup easy.
 

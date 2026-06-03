@@ -230,7 +230,7 @@ IdentityPage
   -> FastAPI /api/v1/identity
 ```
 
-The Identity UI includes Linux user creation/replication, group creation/membership replication, SSH public key deployment/revocation, lightweight chmod/chown permission application, password expiration, login-shell disable, and a primary multi-host target selector. Replication results show per-host success/failure details from the Jobs-backed fanout response.
+The Identity UI includes Linux user creation/replication, group creation/membership replication, discovered user/group adoption, SSH public key deployment/revocation, lightweight chmod/chown permission application, password expiration, login-shell disable, and a primary multi-host target selector. Replication results show per-host success/failure details from the Jobs-backed fanout response.
 
 The default Identity experience is guided rather than raw-Linux-first:
 
@@ -241,10 +241,15 @@ The default Identity experience is guided rather than raw-Linux-first:
 - permission presets and an owner/group/others rwx matrix generate octal chmod values
 - generated command preview panels show the Linux operations before replication
 - replication target selection supports search, select all, clear, and selected host badges
+- local create/adopt remains available without selected targets, while remote sync, discovery, inspection, and replication clearly require selected targets
+- password/SSH-password credentials can be selected for sudo-backed execution during user and group replication
+- discovered host-origin chips appear in user/group context so operators can tell where live Linux state was observed
 
 Advanced mode keeps raw shell path, raw group selection, recursive chmod/chown, and raw octal controls available for power users.
 
 The `root` account is intentionally hidden from discovery and blocked from NexusOps identity orchestration. Identity remains Linux infrastructure orchestration, not centralized authentication or privileged root-account ownership.
+
+Current UI debt: Identity still needs a clearer target-first matrix for large environments. Managed records, discovered host observations, and drift/reconciliation status should become easier to distinguish as manual testing findings mature.
 
 ## Packages Frontend Flow
 
@@ -400,7 +405,7 @@ The Host Tools UI includes:
 
 The frontend no longer sends the long-lived access token directly as the shell WebSocket query token.
 
-Deployments now pass both `target_server_id` and optional `target_server_ids` in the request shape. The backend persists all selected targets, executes per-target Jobs sequentially in the MVP, and returns per-target execution state so operators can see succeeded, failed, and partially successful rollouts.
+Deployments now pass both `target_server_id` and optional `target_server_ids` in the request shape. The backend persists all selected targets, executes per-target Jobs sequentially in the MVP, returns per-target execution state, and polls persisted runtime state so operators can see succeeded, failed, partial, degraded, drifted, and stale outcomes without reading backend logs.
 
 ## Monitoring Frontend Flow
 

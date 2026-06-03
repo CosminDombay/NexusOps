@@ -61,26 +61,28 @@ Self-hosted deployment entrypoints:
 ./scripts/healthcheck.sh
 ```
 
-### 2026-05-23 Validation Status
+### 2026-06-03 Validation Status
 
 Latest local validation from the project root:
 
 - `cd frontend && npm run lint`: passed
 - `cd frontend && npm run build`: passed
-- `.venv\Scripts\python.exe -m pytest backend\tests`: failed with 107 passed and 1 failed
+- `DEBUG=false .venv/bin/python -m pytest backend/tests -q`: passed with 147 tests
+- Focused Identity/Jobs/Logging stabilization suite: passed with 25 tests
 
-Known backend failure:
+Notes:
 
-- `backend/tests/test_inventory.py::test_inventory_import_restores_archived_proxmox_record`
-- Cause: the test path calls the configured real Proxmox API endpoint during import restore validation instead of using a fake adapter/service.
-- Expected fix: isolate the test from live Proxmox by overriding the Proxmox dependency or injecting a fake adapter response.
+- Use `DEBUG=false` in local validation if your shell has an unrelated `DEBUG` value.
+- Full backend validation is intentionally slower than focused smoke checks; use focused suites while stabilizing a single feature, then run the full suite before pushing broad changes.
+- Staging validation currently runs backend, frontend, and deployment scripts from GitHub Actions/self-hosted runner workflows.
 
 ## Architecture
 
 - Backend module routers are the canonical API surface under `backend/app/modules/*/router.py`.
 - Shared API wiring belongs in `backend/app/api/v1/router.py`.
-- Infrastructure boundaries live under `backend/app/adapters/` as abstract contracts only until provider implementations are added.
-# Security-Aware Startup
+- Infrastructure boundaries live under `backend/app/adapters/` as base contracts plus provider-specific implementations.
+
+## Security-Aware Startup
 
 NexusOps remains local-development friendly by default, but startup now validates production configuration before the API is served.
 

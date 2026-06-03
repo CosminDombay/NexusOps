@@ -109,6 +109,16 @@ NexusOps now prevents:
 
 Identity remains Linux account orchestration, not ownership of privileged system accounts.
 
+### 2026-06-03 Identity Stabilization Follow-Up
+
+Manual deployment testing found that Identity user/group management needed clearer synchronization behavior. The follow-up stabilization work:
+
+- lets discovered users/groups be adopted into managed records and synchronized through existing Jobs-backed APIs
+- keeps local create/adopt available when no remote target is selected
+- passes selected password/SSH-password credentials into sudo-backed Identity replication
+- avoids running unrelated password, lock, sudoers, or shell/home operations during group-only user updates
+- adds card/detail host-origin context for discovered Identity observations
+
 ## Validation
 
 Validated with:
@@ -125,10 +135,17 @@ and:
 .venv\Scripts\python.exe -m pytest backend\tests
 ```
 
-Current backend result:
+Current backend result at the time of this sprint:
 
 ```text
 81 passed
+```
+
+Current stabilization validation on 2026-06-03:
+
+```text
+DEBUG=false .venv/bin/python -m pytest backend/tests -q
+147 passed
 ```
 
 ## Deferred
@@ -141,4 +158,4 @@ The following items remain for later refinement slices:
 - HDS-DEV rebuild blueprint workflow
 - deeper explorer-driven page layouts beyond the shared drawer foundation
 - completed 2026-05-26: refresh-token rotation and reuse detection
-- short-lived scoped remote-access tokens for shell WebSockets
+- completed 2026-05-26: short-lived scoped remote-access tokens for shell WebSockets

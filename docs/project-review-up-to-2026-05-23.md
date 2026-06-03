@@ -1,6 +1,6 @@
 # NexusOps Project Review up to 2026-05-23
 
-> Update: this review has been superseded for the monitoring and Inventory boundary by `docs/project-review-2026-05-23-monitoring-inventory.md`. The newer review reflects the snapshot-only monitoring refactor, managed-only Inventory default, and current validation results.
+> Historical snapshot: this review has been superseded by `docs/architecture/current-state.md`, `docs/api.md`, and later stabilization notes. It is kept for traceability of the May 2026 review.
 
 ## Executive Summary
 
@@ -8,33 +8,23 @@ NexusOps has grown into a broad local control-plane MVP for infrastructure orche
 
 The platform is no longer just inventory, Proxmox visibility, and Jobs. It now includes local auth/RBAC, managed-node inventory, Proxmox hypervisor/VM/LXC discovery, VM and LXC provisioning foundations, Jobs, packages, profiles, workflows, scheduled automations, Docker Compose deployments, remote access, Linux identity orchestration, credentials, integrations, runtime snapshots, and monitoring readiness.
 
-The main risks are operational hardening, not basic architecture:
+The main risks identified at the time were operational hardening, not basic architecture:
 
-- one backend test currently reaches live Proxmox infrastructure
 - long-running operations still need deeper workflow-backed async execution
 - monitoring overview must stay snapshot-first and avoid live provider discovery during normal rendering
 - secrets handling is encrypted local MVP storage, not a production vault
-- audit, idempotency, rollback, CI, and PostgreSQL migration validation remain incomplete
+- idempotency, rollback, fine-grained permissions, frontend tests, and deeper PostgreSQL-backed coverage remain incomplete
 
 ## Validation Results
 
+Original May validation is superseded. Current living validation is tracked in `docs/architecture/current-state.md` and `docs/development.md`.
+
+As of 2026-06-03:
+
 - `cd frontend && npm run lint`: passed
 - `cd frontend && npm run build`: passed
-- `.venv\Scripts\python.exe -m pytest backend\tests`: failed with 107 passed and 1 failed
-
-Failing backend test:
-
-```text
-backend/tests/test_inventory.py::test_inventory_import_restores_archived_proxmox_record
-```
-
-Root cause:
-
-The test calls `/api/v1/servers/sync/proxmox/import`, which reaches `ProxmoxService.list_vms()` and the configured real Proxmox API endpoint. On this machine it timed out against `hellgate.himalayan-chimaera.ts.net:8006`.
-
-Required fix:
-
-Override the Proxmox dependency or inject a fake adapter/service in the test. Unit and API tests must never depend on live infrastructure unless explicitly marked as integration tests.
+- `DEBUG=false .venv/bin/python -m pytest backend/tests -q`: passed with 147 tests
+- CI covers backend quality, backend tests, PostgreSQL Alembic upgrade/downgrade smoke validation, frontend lint/build, and artifact hygiene.
 
 ## What Is Working
 
@@ -56,9 +46,9 @@ Override the Proxmox dependency or inject a fake adapter/service in the test. Un
 
 ### Critical
 
-- Backend tests leak to real Proxmox infrastructure. This makes CI unreliable and can accidentally hit live systems from test runs.
-- There is no CI pipeline enforcing frontend lint, frontend build, backend tests, Alembic migration validation, and generated-artifact checks.
-- Destructive and long-running operations lack full audit persistence. Proxmox actions, provisioning, deployments, remote access, and identity replication need durable audit records.
+- Completed after this review: backend tests no longer depend on live Proxmox for the previously failing inventory import path.
+- Completed after this review: CI now enforces frontend lint/build, backend tests, Alembic validation, and generated-artifact hygiene.
+- Mostly completed after this review: durable audit persistence exists for major operational surfaces; audit reporting, retention, and richer operator-facing filtering still need improvement.
 
 ### High
 
@@ -79,7 +69,7 @@ Override the Proxmox dependency or inject a fake adapter/service in the test. Un
 - Profile deployment steps need richer execution context before profiles can fully orchestrate machine setup plus app delivery.
 - Integration records are runtime sources for Proxmox and monitoring, but future adapters still need the same treatment.
 - No frontend test framework is configured.
-- Backend service tests use SQLite; migration behavior is not validated against PostgreSQL in automation.
+- Basic PostgreSQL migration behavior is validated in CI; broader PostgreSQL-backed service/integration tests remain future work.
 
 ### Low
 
@@ -91,13 +81,13 @@ Override the Proxmox dependency or inject a fake adapter/service in the test. Un
 
 ## Recommended Fix Order
 
-1. Fix Proxmox test isolation and add a regression test around fake provider injection.
-2. Add CI for lint, build, backend tests, Alembic upgrade validation, and artifact hygiene.
-3. Protect the monitoring snapshot boundary before merging monitoring discovery/dashboard changes.
+1. Completed after this review: Proxmox test isolation no longer blocks backend validation.
+2. Completed after this review: CI now covers lint, build, backend tests, Alembic upgrade validation, and artifact hygiene.
+3. Completed/guarded after this review: monitoring overview remains snapshot-first; keep regression coverage around refresh boundaries.
 4. Move provisioning and deployment execution into explicit WorkflowRun-backed async paths.
-5. Add durable audit tables/events for infrastructure, provisioning, deployment, identity, and remote access operations.
+5. Partially completed after this review: durable audit/event records exist for major operations; improve reporting, retention, and workflow linkage.
 6. Add idempotency keys for provisioning and deployments.
-7. Replace WebSocket JWT query auth with short-lived scoped remote-access tokens.
+7. Completed after this review: WebSocket JWT query auth was replaced with short-lived scoped remote-access tokens.
 8. Expand credential metadata with usage tracking, rotation workflows, and last-used fields.
 
 ## Safety Boundary

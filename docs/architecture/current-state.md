@@ -230,11 +230,15 @@ The implemented system is focused on foundations, visibility, narrowly scoped pr
   - filesystem permission templates
   - user/group/key/permission replication across selected inventory hosts
   - existing Linux user and group discovery through Jobs
+  - discovered user/group adoption into managed records
   - managed user edit/delete and managed group edit/delete flows
   - optional Credential Manager password selection when creating/updating Linux users; passwords are applied with `chpasswd` and redacted from Job history
+  - selected password/SSH-password credential support for sudo-backed user/group replication, lock/unlock, shell-disable, password-expire, and member add/remove actions
+  - group-only user updates avoid unrelated password, lock, sudoers, and shell/home operations unless those fields changed
   - live user group inspection per host using `id -nG`
   - live group member inspection per host, combining supplementary members from `getent group` with primary-group members from `getent passwd`
   - per-host execution history through Jobs and identity execution records
+  - host-origin context for discovered users/groups in the Identity UI
   - guided access profiles for administrator, deployment, Docker, log viewer, read-only, and service-account workflows
   - distro-aware administrator group resolution
   - operational group presets and group discovery
@@ -457,6 +461,17 @@ The 2026-05-27 review confirms that the app is ready to move into deployment pre
 - Unattended self-updating should wait until backups, rollback, migration validation, and smoke tests are scripted.
 - The only tracked zero-byte code file is `backend/app/modules/identity/__init__.py`, which is an intentional Python package marker.
 
+### Stabilization Review on 2026-06-03
+
+The 2026-06-03 stabilization pass focused on deployment and identity manual test findings:
+
+- Credential Manager edit, infrastructure storage display, inventory import, stale inventory import conflicts, provisioning frontend/backend synchronization, and Node Management SSH connectivity were fixed before the current documentation refresh.
+- Docker deployment runtime diagnostics were improved with per-target execution output, better status/error visibility, runtime refresh reconciliation, Docker discovery sudo fallback, and permission-aware messaging.
+- Identity discovery, user/group creation, discovered-object adoption, group membership synchronization, sudo credential propagation, and user/group card host-origin context were improved.
+- Failed job completion and failed audit events now log at error severity. Human-readable logs are the default with JSON logging still available through `LOG_FORMAT=json`.
+- The local ignored `backlog.md` is the manual stabilization tracker. Items believed fixed should be marked `Needs testing` until manual validation confirms the final status.
+- Full backend validation passed locally with `DEBUG=false .venv/bin/python -m pytest backend/tests -q` producing 147 passing tests after the Identity replication credential changes.
+
 ## Architecture Status
 
 - Backend remains organized as a modular monolith.
@@ -490,6 +505,7 @@ The 2026-05-27 review confirms that the app is ready to move into deployment pre
 ## Current Technical Debt
 
 - Execution module is still a placeholder.
+- `backend/app/modules/identity/__init__.py` is the only tracked zero-byte code file and is intentionally kept as a Python package marker.
 - Authentication, authorization, and admin user lifecycle are implemented for local users. Google SSO, OIDC, LDAP, SAML, MFA, API keys, and fine-grained permissions are not implemented.
 - Workflow chaining is still implicit. Provisioning can bootstrap profiles/packages, but deployment-as-a-profile-step is not fully executed yet.
 - Legacy inline SSH passwords/private key paths still exist for backward compatibility and local MVP use; shared Credential Manager records are the preferred path for reusable secrets.
@@ -509,6 +525,8 @@ The 2026-05-27 review confirms that the app is ready to move into deployment pre
 - Docker deployment steps can execute through `ProfileService`, but richer blueprint-style deployment composition still needs refinement.
 - No centralized domain identity provider. Identity is Linux orchestration only; LDAP, Kerberos, FreeIPA, Active Directory, SSSD, PAM rewriting, and login federation are intentionally out of scope.
 - Identity discovery reads live Linux state through Jobs and does not yet persist per-host user/group membership snapshots as first-class inventory records.
+- Identity UI still needs a clearer target-first matrix for large environments so managed records, discovered host observations, and drift/reconciliation status are not visually blended.
+- Identity should split "account password to set" from "execution/sudo credential" so operators do not confuse password reset with sudo authentication.
 - Existing `docs/architecture.md` is older and less precise than the newer files in `docs/architecture/`.
 - Runtime adapter support from persisted integration records is partial; Proxmox and Monitoring can resolve active integration records, while future adapters still need deeper runtime integration.
 - Proxmox integration failover/replacement workflows are not implemented yet.
@@ -520,6 +538,7 @@ The 2026-05-27 review confirms that the app is ready to move into deployment pre
 - Refresh-token rotation and reuse detection are implemented with persisted token session families. Future work remains around httpOnly refresh-cookie transport and session management UX.
 - Monitoring overview should remain snapshot-first. Avoid live provider discovery or dashboard search during ordinary rendering unless it is behind an explicit refresh path.
 - Runtime visibility is eventually consistent: login and scheduler-triggered refreshes update inventory health and Docker deployment state in the backend, while frontend inventory/deployment pages poll normalized API state without direct infrastructure checks or page reloads.
+- CI/CD has improved, but feature-specific smoke suites and Playwright coverage for critical UI flows remain recommended for deployment/identity stabilization.
 
 ## Current Safety Boundary
 

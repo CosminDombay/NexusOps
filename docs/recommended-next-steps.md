@@ -2,7 +2,7 @@
 
 Created: 2026-05-23
 
-Updated: 2026-05-27
+Updated: 2026-06-03
 
 ## Priority Roadmap
 
@@ -53,6 +53,24 @@ Updated: 2026-05-27
 
 15. Move provisioning, deployments, and bulk operations deeper into WorkflowRun-backed async execution.
 
+16. Add feature-specific smoke suites for the current stabilization phase:
+   - Identity discovery/adopt/sync and sudo credential propagation
+   - Docker deployment create/deploy/runtime refresh/log visibility
+   - Inventory import/re-import/stale-record self-sanitize
+   - Auth login/session restore/logout
+
+17. Improve Identity operator UX around target-first workflows:
+   - per-host user/group matrix
+   - visible host-origin and drift state
+   - separate account-password and execution/sudo credential controls
+   - clearer disabled-action prerequisites
+
+18. Improve Docker deployment runtime diagnostics:
+   - stale observed state marker
+   - desired versus observed status split
+   - first failure line and suggested remediation
+   - runtime event filtering by correlation ID and target
+
 ## Notes
 
 These items came from the project review performed on 2026-05-23. They are intended as future hardening and delivery priorities before broadening destructive infrastructure capabilities.
@@ -60,6 +78,8 @@ These items came from the project review performed on 2026-05-23. They are inten
 The 2026-05-26 hardening pass intentionally stayed practical for a bachelor-project homelab orchestrator. Remaining future work is mostly depth rather than foundation: httpOnly refresh-cookie migration, a fuller command approval UI, expired-token cleanup jobs, distributed runtime leases, and frontend tests.
 
 The 2026-05-27 preparation pass adds deployment guidance and keeps automated container updates intentionally operator-triggered until backup, rollback, and smoke-test automation are in place.
+
+The 2026-06-03 stabilization pass prioritizes manual findings over new feature breadth. Identity users/groups management and Docker deployment runtime clarity are the main product-stabilization tracks; backlog items believed fixed should remain `Needs testing` until manually confirmed.
 
 ## Review Findings Added on 2026-05-23
 

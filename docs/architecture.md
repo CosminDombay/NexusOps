@@ -1,9 +1,10 @@
 # NexusOps Architecture
 
-For the latest platform review, validation status, and prioritized fix list, see `docs/project-review-up-to-2026-05-23.md`.
+For the latest living platform state, validation status, and technical debt, see `docs/architecture/current-state.md`.
 
 Focused operational references:
 
+- `docs/api.md`: compact API surface overview.
 - `docs/architecture/orchestration-semantics.md`: orchestration ownership and lifecycle terminology.
 - `docs/architecture/operational-runtime-experience.md`: runtime timeline, explainability, and cancellation semantics.
 - `docs/architecture/security-hardening-and-service-decomposition.md`: transition guards, command safety, secret redaction, and decomposition notes.
@@ -55,7 +56,7 @@ The frontend is organized by feature rather than technical layer. Pages for inve
 - `ProvisioningBlueprint`: NexusOps-side provisioning preset around a Proxmox VM or LXC template.
 - `DeploymentExecution`: deployment runtime instance for an orchestration run.
 - `DeploymentTargetExecution`: per-node deployment runtime state and output summary.
-- `CommandExecution`: legacy placeholder for command audit concepts.
+- `CommandExecution`: legacy placeholder for old command audit concepts; active remote execution uses `Job`.
 - `Deployment`: Docker Compose project definition and target configuration.
 - `PackageDefinitionRecord`: persisted package template, including custom packages and editable built-in overrides.
 - `InfrastructureProfileRecord`: persisted profile template, including custom profiles and editable built-in overrides.
@@ -130,7 +131,7 @@ Access profile / group preset / permission preset
   -> inventory-managed Linux host
 ```
 
-Identity is not centralized authentication. It is Linux user, group, SSH key, sudoers.d, and filesystem permission orchestration with guided presets and advanced Linux controls.
+Identity is not centralized authentication. It is Linux user, group, SSH key, sudoers.d, and filesystem permission orchestration with guided presets and advanced Linux controls. Discovered users/groups can be adopted into managed records, and selected password/SSH-password credentials can be passed through Jobs for sudo-backed replication.
 
 ## Inventory Synchronization Flow
 

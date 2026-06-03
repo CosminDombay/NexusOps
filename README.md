@@ -11,7 +11,9 @@ This repository is scaffolded as a modular monolith:
 The current implementation includes the platform foundation, CMDB-style inventory CRUD,
 Proxmox visibility/lifecycle control, template-based VM provisioning with NexusOps provisioning blueprints,
 Proxmox-to-inventory synchronization, SSH-backed job execution, reusable operational actions, package definitions,
-infrastructure profiles, editable operational templates, credential-backed secret injection, Docker Compose deployments, simple variable-driven execution, and production-aware security guardrails.
+infrastructure profiles, editable operational templates, credential-backed secret injection, Docker Compose deployments,
+Linux identity orchestration, remote shell/file access, runtime diagnostics, simple variable-driven execution, and
+production-aware security guardrails.
 
 The latest preparation review is documented in `docs/project-review-2026-05-27-prep.md`.
 
@@ -45,6 +47,8 @@ The latest preparation review is documented in `docs/project-review-2026-05-27-p
 - built-in operational group and permission presets
 - User/group standardization profiles
 - Job execution tracking and logging
+- Runtime status/log diagnostics for Jobs, Deployments, Workflows, Identity, and scheduler-driven refreshes
+- Local ignored `backlog.md` workflow for manual stabilization findings and test status tracking
 
 ## Quick Start With Docker
 
@@ -109,6 +113,8 @@ On Linux:
 ```
 
 For a fuller deployment checklist, including Docker versus on-prem LXC guidance and a controlled container update flow, see `docs/deployment.md`.
+For a compact API overview, see `docs/api.md`.
+For current architecture and stabilization status, see `docs/architecture/current-state.md`.
 
 ## Local Dev Server Quick Start
 
@@ -158,11 +164,12 @@ For a self-hosted runner deployment job on the LXC host:
 - Provisioning clones cloud-init-capable Proxmox templates, configures static networking, starts VMs, waits for SSH, and registers inventory records.
 - Provisioning blueprints save repeatable defaults such as Proxmox template, node, sizing, disks, bridge, gateway, DNS, environment, tags, default username, and bootstrap selections. Per-machine values such as VM name, VMID, hostname, and static IP remain editable every run.
 - Provisioning supports a root disk plus optional additional disks.
-- Jobs execute SSH commands against inventory targets and persist status, stdout, stderr, exit code, and timestamps.
+- Jobs execute SSH commands against inventory targets and persist status, stdout, stderr, exit code, timestamps, correlation IDs, activity events, and redacted command history.
 - Jobs resolve node credentials and execution credential references server-side. Sensitive values are never returned to the frontend, and commands persisted to job history are redacted when runtime secrets are injected.
 - Jobs now persist immutable execution intent metadata, including command hash, command policy result, initiator metadata, correlation ID, and append-only execution events for future runtime expansion.
 - Inventory health checks perform lightweight TCP reachability checks against SSH ports without logging in on each refresh.
 - Runtime refresh runs conservatively in the backend after login and on a scheduler, updating inventory reachability and Docker deployment state so frontend pages can poll normalized state without direct infrastructure checks.
+- Backend logs default to human-readable output such as `INFO - timestamp : message | key=value`, while JSON logging remains available with `LOG_FORMAT=json`.
 - Credential records store reusable secret material encrypted with Fernet using `NEXUSOPS_MASTER_KEY`. API responses expose only masked secret status.
 - Production startup fails if required security settings are unsafe, including default `SECRET_KEY`, missing `NEXUSOPS_MASTER_KEY`, disabled Proxmox TLS verification, `DEBUG=true`, or default-looking bootstrap admin credentials.
 - Inventory records can reference a shared `credential_id` for SSH execution while retaining inline SSH metadata for backward-compatible local MVP use.
@@ -180,6 +187,7 @@ For a self-hosted runner deployment job on the LXC host:
 - Identity orchestration stores Linux users, groups, SSH public keys, and permission templates, then replicates user/group/access/permission changes across selected Inventory-managed hosts through Jobs and SSH.
 - Identity includes guided access profiles such as Administrator, Deployment Operator, Docker Operator, Log Viewer, Read Only, and Service Account. These profiles configure shell, sudo behavior, recommended groups, and defaults while preserving advanced Linux controls.
 - Identity resolves administrator access through a distro-aware abstraction, using `sudo` on Debian/Ubuntu style hosts and `wheel` on RHEL/CentOS/Fedora style hosts during replicated execution.
+- Identity user/group discovery can adopt discovered objects into managed records, show host-origin context, pass selected password/SSH-password credentials into sudo-backed replication, and keep local create/adopt separate from remote sync target selection.
 - Permission workflows include presets and a human-friendly read/write/execute matrix that generates octal modes while retaining advanced raw mode controls.
 
 Current orchestration flow:

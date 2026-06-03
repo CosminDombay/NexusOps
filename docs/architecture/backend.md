@@ -45,12 +45,12 @@ Current implemented domain routes include:
 - `/api/v1/integrations` for persisted provider and monitoring integration records
 - `/api/v1/workflows` for persistent workflow runs, steps, logs, runtime state, targets, and execution timelines
 - `/api/v1/automations` for scheduled action/package/profile automations with runtime visibility
-- `/api/v1/identity` for Linux user, group, SSH key, sudo, permission, and replication workflows
+- `/api/v1/identity` for Linux user, group, SSH key, sudo, permission, discovery, adoption, inspection, and replication workflows
 - `/api/v1/remote-access` for role-aware browser shell and SFTP file access to Inventory-managed hosts
 - `/api/v1/deployments` for deployment definitions, multi-target deployment executions, and per-target runtime state
 - `/api/v1/monitoring` for telemetry provider health and infrastructure observability readiness
 
-Placeholder or foundation modules still exist for future expansion, but deployments, monitoring, integrations, and execution now have varying levels of implemented API surface.
+Most operator-facing modules now have implemented API surface. The legacy `execution` module remains placeholder scaffolding; active remote execution uses the Jobs module.
 
 ## Module Organization
 
@@ -388,6 +388,8 @@ Frontend Identity page
 
 Identity is operational Linux infrastructure orchestration. It stores reusable Linux users, groups, public SSH keys, and permission templates, then applies them to selected Inventory-managed hosts. It does not implement LDAP, Kerberos, FreeIPA, Active Directory, SSSD, PAM rewriting, or login federation.
 
+Identity discovery reads live Linux state through Jobs and can adopt discovered users/groups into managed records. Managed user/group actions distinguish local record creation/adoption from remote replication/synchronization. Replication requests can carry an explicit execution `credential_ref`, allowing a selected password or SSH-password credential to feed sudo through the Jobs runtime on key-auth targets.
+
 Identity also exposes a guided preset layer:
 
 - access profiles for common roles such as Administrator, Deployment Operator, Docker Operator, Log Viewer, Read Only, and Service Account
@@ -396,6 +398,8 @@ Identity also exposes a guided preset layer:
 - group discovery through `getent group` fanout
 
 Administrator access is resolved during execution with a distro-aware shell expression, choosing `sudo` for Debian/Ubuntu-style hosts and `wheel` for RHEL/CentOS/Fedora-style hosts. This keeps the UI focused on "Administrator Access" while preserving Linux-specific execution behavior.
+
+Current Identity limitations remain intentionally visible: per-host user/group membership snapshots are not yet persisted as first-class drift records, and the UI should continue moving toward a target-first matrix that separates discovered host observations from global managed desired state.
 
 ## Provisioning Backend Flow
 
