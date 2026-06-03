@@ -230,7 +230,8 @@ class JobExecutionRuntime:
             "\n".join(
                 [
                     "IFS= read -r NEXUSOPS_SUDO_PASSWORD",
-                    "sudo() { printf '%s\\n' \"$NEXUSOPS_SUDO_PASSWORD\" | command sudo -S -p '' \"$@\"; }",
+                    "printf '%s\\n' \"$NEXUSOPS_SUDO_PASSWORD\" | command sudo -S -p '' -v",
+                    "sudo() { command sudo -p '' \"$@\"; }",
                     command,
                 ]
             ),

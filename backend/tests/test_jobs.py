@@ -183,7 +183,8 @@ async def test_job_service_feeds_password_to_sudo_commands(client) -> None:
         assert adapter.calls[0]["password"] == "secret"
         assert adapter.calls[0]["input_data"] == "secret\n"
         assert "IFS= read -r NEXUSOPS_SUDO_PASSWORD" in adapter.calls[0]["command"]
-        assert "sudo() { printf '%s\\n' \"$NEXUSOPS_SUDO_PASSWORD\" | command sudo -S -p '' \"$@\"; }" in adapter.calls[0]["command"]
+        assert "printf '%s\\n' \"$NEXUSOPS_SUDO_PASSWORD\" | command sudo -S -p '' -v" in adapter.calls[0]["command"]
+        assert "sudo() { command sudo -p '' \"$@\"; }" in adapter.calls[0]["command"]
         assert "sudo usermod -aG docker deploy" in adapter.calls[0]["command"]
 
 

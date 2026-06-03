@@ -4,6 +4,8 @@ import type { Credential } from '../../../credentials/types/credential';
 import type { AccessProfile, GroupPreset, LinuxGroup, LinuxUser, PermissionPreset } from '../../types/identity';
 import { IconButton, SectionCard, SelectInput, TextInput } from '../common/IdentityPrimitives';
 
+export type IdentityActionMode = 'user' | 'group' | 'ssh-key' | 'permission';
+
 export type IdentityActionForm = {
   username: string;
   shell: string;
@@ -25,6 +27,7 @@ export type IdentityActionForm = {
 
 export function IdentityActionsDrawer({
   selectedKind,
+  actionMode,
   form,
   users,
   groups,
@@ -37,6 +40,7 @@ export function IdentityActionsDrawer({
   isWorking,
   commandPreview,
   onFormChange,
+  onActionModeChange,
   onCreateUser,
   onUpdateUser,
   onReplicateUser,
@@ -61,6 +65,7 @@ export function IdentityActionsDrawer({
   onApplyPermission,
 }: {
   selectedKind: string | null;
+  actionMode: IdentityActionMode;
   form: IdentityActionForm;
   users: LinuxUser[];
   groups: LinuxGroup[];
@@ -73,6 +78,7 @@ export function IdentityActionsDrawer({
   isWorking: boolean;
   commandPreview: string[];
   onFormChange: (patch: Partial<IdentityActionForm>) => void;
+  onActionModeChange: (mode: IdentityActionMode) => void;
   onCreateUser: () => void;
   onUpdateUser: () => void;
   onReplicateUser: () => void;
@@ -97,15 +103,21 @@ export function IdentityActionsDrawer({
   onApplyPermission: () => void;
 }) {
   const passwordCredentials = credentials.filter((credential) => credential.credential_type === 'password' || credential.credential_type === 'ssh_password');
-  const userSelected = selectedKind === 'user' || selectedKind === 'discovered-user';
-  const groupSelected = selectedKind === 'group' || selectedKind === 'discovered-group';
-  const sshSelected = selectedKind === 'ssh-key';
-  const permissionSelected = selectedKind === 'permission';
-  const discoveredUserSelected = selectedKind === 'discovered-user';
-  const discoveredGroupSelected = selectedKind === 'discovered-group';
+  const userSelected = actionMode === 'user';
+  const groupSelected = actionMode === 'group';
+  const sshSelected = actionMode === 'ssh-key';
+  const permissionSelected = actionMode === 'permission';
+  const discoveredUserSelected = selectedKind === 'discovered-user' && actionMode === 'user';
+  const discoveredGroupSelected = selectedKind === 'discovered-group' && actionMode === 'group';
   const targetHint = targetsReady
     ? 'Selected targets will receive remote operations.'
     : 'No targets selected. Create/adopt saves a managed record; sync and discovery need target selection.';
+  const modes: Array<{ id: IdentityActionMode; label: string }> = [
+    { id: 'user', label: 'User' },
+    { id: 'group', label: 'Group' },
+    { id: 'ssh-key', label: 'SSH key' },
+    { id: 'permission', label: 'Permission' },
+  ];
 
   return (
     <aside className="space-y-4 rounded-md border border-slate-700 bg-slate-900/80 p-4">
@@ -115,7 +127,20 @@ export function IdentityActionsDrawer({
         <p className="mt-2 rounded-md border border-slate-700 bg-slate-950/60 px-3 py-2 text-xs text-slate-300">{targetHint}</p>
       </div>
 
-      {userSelected || !selectedKind ? (
+      <div className="grid grid-cols-2 gap-2 rounded-md border border-slate-700 bg-slate-950/50 p-2">
+        {modes.map((mode) => (
+          <button
+            key={mode.id}
+            className={`h-9 rounded-md border text-xs font-semibold transition ${actionMode === mode.id ? 'border-cyan-300 bg-cyan-400 text-slate-950' : 'border-slate-700 bg-slate-900 text-slate-300 hover:border-slate-500 hover:text-white'}`}
+            type="button"
+            onClick={() => onActionModeChange(mode.id)}
+          >
+            {mode.label}
+          </button>
+        ))}
+      </div>
+
+      {userSelected ? (
         <SectionCard title="User Administration">
           <div className="space-y-3">
             <TextInput label="Username" value={form.username} onChange={(value) => onFormChange({ username: value })} />

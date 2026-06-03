@@ -393,6 +393,8 @@ async def test_linux_user_replication_uses_selected_sudo_credential(client) -> N
         )
 
         assert "IFS= read -r NEXUSOPS_SUDO_PASSWORD" in adapter.calls[0]["command"]
-        assert "sudo() { printf '%s\\n' \"$NEXUSOPS_SUDO_PASSWORD\" | command sudo -S -p '' \"$@\"; }" in adapter.calls[0]["command"]
+        assert "printf '%s\\n' \"$NEXUSOPS_SUDO_PASSWORD\" | command sudo -S -p '' -v" in adapter.calls[0]["command"]
+        assert "sudo() { command sudo -p '' \"$@\"; }" in adapter.calls[0]["command"]
+        assert "| sudo tee /etc/sudoers.d/nexusops-deploy" in adapter.calls[0]["command"]
         assert "SuperSecret123!" not in adapter.calls[0]["command"]
         assert adapter.calls[0]["input_data"] == "SuperSecret123!\n"

@@ -43,7 +43,7 @@ import {
   updateLinuxGroup,
   updateLinuxUser,
 } from '../api/identityApi';
-import { IdentityActionsDrawer, type IdentityActionForm } from '../components/actions/IdentityActionsDrawer';
+import { IdentityActionsDrawer, type IdentityActionForm, type IdentityActionMode } from '../components/actions/IdentityActionsDrawer';
 import { MetricTile, PermissionChip, SectionCard } from '../components/common/IdentityPrimitives';
 import { IdentityExplorer } from '../components/explorer/IdentityExplorer';
 import { GroupDetailsPanel } from '../components/groups/GroupDetailsPanel';
@@ -100,6 +100,7 @@ export function IdentityPage() {
   const [userMembership, setUserMembership] = useState<UserGroupMembership | null>(null);
   const [groupMembership, setGroupMembership] = useState<GroupMembership | null>(null);
   const [selectedEntityId, setSelectedEntityId] = useState<string | null>(null);
+  const [actionMode, setActionMode] = useState<IdentityActionMode>('user');
   const [explorerSearch, setExplorerSearch] = useState('');
   const [form, setForm] = useState<IdentityActionForm>(initialForm);
   const [result, setResult] = useState<BulkExecutionResponse | null>(null);
@@ -130,12 +131,14 @@ export function IdentityPage() {
     const groupList = splitCsv(form.groups);
     const adminGroup = groupList.includes('__admin__') ? ['resolve admin group: sudo/wheel'] : [];
     const groupCommands = groupList.filter((group) => group !== '__admin__').map((group) => `usermod -aG ${group} ${form.username}`);
-    return selectedEntity?.kind?.includes('group')
+    return actionMode === 'group'
       ? groupCommands.length ? groupCommands : [`groupadd ${form.groupName}`]
-      : selectedEntity?.kind === 'permission'
+      : actionMode === 'permission'
         ? [`chown ${form.permissionOwner}:${form.permissionGroup} ${form.permissionPath}`, `chmod ${form.permissionMode} ${form.permissionPath}`]
-        : [`useradd -m -d /home/${form.username} -s ${form.shell} ${form.username}`, ...adminGroup, ...groupCommands];
-  }, [form, selectedEntity]);
+        : actionMode === 'ssh-key'
+          ? [`deploy SSH key for ${form.keyUsername}`]
+          : [`useradd -m -d /home/${form.username} -s ${form.shell} ${form.username}`, ...adminGroup, ...groupCommands];
+  }, [actionMode, form]);
 
   async function refresh() {
     setIsLoading(true);
@@ -186,6 +189,7 @@ export function IdentityPage() {
   function selectEntity(entity: IdentityEntity) {
     setSelectedEntityId(entity.id);
     if (entity.kind === 'user') {
+      setActionMode('user');
       setForm((current) => ({
         ...current,
         username: entity.user.username,
@@ -196,16 +200,25 @@ export function IdentityPage() {
       setUserMembership(null);
     }
     if (entity.kind === 'discovered-user') {
+      setActionMode('user');
       setForm((current) => ({ ...current, username: entity.user.username, shell: entity.user.shell ?? '/bin/bash' }));
       setUserMembership(null);
     }
     if (entity.kind === 'group') {
+      setActionMode('group');
       setForm((current) => ({ ...current, groupName: entity.group.name, groupDescription: entity.group.description ?? '', memberNames: '' }));
       setGroupMembership(null);
     }
     if (entity.kind === 'discovered-group') {
+      setActionMode('group');
       setForm((current) => ({ ...current, groupName: entity.group.name, groupDescription: `Discovered on ${entity.group.hosts.join(', ')}`, memberNames: entity.group.members.join(',') }));
       setGroupMembership(null);
+    }
+    if (entity.kind === 'ssh-key') {
+      setActionMode('ssh-key');
+    }
+    if (entity.kind === 'permission') {
+      setActionMode('permission');
     }
   }
 
@@ -256,6 +269,7 @@ export function IdentityPage() {
         </main>
         <IdentityActionsDrawer
           selectedKind={selectedEntity?.kind ?? null}
+          actionMode={actionMode}
           form={form}
           users={selectedUser ? [selectedUser] : users}
           groups={selectedGroup ? [selectedGroup] : groups}
@@ -268,6 +282,7 @@ export function IdentityPage() {
           isWorking={isWorking}
           commandPreview={commandPreview}
           onFormChange={(patch) => setForm((current) => ({ ...current, ...patch }))}
+          onActionModeChange={setActionMode}
           onCreateUser={() => void work(createOrAdoptUser)}
           onUpdateUser={() => void work(updateSelectedUser)}
           onReplicateUser={() => void work(async () => selectedUser ? replicateLinuxUser(selectedUser.id, selectedTargetIds, form.passwordCredentialId || null) : null)}
@@ -313,11 +328,11 @@ export function IdentityPage() {
       supplementary_groups: splitCsv(form.groups),
       target_server_ids: selectedTargetIds,
     };
-    const response = selectedEntity?.kind === 'discovered-user'
+    const response = actionMode === 'user' && selectedEntity?.kind === 'discovered-user'
       ? await adoptLinuxUser({ ...payload, target_server_ids: [] })
       : await createLinuxUser(payload);
     setSelectedEntityId(`user:${response.item.id}`);
-    if (selectedEntity?.kind === 'discovered-user' && selectedTargetIds.length) {
+    if (actionMode === 'user' && selectedEntity?.kind === 'discovered-user' && selectedTargetIds.length) {
       const syncResponse = await updateLinuxUser(response.item.id, {
         shell: form.shell,
         home_directory: response.item.home_directory || `/home/${form.username}`,
@@ -358,12 +373,12 @@ export function IdentityPage() {
       target_server_ids: selectedTargetIds,
       credential_ref: form.passwordCredentialId || null,
     };
-    const response = selectedEntity?.kind === 'discovered-group'
+    const response = actionMode === 'group' && selectedEntity?.kind === 'discovered-group'
       ? await adoptLinuxGroup({ ...payload, managed: true, target_server_ids: [] })
       : await createLinuxGroup(payload);
     setSelectedEntityId(`group:${response.item.id}`);
-    if (selectedEntity?.kind === 'discovered-group' && selectedTargetIds.length) {
-      const syncResponse = await replicateLinuxGroup(response.item.id, selectedTargetIds);
+    if (actionMode === 'group' && selectedEntity?.kind === 'discovered-group' && selectedTargetIds.length) {
+      const syncResponse = await replicateLinuxGroup(response.item.id, selectedTargetIds, form.passwordCredentialId || null);
       return syncResponse;
     }
     return response.replication;
