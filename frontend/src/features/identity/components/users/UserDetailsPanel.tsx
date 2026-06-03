@@ -23,6 +23,7 @@ export function UserDetailsPanel({
   const groups = [...new Set(membership?.hosts.flatMap((host) => host.groups) ?? [])].sort();
   const status = user ? (user.locked ? 'locked' : 'active') : 'discovered';
   const passwordCredentials = credentials.filter((credential) => credential.credential_type === 'password' || credential.credential_type === 'ssh_password');
+  const discoveredHosts = discoveredUser?.hosts ?? [];
 
   return (
     <div className="space-y-4">
@@ -81,6 +82,14 @@ export function UserDetailsPanel({
         )}
       </SectionCard>
 
+      {discoveredHosts.length ? (
+        <SectionCard title="Discovered On">
+          <div className="flex flex-wrap gap-2">
+            {discoveredHosts.map((host) => <PermissionChip key={host} label={host} tone="observe" />)}
+          </div>
+        </SectionCard>
+      ) : null}
+
       <div className="grid gap-4 xl:grid-cols-2">
         <SectionCard title="SSH Keys">
           <div className="space-y-2">
@@ -128,4 +137,3 @@ function Signal({ icon: Icon, label, value }: { icon: typeof Lock; label: string
     </div>
   );
 }
-

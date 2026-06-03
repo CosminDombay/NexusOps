@@ -6,6 +6,7 @@ from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 Environment = Literal["development", "staging", "production"]
+LogFormat = Literal["human", "json"]
 
 
 class ProductionConfigurationError(RuntimeError):
@@ -16,6 +17,7 @@ class Settings(BaseSettings):
     environment: Environment = "development"
     debug: bool = False
     log_level: str = "INFO"
+    log_format: LogFormat = "human"
     secret_key: str = Field(default="change-me", min_length=8)
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = Field(default=15, ge=5, le=60)

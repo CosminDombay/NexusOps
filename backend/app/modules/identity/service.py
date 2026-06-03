@@ -629,8 +629,6 @@ class LinuxUserService:
         ]
         if user.locked:
             pieces.append(f"sudo passwd -l {quote(user.username)}")
-        else:
-            pieces.append(f"sudo passwd -u {quote(user.username)} || true")
         if user.sudo_enabled:
             pieces.append(self._sudo_command(user))
         else:

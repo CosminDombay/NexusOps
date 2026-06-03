@@ -7,7 +7,7 @@ from backend.app.adapters.ssh import SshAdapter, SshExecutionResult
 from backend.app.modules.credentials.schemas import ResolvedCredential
 from backend.app.modules.identity.models import LinuxUser
 from backend.app.modules.identity.repository import IdentityExecutionRepository, LinuxGroupRepository, LinuxUserRepository
-from backend.app.modules.identity.schemas import LinuxGroupCreate, LinuxGroupUpdate, LinuxUserCreate, ReplicationRequest
+from backend.app.modules.identity.schemas import LinuxGroupCreate, LinuxGroupUpdate, LinuxUserCreate, LinuxUserUpdate, ReplicationRequest
 from backend.app.modules.identity.service import IdentityReplicationService, IdentityValidationError, LinuxGroupService, LinuxUserService
 from backend.app.modules.inventory.repository import ServerRepository
 from backend.app.modules.inventory.schemas import ServerCreate
@@ -322,3 +322,34 @@ async def test_linux_group_update_can_rename_and_replicate(client) -> None:
         assert updated.item.name == "release"
         assert updated.replication.success_count == 1
         assert "groupmod -n release deploy" in adapter.calls[0]["command"]
+
+
+@pytest.mark.asyncio
+async def test_linux_user_group_update_does_not_unlock_password(client) -> None:
+    session = next(iter(client.app.dependency_overrides.values()))
+    async for db_session in session():
+        server = await InventoryService(ServerRepository(db_session)).create_server(
+            ServerCreate(**server_payload(hostname="user-group-update-identity-01", ip_address="10.4.0.18"))
+        )
+        adapter = FakeSshAdapter()
+        service = LinuxUserService(
+            repository=LinuxUserRepository(db_session),
+            replication_service=IdentityReplicationService(
+                job_service=JobService(
+                    job_repository=JobRepository(db_session),
+                    server_repository=ServerRepository(db_session),
+                    ssh_adapter=adapter,
+                ),
+                execution_repository=IdentityExecutionRepository(db_session),
+            ),
+        )
+
+        created = await service.create_user(LinuxUserCreate(username="deploy", target_server_ids=[]))
+        await service.update_user(
+            created.item.id,
+            LinuxUserUpdate(supplementary_groups=["docker"], target_server_ids=[server.id]),
+        )
+
+        command = adapter.calls[0]["command"]
+        assert "usermod -aG docker deploy" in command
+        assert "passwd -u" not in command
