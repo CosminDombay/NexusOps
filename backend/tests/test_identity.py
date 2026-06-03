@@ -119,6 +119,7 @@ async def test_linux_user_password_credential_is_redacted_in_job_history(client)
                     job_repository=JobRepository(db_session),
                     server_repository=ServerRepository(db_session),
                     ssh_adapter=adapter,
+                    credential_service=FakeCredentialService(),
                 ),
                 execution_repository=IdentityExecutionRepository(db_session),
             ),
@@ -360,3 +361,36 @@ async def test_linux_user_group_update_only_runs_group_changes(client) -> None:
         assert "chpasswd" not in command
         assert "passwd -l" not in command
         assert "passwd -u" not in command
+
+
+@pytest.mark.asyncio
+async def test_linux_user_replication_uses_selected_sudo_credential(client) -> None:
+    session = next(iter(client.app.dependency_overrides.values()))
+    async for db_session in session():
+        server = await InventoryService(ServerRepository(db_session)).create_server(
+            ServerCreate(**server_payload(hostname="sudo-credential-identity-01", ip_address="10.4.0.19"))
+        )
+        adapter = FakeSshAdapter()
+        service = LinuxUserService(
+            repository=LinuxUserRepository(db_session),
+            replication_service=IdentityReplicationService(
+                job_service=JobService(
+                    job_repository=JobRepository(db_session),
+                    server_repository=ServerRepository(db_session),
+                    ssh_adapter=adapter,
+                    credential_service=FakeCredentialService(),
+                ),
+                execution_repository=IdentityExecutionRepository(db_session),
+            ),
+        )
+
+        created = await service.create_user(
+            LinuxUserCreate(username="deploy", sudo_enabled=True, target_server_ids=[])
+        )
+        await service.replicate_user(
+            created.item.id,
+            ReplicationRequest(target_server_ids=[server.id], credential_ref="sudo-password"),
+        )
+
+        assert "sudo() { command sudo -S" in adapter.calls[0]["command"]
+        assert adapter.calls[0]["input_data"]

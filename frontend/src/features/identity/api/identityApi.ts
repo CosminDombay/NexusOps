@@ -60,37 +60,44 @@ export async function discoverUserGroups(username: string, targetServerIds: stri
   return response.data;
 }
 
-export async function replicateLinuxUser(userId: string, targetServerIds: string[]): Promise<BulkExecutionResponse> {
+function replicationPayload(targetServerIds: string[], credentialRef?: string | null) {
+  return {
+    target_server_ids: targetServerIds,
+    credential_ref: credentialRef || null,
+  };
+}
+
+export async function replicateLinuxUser(userId: string, targetServerIds: string[], credentialRef?: string | null): Promise<BulkExecutionResponse> {
   const response = await apiClient.post<BulkExecutionResponse>(`/identity/users/${userId}/replicate`, {
-    target_server_ids: targetServerIds,
+    ...replicationPayload(targetServerIds, credentialRef),
   });
   return response.data;
 }
 
-export async function lockLinuxUser(userId: string, targetServerIds: string[]): Promise<BulkExecutionResponse> {
+export async function lockLinuxUser(userId: string, targetServerIds: string[], credentialRef?: string | null): Promise<BulkExecutionResponse> {
   const response = await apiClient.post<BulkExecutionResponse>(`/identity/users/${userId}/lock`, {
-    target_server_ids: targetServerIds,
+    ...replicationPayload(targetServerIds, credentialRef),
   });
   return response.data;
 }
 
-export async function unlockLinuxUser(userId: string, targetServerIds: string[]): Promise<BulkExecutionResponse> {
+export async function unlockLinuxUser(userId: string, targetServerIds: string[], credentialRef?: string | null): Promise<BulkExecutionResponse> {
   const response = await apiClient.post<BulkExecutionResponse>(`/identity/users/${userId}/unlock`, {
-    target_server_ids: targetServerIds,
+    ...replicationPayload(targetServerIds, credentialRef),
   });
   return response.data;
 }
 
-export async function expireLinuxUserPassword(userId: string, targetServerIds: string[]): Promise<BulkExecutionResponse> {
+export async function expireLinuxUserPassword(userId: string, targetServerIds: string[], credentialRef?: string | null): Promise<BulkExecutionResponse> {
   const response = await apiClient.post<BulkExecutionResponse>(`/identity/users/${userId}/expire-password`, {
-    target_server_ids: targetServerIds,
+    ...replicationPayload(targetServerIds, credentialRef),
   });
   return response.data;
 }
 
-export async function disableLinuxUserShell(userId: string, targetServerIds: string[]): Promise<BulkExecutionResponse> {
+export async function disableLinuxUserShell(userId: string, targetServerIds: string[], credentialRef?: string | null): Promise<BulkExecutionResponse> {
   const response = await apiClient.post<BulkExecutionResponse>(`/identity/users/${userId}/disable-shell`, {
-    target_server_ids: targetServerIds,
+    ...replicationPayload(targetServerIds, credentialRef),
   });
   return response.data;
 }
@@ -145,9 +152,9 @@ export async function deleteLinuxUser(userId: string, targetServerIds: string[] 
   });
 }
 
-export async function replicateLinuxGroup(groupId: string, targetServerIds: string[]): Promise<BulkExecutionResponse> {
+export async function replicateLinuxGroup(groupId: string, targetServerIds: string[], credentialRef?: string | null): Promise<BulkExecutionResponse> {
   const response = await apiClient.post<BulkExecutionResponse>(`/identity/groups/${groupId}/replicate`, {
-    target_server_ids: targetServerIds,
+    ...replicationPayload(targetServerIds, credentialRef),
   });
   return response.data;
 }
@@ -156,10 +163,11 @@ export async function addGroupMembers(
   groupId: string,
   usernames: string[],
   targetServerIds: string[],
+  credentialRef?: string | null,
 ): Promise<BulkExecutionResponse> {
   const response = await apiClient.post<BulkExecutionResponse>(`/identity/groups/${groupId}/members`, {
     usernames,
-    target_server_ids: targetServerIds,
+    ...replicationPayload(targetServerIds, credentialRef),
   });
   return response.data;
 }
@@ -168,11 +176,12 @@ export async function removeGroupMembers(
   groupId: string,
   usernames: string[],
   targetServerIds: string[],
+  credentialRef?: string | null,
 ): Promise<BulkExecutionResponse> {
   const response = await apiClient.delete<BulkExecutionResponse>(`/identity/groups/${groupId}/members`, {
     data: {
       usernames,
-      target_server_ids: targetServerIds,
+      ...replicationPayload(targetServerIds, credentialRef),
     },
   });
   return response.data;

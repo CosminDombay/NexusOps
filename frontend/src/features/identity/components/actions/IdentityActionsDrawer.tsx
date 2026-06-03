@@ -103,12 +103,16 @@ export function IdentityActionsDrawer({
   const permissionSelected = selectedKind === 'permission';
   const discoveredUserSelected = selectedKind === 'discovered-user';
   const discoveredGroupSelected = selectedKind === 'discovered-group';
+  const targetHint = targetsReady
+    ? 'Selected targets will receive remote operations.'
+    : 'No targets selected. Create/adopt saves a managed record; sync and discovery need target selection.';
 
   return (
     <aside className="space-y-4 rounded-md border border-slate-700 bg-slate-900/80 p-4">
       <div>
         <p className="text-sm font-semibold text-white">Context Actions</p>
         <p className="mt-1 text-xs text-slate-400">Actions use selected replication targets and existing Identity APIs.</p>
+        <p className="mt-2 rounded-md border border-slate-700 bg-slate-950/60 px-3 py-2 text-xs text-slate-300">{targetHint}</p>
       </div>
 
       {userSelected || !selectedKind ? (
@@ -133,7 +137,7 @@ export function IdentityActionsDrawer({
             </SelectInput>
             <TextInput label="Groups" value={form.groups} onChange={(value) => onFormChange({ groups: value })} placeholder="docker,www-data" />
             <div className="grid gap-2">
-              <IconButton icon={UserPlus} disabled={!targetsReady || isWorking} label={discoveredUserSelected ? 'Adopt & sync' : 'Create'} onClick={onCreateUser} />
+              <IconButton icon={UserPlus} disabled={isWorking} label={discoveredUserSelected ? (targetsReady ? 'Adopt & sync' : 'Adopt') : 'Create'} onClick={onCreateUser} />
               <IconButton icon={Save} disabled={discoveredUserSelected || !users.length || !targetsReady || isWorking} label="Modify" onClick={onUpdateUser} />
               <IconButton icon={RotateCcw} disabled={discoveredUserSelected || !users.length || !targetsReady || isWorking || !form.passwordCredentialId} label="Set selected password" onClick={onUpdateUser} />
               <IconButton icon={RefreshCw} disabled={discoveredUserSelected || !users.length || !targetsReady || isWorking} label="Sync now" onClick={onReplicateUser} />
@@ -157,7 +161,7 @@ export function IdentityActionsDrawer({
             <TextInput label="Description" value={form.groupDescription} onChange={(value) => onFormChange({ groupDescription: value })} />
             <TextInput label="Members" value={form.memberNames} onChange={(value) => onFormChange({ memberNames: value })} placeholder="deploy,cerberus" />
             <div className="grid gap-2">
-              <IconButton icon={Users} disabled={!targetsReady || isWorking} label={discoveredGroupSelected ? 'Adopt & sync' : 'Create'} onClick={onCreateGroup} />
+              <IconButton icon={Users} disabled={isWorking} label={discoveredGroupSelected ? (targetsReady ? 'Adopt & sync' : 'Adopt') : 'Create'} onClick={onCreateGroup} />
               <IconButton icon={Save} disabled={discoveredGroupSelected || !groups.length || isWorking} label="Update" onClick={onUpdateGroup} />
               <IconButton icon={RefreshCw} disabled={discoveredGroupSelected || !groups.length || !targetsReady || isWorking} label="Replicate" onClick={onReplicateGroup} />
               <IconButton icon={UserPlus} disabled={discoveredGroupSelected || !groups.length || !targetsReady || isWorking} label="Add members" onClick={onAddMembers} />

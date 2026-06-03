@@ -266,11 +266,11 @@ export function IdentityPage() {
           onFormChange={(patch) => setForm((current) => ({ ...current, ...patch }))}
           onCreateUser={() => void work(createOrAdoptUser)}
           onUpdateUser={() => void work(updateSelectedUser)}
-          onReplicateUser={() => void work(async () => selectedUser ? replicateLinuxUser(selectedUser.id, selectedTargetIds) : null)}
-          onLockUser={() => void work(async () => selectedUser ? lockLinuxUser(selectedUser.id, selectedTargetIds) : null)}
-          onUnlockUser={() => void work(async () => selectedUser ? unlockLinuxUser(selectedUser.id, selectedTargetIds) : null)}
-          onDisableShell={() => void work(async () => selectedUser ? disableLinuxUserShell(selectedUser.id, selectedTargetIds) : null)}
-          onExpirePassword={() => void work(async () => selectedUser ? expireLinuxUserPassword(selectedUser.id, selectedTargetIds) : null)}
+          onReplicateUser={() => void work(async () => selectedUser ? replicateLinuxUser(selectedUser.id, selectedTargetIds, form.passwordCredentialId || null) : null)}
+          onLockUser={() => void work(async () => selectedUser ? lockLinuxUser(selectedUser.id, selectedTargetIds, form.passwordCredentialId || null) : null)}
+          onUnlockUser={() => void work(async () => selectedUser ? unlockLinuxUser(selectedUser.id, selectedTargetIds, form.passwordCredentialId || null) : null)}
+          onDisableShell={() => void work(async () => selectedUser ? disableLinuxUserShell(selectedUser.id, selectedTargetIds, form.passwordCredentialId || null) : null)}
+          onExpirePassword={() => void work(async () => selectedUser ? expireLinuxUserPassword(selectedUser.id, selectedTargetIds, form.passwordCredentialId || null) : null)}
           onInspectUserGroups={() => void inspectUserGroups()}
           onDeleteUser={() => {
             if (!selectedUser || !window.confirm(`Delete managed user ${selectedUser.username}?`)) return;
@@ -278,9 +278,9 @@ export function IdentityPage() {
           }}
           onCreateGroup={() => void work(createOrAdoptGroup)}
           onUpdateGroup={() => void work(updateSelectedGroup)}
-          onReplicateGroup={() => void work(async () => selectedGroup ? replicateLinuxGroup(selectedGroup.id, selectedTargetIds) : null)}
-          onAddMembers={() => void work(async () => selectedGroup ? addGroupMembers(selectedGroup.id, splitCsv(form.memberNames), selectedTargetIds) : null)}
-          onRemoveMembers={() => void work(async () => selectedGroup ? removeGroupMembers(selectedGroup.id, splitCsv(form.memberNames), selectedTargetIds) : null)}
+          onReplicateGroup={() => void work(async () => selectedGroup ? replicateLinuxGroup(selectedGroup.id, selectedTargetIds, form.passwordCredentialId || null) : null)}
+          onAddMembers={() => void work(async () => selectedGroup ? addGroupMembers(selectedGroup.id, splitCsv(form.memberNames), selectedTargetIds, form.passwordCredentialId || null) : null)}
+          onRemoveMembers={() => void work(async () => selectedGroup ? removeGroupMembers(selectedGroup.id, splitCsv(form.memberNames), selectedTargetIds, form.passwordCredentialId || null) : null)}
           onInspectGroupMembers={() => void inspectGroupMembers()}
           onDeleteGroup={() => {
             if (!selectedGroup || !window.confirm(`Delete managed group ${selectedGroup.name}?`)) return;
@@ -347,7 +347,13 @@ export function IdentityPage() {
   }
 
   async function createOrAdoptGroup() {
-    const payload = { name: form.groupName, description: form.groupDescription || null, managed: true, target_server_ids: selectedTargetIds };
+    const payload = {
+      name: form.groupName,
+      description: form.groupDescription || null,
+      managed: true,
+      target_server_ids: selectedTargetIds,
+      credential_ref: form.passwordCredentialId || null,
+    };
     const response = selectedEntity?.kind === 'discovered-group'
       ? await adoptLinuxGroup({ ...payload, managed: true, target_server_ids: [] })
       : await createLinuxGroup(payload);
@@ -361,7 +367,13 @@ export function IdentityPage() {
 
   async function updateSelectedGroup() {
     if (!selectedGroup) return null;
-    const response = await updateLinuxGroup(selectedGroup.id, { name: form.groupName, description: form.groupDescription || null, managed: true, target_server_ids: selectedTargetIds });
+    const response = await updateLinuxGroup(selectedGroup.id, {
+      name: form.groupName,
+      description: form.groupDescription || null,
+      managed: true,
+      target_server_ids: selectedTargetIds,
+      credential_ref: form.passwordCredentialId || null,
+    });
     return response.replication;
   }
 

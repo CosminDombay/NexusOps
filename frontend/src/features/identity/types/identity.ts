@@ -141,6 +141,7 @@ export type CreateLinuxGroupPayload = {
   description?: string | null;
   managed: boolean;
   target_server_ids: string[];
+  credential_ref?: string | null;
 };
 
 export type UpdateLinuxGroupPayload = CreateLinuxGroupPayload;

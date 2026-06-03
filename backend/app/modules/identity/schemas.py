@@ -26,6 +26,15 @@ ALLOWED_SHELLS = {
 
 class ReplicationRequest(BaseModel):
     target_server_ids: list[UUID] = Field(min_length=1)
+    credential_ref: str | None = Field(default=None, max_length=255)
+
+    @field_validator("credential_ref")
+    @classmethod
+    def validate_credential_ref(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        stripped = value.strip()
+        return stripped or None
 
 
 class LinuxUserCreate(BaseModel):
@@ -158,6 +167,7 @@ class LinuxGroupCreate(BaseModel):
     description: str | None = Field(default=None, max_length=2000)
     managed: bool = True
     target_server_ids: list[UUID] = Field(default_factory=list)
+    credential_ref: str | None = Field(default=None, max_length=255)
 
     @field_validator("name")
     @classmethod
@@ -166,6 +176,14 @@ class LinuxGroupCreate(BaseModel):
         if not GROUP_PATTERN.match(stripped):
             raise ValueError("Invalid Linux group name")
         return stripped
+
+    @field_validator("credential_ref")
+    @classmethod
+    def validate_credential_ref(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        stripped = value.strip()
+        return stripped or None
 
 
 class LinuxGroupRead(BaseModel):
@@ -184,6 +202,7 @@ class LinuxGroupUpdate(BaseModel):
     description: str | None = Field(default=None, max_length=2000)
     managed: bool = True
     target_server_ids: list[UUID] = Field(default_factory=list)
+    credential_ref: str | None = Field(default=None, max_length=255)
 
     @field_validator("name")
     @classmethod
@@ -193,10 +212,27 @@ class LinuxGroupUpdate(BaseModel):
             raise ValueError("Invalid Linux group name")
         return stripped
 
+    @field_validator("credential_ref")
+    @classmethod
+    def validate_credential_ref(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        stripped = value.strip()
+        return stripped or None
+
 
 class GroupMembersRequest(BaseModel):
     usernames: list[str] = Field(min_length=1)
     target_server_ids: list[UUID] = Field(min_length=1)
+    credential_ref: str | None = Field(default=None, max_length=255)
+
+    @field_validator("credential_ref")
+    @classmethod
+    def validate_credential_ref(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        stripped = value.strip()
+        return stripped or None
 
     @field_validator("usernames")
     @classmethod

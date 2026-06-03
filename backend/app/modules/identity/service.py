@@ -189,6 +189,7 @@ class IdentityReplicationService:
         operation_type: str,
         command: str,
         redacted_command: str | None = None,
+        credential_ref: str | None = None,
     ) -> IdentityReplicationRead:
         result = await self.job_service.execute_bulk(
             JobBulkExecuteRequest(
@@ -196,6 +197,7 @@ class IdentityReplicationService:
                 operation_type=operation_type,
                 command=command,
                 redacted_command=redacted_command,
+                credential_ref=credential_ref,
             )
         )
 
@@ -445,6 +447,7 @@ class LinuxUserService:
                 operation_type=f"identity:user:{user.username}:replicate",
                 command=command,
                 redacted_command=redacted_command,
+                credential_ref=payload.password_credential_ref,
             )
         return IdentityMutationRead(item=LinuxUserRead.model_validate(user), replication=replication)
 
@@ -510,6 +513,7 @@ class LinuxUserService:
                 operation_type=f"identity:user:{user.username}:update",
                 command=command,
                 redacted_command=redacted_command,
+                credential_ref=payload.password_credential_ref,
             )
         return IdentityMutationRead(item=LinuxUserRead.model_validate(user), replication=replication)
 
@@ -535,6 +539,7 @@ class LinuxUserService:
             target_server_ids=payload.target_server_ids,
             operation_type=f"identity:user:{user.username}:lock",
             command=f"sudo passwd -l {quote(user.username)}",
+            credential_ref=payload.credential_ref,
         )
         if result.failure_count == 0:
             user.locked = True
@@ -547,6 +552,7 @@ class LinuxUserService:
             target_server_ids=payload.target_server_ids,
             operation_type=f"identity:user:{user.username}:unlock",
             command=f"sudo passwd -u {quote(user.username)}",
+            credential_ref=payload.credential_ref,
         )
         if result.failure_count == 0:
             user.locked = False
@@ -559,6 +565,7 @@ class LinuxUserService:
             target_server_ids=payload.target_server_ids,
             operation_type=f"identity:user:{user.username}:password-expire",
             command=f"sudo passwd -e {quote(user.username)}",
+            credential_ref=payload.credential_ref,
         )
 
     async def disable_shell(self, user_id: UUID, payload: ReplicationRequest) -> IdentityReplicationRead:
@@ -567,6 +574,7 @@ class LinuxUserService:
             target_server_ids=payload.target_server_ids,
             operation_type=f"identity:user:{user.username}:disable-shell",
             command=f"sudo usermod -s /usr/sbin/nologin {quote(user.username)}",
+            credential_ref=payload.credential_ref,
         )
         if result.failure_count == 0:
             user.shell = "/usr/sbin/nologin"
@@ -579,6 +587,7 @@ class LinuxUserService:
             target_server_ids=payload.target_server_ids,
             operation_type=f"identity:user:{user.username}:replicate",
             command=self._create_user_command(user),
+            credential_ref=payload.credential_ref,
         )
 
     async def _user(self, user_id: UUID) -> LinuxUser:
@@ -721,7 +730,10 @@ class LinuxGroupService:
             raise IdentityConflictError("Linux group already exists") from exc
         replication = None
         if payload.target_server_ids:
-            replication = await self.replicate_group(group.id, ReplicationRequest(target_server_ids=payload.target_server_ids))
+            replication = await self.replicate_group(
+                group.id,
+                ReplicationRequest(target_server_ids=payload.target_server_ids, credential_ref=payload.credential_ref),
+            )
         return IdentityMutationRead(item=LinuxGroupRead.model_validate(group), replication=replication)
 
     async def adopt_group(self, payload: LinuxGroupCreate) -> IdentityMutationRead:
@@ -757,6 +769,7 @@ class LinuxGroupService:
                 target_server_ids=payload.target_server_ids,
                 operation_type=f"identity:group:{group.name}:update",
                 command=command,
+                credential_ref=payload.credential_ref,
             )
         return IdentityMutationRead(item=LinuxGroupRead.model_validate(group), replication=replication)
 
@@ -780,6 +793,7 @@ class LinuxGroupService:
             target_server_ids=payload.target_server_ids,
             operation_type=f"identity:group:{group.name}:members",
             command=command,
+            credential_ref=payload.credential_ref,
         )
 
     async def remove_members(self, group_id: UUID, payload: GroupMembersRequest) -> IdentityReplicationRead:
@@ -791,6 +805,7 @@ class LinuxGroupService:
             target_server_ids=payload.target_server_ids,
             operation_type=f"identity:group:{group.name}:members:remove",
             command=command,
+            credential_ref=payload.credential_ref,
         )
 
     async def replicate_group(self, group_id: UUID, payload: ReplicationRequest) -> IdentityReplicationRead:
@@ -799,6 +814,7 @@ class LinuxGroupService:
             target_server_ids=payload.target_server_ids,
             operation_type=f"identity:group:{group.name}:replicate",
             command=f"if ! getent group {quote(group.name)} >/dev/null; then sudo groupadd {quote(group.name)}; fi",
+            credential_ref=payload.credential_ref,
         )
 
     async def _group(self, group_id: UUID) -> LinuxGroup:
