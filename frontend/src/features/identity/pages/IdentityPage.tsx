@@ -430,8 +430,14 @@ function ExecutionResult({ result }: { result: BulkExecutionResponse }) {
       <div className="mt-3 grid gap-2 md:grid-cols-2">
         {result.results.map((row) => (
           <div key={row.target_server_id} className="rounded-md border border-slate-700 bg-slate-950/50 px-3 py-2 text-sm">
-            <p className="font-semibold text-white">{row.target_hostname ?? row.target_server_id}</p>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="font-semibold text-white">{row.target_hostname ?? row.target_server_id}</p>
+              <span className="text-xs text-slate-400">exit {row.job?.exit_code ?? 'n/a'}</span>
+            </div>
             <p className={row.success ? 'text-emerald-200' : 'text-rose-200'}>{row.success ? 'success' : row.error ?? 'failed'}</p>
+            {row.job?.correlation_id ? <p className="mt-1 font-mono text-xs text-slate-500">{row.job.correlation_id}</p> : null}
+            {row.job?.stderr ? <pre className="mt-2 max-h-28 overflow-auto whitespace-pre-wrap rounded bg-slate-950 p-2 text-xs text-rose-200">{row.job.stderr}</pre> : null}
+            {row.job?.stdout ? <pre className="mt-2 max-h-28 overflow-auto whitespace-pre-wrap rounded bg-slate-950 p-2 text-xs text-slate-300">{row.job.stdout}</pre> : null}
           </div>
         ))}
       </div>

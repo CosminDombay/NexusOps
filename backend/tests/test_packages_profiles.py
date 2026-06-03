@@ -231,7 +231,8 @@ async def test_profile_apply_runs_deployment_step(client) -> None:
         command = adapter.calls[0]["command"]
         assert "cat > docker-compose.yaml <<'NEXUSOPS_COMPOSE_EOF'" in command
         assert "\nNEXUSOPS_COMPOSE_EOF\ncat > .env <<'NEXUSOPS_ENV_EOF'" in command
-        assert "docker compose -f docker-compose.yaml --env-file .env up -d" in command
+        assert "nexusops_docker compose -f docker-compose.yaml --env-file .env up -d" in command
+        assert "sudo docker \"$@\"" in command
 
 
 @pytest.mark.asyncio
@@ -374,6 +375,13 @@ def test_deployment_heredoc_marker_changes_when_content_contains_marker() -> Non
     assert first_line != "cat > docker-compose.yaml <<'NEXUSOPS_COMPOSE_EOF'"
     assert first_line.startswith("cat > docker-compose.yaml <<'NEXUSOPS_COMPOSE_EOF_")
     assert last_line.startswith("NEXUSOPS_COMPOSE_EOF_")
+
+
+def test_deployment_docker_command_uses_sudo_fallback_wrapper() -> None:
+    command = DockerComposeDeploymentService._docker_compose("ps")
+
+    assert command == "nexusops_docker compose -f docker-compose.yaml --env-file .env ps"
+    assert "sudo docker \"$@\"" in DockerComposeDeploymentService._docker_sudo_fallback_function()
 
 
 def test_deployment_heredoc_marker_keeps_changing_until_unique() -> None:

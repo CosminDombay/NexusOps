@@ -524,7 +524,7 @@ function DeploymentCard({
       <div className="mt-4 flex flex-wrap gap-2">
         <ActionButton
           icon={Play}
-          label="Start"
+          label={deployment.status === 'draft' ? 'Deploy' : 'Start'}
           disabled={isWorking}
           onClick={() => void onRun(deployment, 'deploy')}
         />
@@ -684,6 +684,20 @@ function DeploymentExecutionSummary({ deployment }: { deployment: Deployment }) 
         {execution.failed_count ? `, ${execution.failed_count} failed` : ''} - {formatDuration(execution.duration_seconds)}
       </p>
       {execution.error_message ? <p className="mt-1 text-xs text-rose-700">{execution.error_message}</p> : null}
+      {execution.target_executions.length ? (
+        <div className="mt-3 space-y-2">
+          {execution.target_executions.map((target) => (
+            <div key={target.id} className="rounded-md bg-zinc-50 px-2 py-1.5 text-xs text-zinc-600">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="font-semibold text-zinc-800">{target.hostname ?? target.server_id}</span>
+                <span>{formatLabel(target.status)}</span>
+              </div>
+              {target.stderr ? <pre className="mt-1 max-h-20 overflow-auto whitespace-pre-wrap text-rose-700">{target.stderr}</pre> : null}
+              {!target.stderr && target.stdout ? <pre className="mt-1 max-h-20 overflow-auto whitespace-pre-wrap text-zinc-500">{target.stdout}</pre> : null}
+            </div>
+          ))}
+        </div>
+      ) : null}
       <div className="mt-3">
         <OperationalTimeline
           activities={execution.activity_timeline}

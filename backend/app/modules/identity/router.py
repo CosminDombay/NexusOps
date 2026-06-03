@@ -69,6 +69,7 @@ def _replication_service(session: AsyncSession) -> IdentityReplicationService:
             job_repository=JobRepository(session),
             server_repository=server_repository,
             ssh_adapter=ParamikoSshAdapter(),
+            credential_service=CredentialService(repository=CredentialRepository(session)),
             audit_service=AuditService(AuditEventRepository(session)),
             session_factory=AsyncSessionLocal,
         ),

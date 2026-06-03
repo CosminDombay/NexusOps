@@ -781,6 +781,7 @@ class DockerComposeDeploymentService:
 
         prefix = [
             "set -e",
+            self._docker_sudo_fallback_function(),
             f"mkdir -p {self._sh_quote(deployment_path)}",
             f"cd {self._sh_quote(deployment_path)}",
         ]
@@ -832,6 +833,7 @@ class DockerComposeDeploymentService:
         return "\n".join(
             [
                 "set -e",
+                cls._docker_sudo_fallback_function(),
                 f"cd {cls._sh_quote(deployment_path)}",
                 cls._docker_compose(compose_args),
             ]
@@ -843,17 +845,39 @@ class DockerComposeDeploymentService:
         inspect_format = "{{json .}}"
         return "\n".join(
             [
+                cls._docker_sudo_fallback_function(),
                 f"cd {cls._sh_quote(deployment_path)}",
-                "ids=$(docker compose -f docker-compose.yaml --env-file .env ps -q 2>/dev/null || true)",
-                "if [ -z \"$ids\" ]; then project=$(basename \"$PWD\"); ids=$(docker ps -a --filter \"label=com.docker.compose.project=$project\" -q 2>/dev/null || true); fi",
+                f"ids=$({cls._docker_compose('ps -q')} 2>/dev/null || true)",
+                "if [ -z \"$ids\" ]; then project=$(basename \"$PWD\"); ids=$(nexusops_docker ps -a --filter \"label=com.docker.compose.project=$project\" -q 2>/dev/null || true); fi",
                 "if [ -z \"$ids\" ]; then exit 0; fi",
-                f"docker inspect --format '{inspect_format}' $ids",
+                f"nexusops_docker inspect --format '{inspect_format}' $ids",
             ]
         )
 
     @classmethod
     def _docker_compose(cls, compose_args: str) -> str:
-        return f"docker compose -f {cls.COMPOSE_FILENAME} --env-file {cls.ENV_FILENAME} {compose_args}"
+        return f"nexusops_docker compose -f {cls.COMPOSE_FILENAME} --env-file {cls.ENV_FILENAME} {compose_args}"
+
+    @staticmethod
+    def _docker_sudo_fallback_function() -> str:
+        return "\n".join(
+            [
+                "nexusops_docker() {",
+                "  err_file=$(mktemp)",
+                "  if docker \"$@\" 2>\"$err_file\"; then rm -f \"$err_file\"; return 0; fi",
+                "  status=$?",
+                "  if grep -qiE 'permission denied|cannot connect to the docker daemon|docker.sock|dial unix' \"$err_file\"; then",
+                "    cat \"$err_file\" >&2",
+                "    rm -f \"$err_file\"",
+                "    sudo docker \"$@\"",
+                "    return $?",
+                "  fi",
+                "  cat \"$err_file\" >&2",
+                "  rm -f \"$err_file\"",
+                "  return \"$status\"",
+                "}",
+            ]
+        )
 
     @staticmethod
     def _sh_quote(value: str) -> str:
