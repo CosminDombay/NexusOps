@@ -25,6 +25,7 @@ export type Automation = {
   raw_command: string | null;
   variables_json: Record<string, string>;
   credential_refs: Record<string, string>;
+  execution_credential_ref: string | null;
   last_run_at: string | null;
   next_run_at: string | null;
   last_status: string | null;
@@ -52,6 +53,7 @@ export type AutomationPayload = {
   reference_id: string;
   variables_json?: Record<string, string>;
   credential_refs?: Record<string, string>;
+  execution_credential_ref?: string | null;
 };
 
 export type AutomationRunResult = WorkflowRun;

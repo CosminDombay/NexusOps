@@ -90,6 +90,7 @@ class ProxmoxGuestSyncRead(BaseModel):
 
 
 class ProxmoxInventorySanitizeRead(BaseModel):
+    dry_run: bool = False
     deleted_count: int
     skipped_count: int
     deleted: list[str] = Field(default_factory=list)

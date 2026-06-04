@@ -53,6 +53,7 @@ export type ApplyProfilePayload = {
   stop_on_failure: boolean;
   variables?: Record<string, string>;
   credential_refs?: Record<string, string>;
+  execution_credential_ref?: string | null;
 };
 
 export type ApplyProfileResult = {
@@ -69,6 +70,7 @@ export type ApplyProfileBulkPayload = {
   stop_on_failure: boolean;
   variables?: Record<string, string>;
   credential_refs?: Record<string, string>;
+  execution_credential_ref?: string | null;
 };
 
 export type ApplyProfileBulkResult = {

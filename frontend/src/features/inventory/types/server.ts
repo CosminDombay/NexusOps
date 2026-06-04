@@ -141,6 +141,23 @@ export type InventoryHealthSummary = {
   last_checked_at: string | null;
 };
 
+export type InventoryReadinessSignal = {
+  key: string;
+  label: string;
+  status: 'ready' | 'warning' | 'blocked' | string;
+  detail: string;
+};
+
+export type InventoryCredentialReadiness = {
+  server_id: string;
+  hostname: string;
+  ssh_ready: boolean;
+  sudo_ready: boolean;
+  docker_ready: boolean;
+  overall_status: 'ready' | 'warning' | 'blocked' | string;
+  signals: InventoryReadinessSignal[];
+};
+
 export type HostFilesystem = {
   filesystem: string;
   type: string | null;

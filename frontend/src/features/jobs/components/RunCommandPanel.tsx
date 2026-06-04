@@ -3,16 +3,20 @@ import { Play } from 'lucide-react';
 import { TargetSelector } from '../../inventory/components/TargetSelector';
 import { useTargetSelection } from '../../inventory/hooks/useTargetSelection';
 import type { Server } from '../../inventory/types/server';
+import type { Credential } from '../../credentials/types/credential';
 
 type RunCommandPanelProps = {
   command: string;
+  credentials: Credential[];
   error: string | null;
+  executionCredentialRef: string;
   isExecuting: boolean;
   operationType: string;
   selectedServerId: string;
   selectedServerIds: string[];
   servers: Server[];
   onCommandChange: (value: string) => void;
+  onExecutionCredentialChange: (value: string) => void;
   onOperationTypeChange: (value: string) => void;
   onSelectedServerChange: (value: string) => void;
   onSelectedServersChange: (value: string[]) => void;
@@ -21,13 +25,16 @@ type RunCommandPanelProps = {
 
 export function RunCommandPanel({
   command,
+  credentials,
   error,
+  executionCredentialRef,
   isExecuting,
   operationType,
   selectedServerId,
   selectedServerIds,
   servers,
   onCommandChange,
+  onExecutionCredentialChange,
   onOperationTypeChange,
   onSelectedServerChange,
   onSelectedServersChange,
@@ -82,6 +89,24 @@ export function RunCommandPanel({
                 }
               }}
             />
+          </label>
+
+          <label className="block md:col-span-2">
+            <span className="text-sm font-medium text-zinc-950">Execution / sudo credential</span>
+            <select
+              className="mt-2 h-10 w-full rounded-md border border-zinc-300 bg-white px-3 text-sm text-zinc-950 shadow-sm outline-none transition focus:border-zinc-950 focus:ring-2 focus:ring-zinc-950/10"
+              value={executionCredentialRef}
+              onChange={(event) => onExecutionCredentialChange(event.target.value)}
+            >
+              <option value="">Use target saved credential or passwordless access</option>
+              {credentials
+                .filter((credential) => credential.credential_type === 'password' || credential.credential_type === 'ssh_password')
+                .map((credential) => (
+                  <option key={credential.id} value={credential.id}>
+                    {credential.name} ({credential.credential_type.replace('_', ' ')})
+                  </option>
+                ))}
+            </select>
           </label>
         </div>
 

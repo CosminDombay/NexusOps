@@ -91,6 +91,9 @@ export type DeploymentTarget = {
   sync_status: string;
   runtime_checked_at: string | null;
   runtime_error: string | null;
+  runtime_stale: boolean;
+  runtime_age_seconds: number | null;
+  runtime_failure_reason: string | null;
   containers: DeploymentContainer[];
   missing_services: string[];
   last_job_id: string | null;
@@ -106,6 +109,7 @@ export type Deployment = {
   compose_content: string;
   env_content: string | null;
   credential_refs: Record<string, string>;
+  execution_credential_ref: string | null;
   status: DeploymentStatus;
   execution_status: DeploymentStatus | null;
   target_server_id: string | null;
@@ -123,6 +127,9 @@ export type Deployment = {
   sync_status: string;
   runtime_checked_at: string | null;
   runtime_error: string | null;
+  runtime_stale: boolean;
+  runtime_age_seconds: number | null;
+  runtime_failure_reason: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -135,6 +142,7 @@ export type CreateDeploymentPayload = {
   compose_content: string;
   env_content?: string | null;
   credential_refs?: Record<string, string>;
+  execution_credential_ref?: string | null;
   remote_path?: string;
 };
 
@@ -163,4 +171,30 @@ export type DeploymentStatusResult = {
   job: Job | null;
   jobs: Job[];
   runtime_states: DeploymentRuntimeState[];
+};
+
+export type DeploymentComposeValidation = {
+  valid: boolean;
+  errors: string[];
+  warnings: string[];
+  services: string[];
+};
+
+export type DeploymentDryRunTarget = {
+  server_id: string;
+  hostname: string | null;
+  remote_path: string;
+  deployment_path: string;
+  execution_credential_ref: string | null;
+  command_preview: string;
+  redacted_command_preview: string;
+};
+
+export type DeploymentDryRun = {
+  deployment_id: string | null;
+  operation: string;
+  validation: DeploymentComposeValidation;
+  targets: DeploymentDryRunTarget[];
+  env_keys: string[];
+  credential_env_keys: string[];
 };

@@ -249,6 +249,7 @@ export function PackagesPage() {
           selectedServerIds,
           executionVariables.variables,
           executionVariables.credential_refs,
+          executionVariables.execution_credential_ref,
         );
         setBulkResult(result);
         setSuccess(
@@ -260,6 +261,7 @@ export function PackagesPage() {
           selectedServerId,
           executionVariables.variables,
           executionVariables.credential_refs,
+          executionVariables.execution_credential_ref,
         );
         setSuccess(`Started package ${packageDefinition.name}. Job status: ${job.status}.`);
       }
@@ -360,6 +362,7 @@ export function PackagesPage() {
         targetLabel={`${selectedServerIds.length || 1} host(s) selected`}
         title={pendingPackage ? `Run ${pendingPackage.name}` : 'Run package'}
         variables={pendingPackage?.variables ?? []}
+        showExecutionCredential
         onCancel={() => setPendingPackage(null)}
         onConfirm={(values) => (pendingPackage ? runPackage(pendingPackage, values) : undefined)}
       />

@@ -1,5 +1,5 @@
 import { apiClient } from '../../../lib/api/client';
-import type { CreateDeploymentPayload, Deployment, DeploymentLogs, DeploymentOperation, DeploymentStatusResult, UpdateDeploymentPayload } from '../types/deployment';
+import type { CreateDeploymentPayload, Deployment, DeploymentDryRun, DeploymentLogs, DeploymentOperation, DeploymentStatusResult, UpdateDeploymentPayload } from '../types/deployment';
 
 export async function listDeployments(filters: { serverId?: string } = {}): Promise<Deployment[]> {
   const response = await apiClient.get<Deployment[]>('/deployments', {
@@ -19,6 +19,23 @@ export async function deleteDeployment(deploymentId: string): Promise<void> {
 
 export async function updateDeployment(deploymentId: string, payload: UpdateDeploymentPayload): Promise<Deployment> {
   const response = await apiClient.put<Deployment>(`/deployments/${deploymentId}`, payload);
+  return response.data;
+}
+
+export async function validateDeploymentPayload(
+  payload: CreateDeploymentPayload,
+  operation = 'deploy',
+): Promise<DeploymentDryRun> {
+  const response = await apiClient.post<DeploymentDryRun>('/deployments/validate', payload, {
+    params: { operation },
+  });
+  return response.data;
+}
+
+export async function dryRunDeployment(deploymentId: string, operation = 'deploy'): Promise<DeploymentDryRun> {
+  const response = await apiClient.get<DeploymentDryRun>(`/deployments/${deploymentId}/dry-run`, {
+    params: { operation },
+  });
   return response.data;
 }
 

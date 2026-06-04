@@ -3,16 +3,20 @@ import { Pencil, Play, Trash2 } from 'lucide-react';
 import { TargetSelector } from '../../inventory/components/TargetSelector';
 import { useTargetSelection } from '../../inventory/hooks/useTargetSelection';
 import type { Server } from '../../inventory/types/server';
+import type { Credential } from '../../credentials/types/credential';
 import type { OperationalAction } from '../types/job';
 
 type OperationalActionsPanelProps = {
   actions: OperationalAction[];
+  credentials: Credential[];
   error: string | null;
+  executionCredentialRef: string;
   isExecuting: boolean;
   selectedActionId: string;
   selectedServerId: string;
   servers: Server[];
   onExecute: () => void;
+  onExecutionCredentialChange: (value: string) => void;
   onDeleteAction: (action: OperationalAction) => void;
   onEditAction: (action: OperationalAction) => void;
   onSelectedActionChange: (value: string) => void;
@@ -21,12 +25,15 @@ type OperationalActionsPanelProps = {
 
 export function OperationalActionsPanel({
   actions,
+  credentials,
   error,
+  executionCredentialRef,
   isExecuting,
   selectedActionId,
   selectedServerId,
   servers,
   onExecute,
+  onExecutionCredentialChange,
   onDeleteAction,
   onEditAction,
   onSelectedActionChange,
@@ -72,6 +79,23 @@ export function OperationalActionsPanel({
                   ))}
                 </optgroup>
               ))}
+            </select>
+          </label>
+          <label className="block">
+            <span className="text-sm font-medium text-zinc-950">Execution / sudo credential</span>
+            <select
+              className="mt-2 h-10 w-full rounded-md border border-zinc-300 bg-white px-3 text-sm text-zinc-950 shadow-sm outline-none transition focus:border-zinc-950 focus:ring-2 focus:ring-zinc-950/10"
+              value={executionCredentialRef}
+              onChange={(event) => onExecutionCredentialChange(event.target.value)}
+            >
+              <option value="">Use target saved credential or passwordless access</option>
+              {credentials
+                .filter((credential) => credential.credential_type === 'password' || credential.credential_type === 'ssh_password')
+                .map((credential) => (
+                  <option key={credential.id} value={credential.id}>
+                    {credential.name} ({credential.credential_type.replace('_', ' ')})
+                  </option>
+                ))}
             </select>
           </label>
         </div>

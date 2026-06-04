@@ -16,6 +16,7 @@ class DeploymentCreate(BaseModel):
     compose_content: str = Field(min_length=1, max_length=20000)
     env_content: str | None = Field(default=None, max_length=20000)
     credential_refs: dict[str, str] = Field(default_factory=dict)
+    execution_credential_ref: str | None = Field(default=None, max_length=255)
     remote_path: str = Field(default="/opt/nexusops/deployments", min_length=1, max_length=500)
 
     @field_validator("name", "compose_content", "remote_path")
@@ -31,6 +32,14 @@ class DeploymentCreate(BaseModel):
     def dedupe_target_server_ids(cls, value: list[UUID]) -> list[UUID]:
         return list(dict.fromkeys(value))
 
+    @field_validator("execution_credential_ref")
+    @classmethod
+    def strip_execution_credential_ref(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        stripped = value.strip()
+        return stripped or None
+
 
 class DeploymentUpdate(DeploymentCreate):
     pass
@@ -43,6 +52,7 @@ class DeploymentRead(BaseModel):
     compose_content: str
     env_content: str | None = None
     credential_refs: dict[str, str] = Field(default_factory=dict)
+    execution_credential_ref: str | None = None
     status: DeploymentStatus
     target_server_id: UUID | None = None
     target_server_ids: list[UUID] = Field(default_factory=list)
@@ -60,6 +70,9 @@ class DeploymentRead(BaseModel):
     sync_status: str = "unknown"
     runtime_checked_at: datetime | None = None
     runtime_error: str | None = None
+    runtime_stale: bool = False
+    runtime_age_seconds: int | None = None
+    runtime_failure_reason: str | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -81,6 +94,9 @@ class DeploymentTargetRead(BaseModel):
     sync_status: str = "unknown"
     runtime_checked_at: datetime | None = None
     runtime_error: str | None = None
+    runtime_stale: bool = False
+    runtime_age_seconds: int | None = None
+    runtime_failure_reason: str | None = None
     containers: list["DeploymentContainerRead"] = Field(default_factory=list)
     missing_services: list[str] = Field(default_factory=list)
     last_job_id: UUID | None = None
@@ -195,3 +211,29 @@ class DeploymentLogsRead(BaseModel):
     logs: str
     job: JobRead | None = None
     jobs: list[JobRead] = Field(default_factory=list)
+
+
+class DeploymentComposeValidationRead(BaseModel):
+    valid: bool
+    errors: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+    services: list[str] = Field(default_factory=list)
+
+
+class DeploymentDryRunTargetRead(BaseModel):
+    server_id: UUID
+    hostname: str | None = None
+    remote_path: str
+    deployment_path: str
+    execution_credential_ref: str | None = None
+    command_preview: str
+    redacted_command_preview: str
+
+
+class DeploymentDryRunRead(BaseModel):
+    deployment_id: UUID | None = None
+    operation: str = "deploy"
+    validation: DeploymentComposeValidationRead
+    targets: list[DeploymentDryRunTargetRead] = Field(default_factory=list)
+    env_keys: list[str] = Field(default_factory=list)
+    credential_env_keys: list[str] = Field(default_factory=list)

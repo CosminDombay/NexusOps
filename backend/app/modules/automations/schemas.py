@@ -36,6 +36,7 @@ class AutomationBase(BaseModel):
     raw_command: str | None = Field(default=None, max_length=8000)
     variables_json: dict[str, str] = Field(default_factory=dict)
     credential_refs: dict[str, str] = Field(default_factory=dict)
+    execution_credential_ref: str | None = Field(default=None, max_length=255)
 
     @field_validator("name")
     @classmethod
@@ -92,6 +93,7 @@ class AutomationUpdate(BaseModel):
     raw_command: str | None = Field(default=None, max_length=8000)
     variables_json: dict[str, str] | None = None
     credential_refs: dict[str, str] | None = None
+    execution_credential_ref: str | None = Field(default=None, max_length=255)
 
     @field_validator("name", "cron_expression", "reference_id", "raw_command")
     @classmethod
@@ -123,6 +125,7 @@ class AutomationRead(BaseModel):
     raw_command: str | None = None
     variables_json: dict = Field(default_factory=dict)
     credential_refs: dict = Field(default_factory=dict)
+    execution_credential_ref: str | None = None
     last_run_at: datetime | None = None
     next_run_at: datetime | None = None
     last_status: str | None = None

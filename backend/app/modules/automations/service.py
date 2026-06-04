@@ -94,6 +94,7 @@ class AutomationService:
                 raw_command=payload.raw_command,
                 variables_json=payload.variables_json,
                 credential_refs=payload.credential_refs,
+                execution_credential_ref=payload.execution_credential_ref,
             )
         )
         await self.repository.session.commit()
@@ -205,6 +206,7 @@ class AutomationService:
                 JobActionExecuteRequest(
                     target_server_id=target_server_id,
                     action_id=automation.reference_id or "",
+                    credential_ref=automation.execution_credential_ref,
                 )
             )
             return [job]
@@ -218,6 +220,7 @@ class AutomationService:
                     target_server_id=target_server_id,
                     variables=automation.variables_json,
                     credential_refs=automation.credential_refs,
+                    execution_credential_ref=automation.execution_credential_ref,
                 ),
             )
             return [job]
@@ -231,6 +234,7 @@ class AutomationService:
                     target_server_id=target_server_id,
                     variables=automation.variables_json,
                     credential_refs=automation.credential_refs,
+                    execution_credential_ref=automation.execution_credential_ref,
                 ),
             )
             return result.jobs

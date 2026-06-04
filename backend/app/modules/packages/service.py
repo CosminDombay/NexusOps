@@ -201,6 +201,7 @@ class PackageAutomationService:
                 operation_type=f"package:{definition.id}",
                 command=command,
                 redacted_command=redacted_command,
+                credential_ref=payload.execution_credential_ref,
             )
         )
 
@@ -220,6 +221,7 @@ class PackageAutomationService:
                 operation_type=f"package:{definition.id}",
                 command=command,
                 redacted_command=redacted_command,
+                credential_ref=payload.execution_credential_ref,
             )
         )
 

@@ -29,6 +29,7 @@ class Deployment(Base, UuidPrimaryKeyMixin, TimestampMixin):
     compose_content: Mapped[str] = mapped_column(Text)
     env_content: Mapped[str | None] = mapped_column(Text, nullable=True)
     credential_refs: Mapped[dict[str, str]] = mapped_column(JSON, default=dict, nullable=False)
+    execution_credential_ref: Mapped[str | None] = mapped_column(String(255), nullable=True)
     status: Mapped[DeploymentStatus] = mapped_column(
         Enum(
             DeploymentStatus,

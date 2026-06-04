@@ -15,6 +15,7 @@ export type ExecutionVariable = {
 export type ExecutionVariableValues = {
   variables: Record<string, string>;
   credential_refs: Record<string, string>;
+  execution_credential_ref: string | null;
 };
 
 type ExecutionVariablesModalProps = {
@@ -22,6 +23,7 @@ type ExecutionVariablesModalProps = {
   isLoading?: boolean;
   isOpen: boolean;
   previewItems: string[];
+  showExecutionCredential?: boolean;
   targetLabel: string;
   title: string;
   variables: ExecutionVariable[];
@@ -34,6 +36,7 @@ export function ExecutionVariablesModal({
   isLoading = false,
   isOpen,
   previewItems,
+  showExecutionCredential = false,
   targetLabel,
   title,
   variables,
@@ -42,6 +45,7 @@ export function ExecutionVariablesModal({
 }: ExecutionVariablesModalProps) {
   const [values, setValues] = useState<Record<string, string>>({});
   const [credentialRefs, setCredentialRefs] = useState<Record<string, string>>({});
+  const [executionCredentialRef, setExecutionCredentialRef] = useState('');
   const [error, setError] = useState<string | null>(null);
 
   const normalVariables = useMemo(() => variables.filter((variable) => !variable.sensitive), [variables]);
@@ -62,6 +66,7 @@ export function ExecutionVariablesModal({
         sensitiveVariables.map((variable) => [variable.name, '']),
       ),
     );
+    setExecutionCredentialRef('');
   }, [isOpen, normalVariables, sensitiveVariables]);
 
   if (!isOpen) {
@@ -83,6 +88,7 @@ export function ExecutionVariablesModal({
     await onConfirm({
       variables: Object.fromEntries(Object.entries(values).filter(([, value]) => value.trim() !== '')),
       credential_refs: Object.fromEntries(Object.entries(credentialRefs).filter(([, value]) => value.trim() !== '')),
+      execution_credential_ref: executionCredentialRef || null,
     });
   }
 
@@ -108,6 +114,34 @@ export function ExecutionVariablesModal({
               {previewItems.length ? previewItems.map((item) => <li key={item}>{item}</li>) : <li>No steps selected.</li>}
             </ul>
           </section>
+
+          {showExecutionCredential ? (
+            <section className="mt-5">
+              <label className="block text-sm font-medium text-zinc-700">
+                <span className="inline-flex items-center gap-2">
+                  <KeyRound className="h-4 w-4 text-zinc-500" aria-hidden="true" />
+                  Execution / sudo credential
+                </span>
+                <select
+                  className="mt-1 w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-950"
+                  value={executionCredentialRef}
+                  onChange={(event) => setExecutionCredentialRef(event.target.value)}
+                >
+                  <option value="">Use target saved credential or passwordless access</option>
+                  {credentials
+                    .filter((credential) => credential.credential_type === 'password' || credential.credential_type === 'ssh_password')
+                    .map((credential) => (
+                      <option key={credential.id} value={credential.id}>
+                        {credential.name} ({credential.credential_type.replace('_', ' ')})
+                      </option>
+                    ))}
+                </select>
+                <span className="mt-1 block text-xs font-normal text-zinc-500">
+                  Used by Jobs for commands that need sudo. Runtime variables below are only template inputs.
+                </span>
+              </label>
+            </section>
+          ) : null}
 
           {normalVariables.length || sensitiveVariables.length ? (
             <section className="mt-5 space-y-4">

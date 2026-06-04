@@ -6,6 +6,7 @@ from backend.app.adapters.ssh import SshAdapter, SshExecutionResult
 from backend.app.modules.automations.factory import build_automation_service
 from backend.app.modules.automations.models import AutomationOperationType, AutomationScheduleType, AutomationTargetMode
 from backend.app.modules.automations.schemas import AutomationCreate
+from backend.app.modules.credentials.schemas import ResolvedCredential
 from backend.app.modules.inventory.repository import ServerRepository
 from backend.app.modules.inventory.schemas import ServerCreate
 from backend.app.modules.inventory.service import InventoryService
@@ -15,6 +16,9 @@ from backend.app.modules.workflows.models import WorkflowStatus
 
 
 class FakeSshAdapter(SshAdapter):
+    def __init__(self) -> None:
+        self.calls: list[dict[str, Any]] = []
+
     @property
     def name(self) -> str:
         return "fake-ssh"
@@ -32,6 +36,7 @@ class FakeSshAdapter(SshAdapter):
         passphrase: str | None = None,
         input_data: str | None = None,
     ) -> SshExecutionResult:
+        self.calls.append({"host": host, "command": command, "user": user, "password": password, "input_data": input_data})
         return SshExecutionResult(exit_code=0, stdout=f"ran {command}", stderr="")
 
     async def upload_file(self, host: str, local_path: str, remote_path: str, user: str) -> None:
@@ -52,6 +57,17 @@ def server_payload(**overrides: Any) -> dict[str, Any]:
     return payload
 
 
+class FakeCredentialService:
+    async def resolve_credential(self, credential_id_or_name):
+        return ResolvedCredential(
+            id="22222222-2222-2222-2222-222222222222",
+            name=str(credential_id_or_name),
+            credential_type="ssh_password",
+            username=None,
+            secret="automation-sudo-secret",
+        )
+
+
 @pytest.mark.asyncio
 async def test_automation_run_creates_workflow_and_steps(client) -> None:
     session = next(iter(client.app.dependency_overrides.values()))
@@ -60,10 +76,12 @@ async def test_automation_run_creates_workflow_and_steps(client) -> None:
             ServerCreate(**server_payload())
         )
         service = build_automation_service(db_session)
+        adapter = FakeSshAdapter()
         service.job_service = JobService(
             job_repository=JobRepository(db_session),
             server_repository=ServerRepository(db_session),
-            ssh_adapter=FakeSshAdapter(),
+            ssh_adapter=adapter,
+            credential_service=FakeCredentialService(),
         )
         automation = await service.create_automation(
             AutomationCreate(
@@ -74,6 +92,7 @@ async def test_automation_run_creates_workflow_and_steps(client) -> None:
                 target_server_ids=[server.id],
                 operation_type=AutomationOperationType.ACTION,
                 reference_id="check-uptime",
+                execution_credential_ref="automation-sudo-password",
             )
         )
         workflow = await service.create_run_workflow(automation.id)
@@ -84,3 +103,4 @@ async def test_automation_run_creates_workflow_and_steps(client) -> None:
         assert completed.status == WorkflowStatus.SUCCESS
         assert completed.steps[0].status == "success"
         assert "ran uptime" in completed.steps[0].log_output
+        assert adapter.calls[0]["password"] == "automation-sudo-secret"

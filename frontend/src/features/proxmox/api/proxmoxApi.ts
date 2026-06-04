@@ -32,7 +32,9 @@ export async function syncProxmoxGuests(): Promise<ProxmoxGuestSyncResult> {
   return response.data;
 }
 
-export async function sanitizeDiscoveredProxmoxInventory(): Promise<ProxmoxInventorySanitizeResult> {
-  const response = await apiClient.post<ProxmoxInventorySanitizeResult>('/proxmox/inventory/sanitize-discovered');
+export async function sanitizeDiscoveredProxmoxInventory(dryRun = false): Promise<ProxmoxInventorySanitizeResult> {
+  const response = await apiClient.post<ProxmoxInventorySanitizeResult>('/proxmox/inventory/sanitize-discovered', null, {
+    params: dryRun ? { dry_run: true } : undefined,
+  });
   return response.data;
 }

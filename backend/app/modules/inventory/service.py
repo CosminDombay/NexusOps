@@ -19,7 +19,13 @@ from backend.app.modules.inventory.models import (
 from backend.app.modules.provisioning.models import ProvisioningRequest, VirtualMachine
 from backend.app.modules.workflows.models import WorkflowRun
 from backend.app.modules.inventory.repository import ServerRepository
-from backend.app.modules.inventory.schemas import ProxmoxInventoryImport, ServerCreate, ServerUpdate
+from backend.app.modules.inventory.schemas import (
+    InventoryCredentialReadinessRead,
+    InventoryReadinessSignal,
+    ProxmoxInventoryImport,
+    ServerCreate,
+    ServerUpdate,
+)
 from backend.app.modules.proxmox.schemas import ProxmoxVmRead
 from backend.app.modules.runtime_state.repository import (
     NodeRuntimeSnapshotRepository,
@@ -352,7 +358,91 @@ class InventoryService:
         logger.info("server_marked_unmanaged", server_id=str(server.id), hostname=server.hostname)
         return server
 
-    async def sanitize_proxmox_discovered_guests(self) -> tuple[list[str], list[str]]:
+    async def credential_readiness(self, server_id: UUID) -> InventoryCredentialReadinessRead:
+        server = await self.repository.get_by_id(server_id)
+        if server is None:
+            raise ServerNotFoundError("Server not found")
+
+        signals: list[InventoryReadinessSignal] = []
+        managed_active = server.managed and server.lifecycle_state not in {
+            InventoryLifecycleState.ARCHIVED,
+            InventoryLifecycleState.DECOMMISSIONED,
+            InventoryLifecycleState.DELETED,
+        }
+        signals.append(
+            InventoryReadinessSignal(
+                key="managed_state",
+                label="Managed state",
+                status="ready" if managed_active else "blocked",
+                detail="Host is eligible for Jobs-backed orchestration." if managed_active else "Host is inactive or unmanaged.",
+            )
+        )
+
+        has_credential_ref = server.credential_id is not None
+        has_inline_password = bool(server.ssh_password)
+        has_private_key_path = bool(server.ssh_private_key_path)
+        ssh_configured = bool(
+            server.ip_address
+            and server.ssh_username
+            and (
+                has_credential_ref
+                or has_inline_password
+                or has_private_key_path
+                or server.ssh_auth_method.value == "key"
+            )
+        )
+        signals.append(
+            InventoryReadinessSignal(
+                key="ssh",
+                label="SSH execution",
+                status="ready" if ssh_configured else "blocked",
+                detail="SSH host, user, and authentication metadata are configured." if ssh_configured else "SSH connection metadata is incomplete.",
+            )
+        )
+        signals.append(
+            InventoryReadinessSignal(
+                key="credential_reference",
+                label="Credential reference",
+                status="ready" if has_credential_ref else "warning",
+                detail="Host has a shared credential reference." if has_credential_ref else "Host will rely on inline metadata or explicit execution credentials.",
+            )
+        )
+
+        sudo_ready = has_credential_ref or has_inline_password
+        signals.append(
+            InventoryReadinessSignal(
+                key="sudo",
+                label="Sudo fallback",
+                status="ready" if sudo_ready else "warning",
+                detail="Password-backed credential material can feed non-interactive sudo." if sudo_ready else "Passwordless sudo or a per-run execution credential is required for privileged commands.",
+            )
+        )
+
+        docker_known = "docker" in {capability.lower() for capability in (server.capabilities or [])}
+        docker_ready = docker_known or sudo_ready
+        signals.append(
+            InventoryReadinessSignal(
+                key="docker",
+                label="Docker operations",
+                status="ready" if docker_ready else "warning",
+                detail="Docker capability or sudo fallback is available for discovery/deployments." if docker_ready else "Docker discovery may fail unless the user has Docker group access.",
+            )
+        )
+
+        blockers = [signal for signal in signals if signal.status == "blocked"]
+        warnings = [signal for signal in signals if signal.status == "warning"]
+        overall = "blocked" if blockers else "warning" if warnings else "ready"
+        return InventoryCredentialReadinessRead(
+            server_id=server.id,
+            hostname=server.hostname,
+            ssh_ready=managed_active and ssh_configured,
+            sudo_ready=sudo_ready,
+            docker_ready=docker_ready,
+            overall_status=overall,
+            signals=signals,
+        )
+
+    async def sanitize_proxmox_discovered_guests(self, *, dry_run: bool = False) -> tuple[list[str], list[str]]:
         deleted: list[str] = []
         skipped: list[str] = []
 
@@ -372,15 +462,17 @@ class InventoryService:
                 skipped.append(f"{server.hostname}: not discovery-created")
                 continue
 
-            await self._cleanup_server_references(server.id)
-            await self.repository.delete(server)
+            if not dry_run:
+                await self._cleanup_server_references(server.id)
+                await self.repository.delete(server)
             deleted.append(server.hostname)
 
-        if deleted:
+        if deleted and not dry_run:
             await self.repository.session.commit()
 
         logger.info(
             "proxmox_discovered_inventory_sanitized",
+            dry_run=dry_run,
             deleted_count=len(deleted),
             skipped_count=len(skipped),
         )

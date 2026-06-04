@@ -23,6 +23,7 @@ from backend.app.modules.inventory.schemas import (
     HostNetworkRead,
     HostSystemRead,
     BulkInventoryHealthCheckRequest,
+    InventoryCredentialReadinessRead,
     InventoryHealthCheckResult,
     InventoryHealthSummary,
     ProxmoxInventoryImport,
@@ -109,6 +110,21 @@ async def get_server(
 ) -> ServerRead:
     try:
         return await service.get_server(server_id)
+    except ServerNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+
+@router.get(
+    "/{server_id}/readiness",
+    response_model=InventoryCredentialReadinessRead,
+    dependencies=[Depends(require_operator)],
+)
+async def get_server_readiness(
+    server_id: UUID,
+    service: Annotated[InventoryService, Depends(get_inventory_service)],
+) -> InventoryCredentialReadinessRead:
+    try:
+        return await service.credential_readiness(server_id)
     except ServerNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
 

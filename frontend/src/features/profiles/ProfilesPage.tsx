@@ -302,6 +302,7 @@ export function ProfilesPage() {
             stop_on_failure: true,
             variables: executionVariables.variables,
             credential_refs: executionVariables.credential_refs,
+            execution_credential_ref: executionVariables.execution_credential_ref,
           }),
         );
       } else {
@@ -311,6 +312,7 @@ export function ProfilesPage() {
             stop_on_failure: true,
             variables: executionVariables.variables,
             credential_refs: executionVariables.credential_refs,
+            execution_credential_ref: executionVariables.execution_credential_ref,
           }),
         );
       }
@@ -468,6 +470,7 @@ export function ProfilesPage() {
         targetLabel={`${selectedServerIds.length || 1} host(s) selected`}
         title={selectedProfile ? `Apply ${selectedProfile.name}` : 'Apply profile'}
         variables={selectedProfile?.variables ?? []}
+        showExecutionCredential
         onCancel={() => setIsExecutionModalOpen(false)}
         onConfirm={runProfile}
       />

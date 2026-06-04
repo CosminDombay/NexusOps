@@ -44,6 +44,47 @@ class DeploymentRuntimeState:
         return self.sync_status == "drifted"
 
 
+@dataclass(frozen=True)
+class ComposeValidationResult:
+    valid: bool
+    errors: list[str] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
+    services: list[str] = field(default_factory=list)
+
+
+def validate_compose_content(compose_content: str) -> ComposeValidationResult:
+    errors: list[str] = []
+    warnings: list[str] = []
+    if "\t" in compose_content:
+        errors.append("Compose YAML must use spaces for indentation, not tabs.")
+    if "services:" not in compose_content:
+        errors.append("Compose YAML must define a top-level services section.")
+
+    services = sorted(expected_compose_services(compose_content))
+    if not services:
+        errors.append("Compose YAML must define at least one service under services.")
+
+    seen: set[str] = set()
+    duplicates: set[str] = set()
+    for service in _compose_service_blocks(compose_content):
+        name = service["name"]
+        if name in seen:
+            duplicates.add(name)
+        seen.add(name)
+        body = "\n".join(service["lines"])
+        if not re.search(r"^\s+(image|build):", body, flags=re.MULTILINE):
+            warnings.append(f"Service {name} has no image or build directive.")
+    for duplicate in sorted(duplicates):
+        errors.append(f"Service {duplicate} is defined more than once.")
+
+    return ComposeValidationResult(
+        valid=not errors,
+        errors=errors,
+        warnings=warnings,
+        services=services,
+    )
+
+
 def expected_compose_services(compose_content: str) -> set[str]:
     services: set[str] = set()
     in_services = False
@@ -72,6 +113,42 @@ def expected_compose_services(compose_content: str) -> set[str]:
             if match:
                 services.add(match.group(1))
     return services
+
+
+def _compose_service_blocks(compose_content: str) -> list[dict[str, object]]:
+    blocks: list[dict[str, object]] = []
+    in_services = False
+    services_indent = 0
+    service_indent: int | None = None
+    current: dict[str, object] | None = None
+    for line in compose_content.splitlines():
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        services_match = re.match(r"^(\s*)services:\s*$", line)
+        if services_match:
+            in_services = True
+            services_indent = len(services_match.group(1))
+            service_indent = None
+            continue
+        if not in_services:
+            continue
+        indent = len(line) - len(line.lstrip(" "))
+        if indent <= services_indent:
+            break
+        if line.lstrip().startswith("-"):
+            if current is not None:
+                current["lines"].append(line)
+            continue
+        if service_indent is None:
+            service_indent = indent
+        match = re.match(r"^\s*([A-Za-z0-9_.-]+):\s*$", line)
+        if indent == service_indent and match:
+            current = {"name": match.group(1), "lines": []}
+            blocks.append(current)
+            continue
+        if current is not None:
+            current["lines"].append(line)
+    return blocks
 
 
 class DeploymentRuntimeInspector:

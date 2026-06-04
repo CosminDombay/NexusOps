@@ -113,6 +113,7 @@ class PackageExecuteRequest(BaseModel):
     target_server_id: UUID
     variables: dict[str, str] = Field(default_factory=dict)
     credential_refs: dict[str, str] = Field(default_factory=dict)
+    execution_credential_ref: str | None = Field(default=None, max_length=255)
 
 
 class PackageCloneRequest(BaseModel):
@@ -135,6 +136,7 @@ class PackageBulkApplyRequest(BaseModel):
     target_server_ids: list[UUID] = Field(min_length=1)
     variables: dict[str, str] = Field(default_factory=dict)
     credential_refs: dict[str, str] = Field(default_factory=dict)
+    execution_credential_ref: str | None = Field(default=None, max_length=255)
 
     @field_validator("package_id")
     @classmethod

@@ -3,6 +3,7 @@ from typing import Any
 import pytest
 
 from backend.app.adapters.ssh import SshAdapter, SshExecutionResult
+from backend.app.modules.credentials.schemas import ResolvedCredential
 from backend.app.modules.inventory.repository import ServerRepository
 from backend.app.modules.inventory.schemas import ServerCreate
 from backend.app.modules.inventory.service import InventoryService
@@ -13,9 +14,11 @@ from backend.app.modules.deployments.repository import (
 )
 from backend.app.modules.deployments.schemas import DeploymentCreate
 from backend.app.modules.deployments.service import DockerComposeDeploymentService
+from backend.app.modules.deployments.runtime import validate_compose_content
 from backend.app.modules.jobs.repository import JobRepository
 from backend.app.modules.jobs.service import JobService
 from backend.app.modules.packages.service import PackageAutomationService
+from backend.app.modules.packages.schemas import PackageExecuteRequest
 from backend.app.modules.profiles.schemas import ProfileApplyRequest
 from backend.app.modules.profiles.schemas import InfrastructureProfileCreate
 from backend.app.modules.profiles.repository import InfrastructureProfileRepository
@@ -47,7 +50,7 @@ class FakeSshAdapter(SshAdapter):
         passphrase: str | None = None,
         input_data: str | None = None,
     ) -> SshExecutionResult:
-        self.calls.append({"host": host, "command": command, "user": user})
+        self.calls.append({"host": host, "command": command, "user": user, "password": password, "input_data": input_data})
         if "docker inspect" in command:
             return SshExecutionResult(
                 exit_code=0,
@@ -58,6 +61,17 @@ class FakeSshAdapter(SshAdapter):
 
     async def upload_file(self, host: str, local_path: str, remote_path: str, user: str) -> None:
         raise NotImplementedError
+
+
+class FakeCredentialService:
+    async def resolve_credential(self, credential_id_or_name):
+        return ResolvedCredential(
+            id="11111111-1111-1111-1111-111111111111",
+            name=str(credential_id_or_name),
+            credential_type="ssh_password",
+            username=None,
+            secret="deploy-sudo-secret",
+        )
 
 
 def server_payload(**overrides):
@@ -74,12 +88,59 @@ def server_payload(**overrides):
     return payload
 
 
+def test_compose_validation_reports_invalid_compose() -> None:
+    result = validate_compose_content("version: '3'\n")
+
+    assert result.valid is False
+    assert "Compose YAML must define a top-level services section." in result.errors
+
+
+def test_compose_validation_warns_for_service_without_image_or_build() -> None:
+    result = validate_compose_content("services:\n  web:\n    ports:\n      - '8080:80'\n")
+
+    assert result.valid is True
+    assert result.services == ["web"]
+    assert result.warnings == ["Service web has no image or build directive."]
+
+
 @pytest.mark.asyncio
 async def test_package_service_lists_definitions() -> None:
     packages = await PackageAutomationService().list_definitions()
 
     assert any(package.id == "docker-engine" for package in packages)
     assert any(package.id == "fail2ban" for package in packages)
+
+
+@pytest.mark.asyncio
+async def test_package_service_uses_execution_credential_for_sudo_jobs(client) -> None:
+    session = next(iter(client.app.dependency_overrides.values()))
+    async for db_session in session():
+        server = await InventoryService(ServerRepository(db_session)).create_server(
+            ServerCreate(**server_payload(hostname="package-sudo-01", ip_address="10.2.0.16"))
+        )
+        adapter = FakeSshAdapter()
+        server_repository = ServerRepository(db_session)
+        service = PackageAutomationService(
+            job_service=JobService(
+                job_repository=JobRepository(db_session),
+                server_repository=server_repository,
+                ssh_adapter=adapter,
+                credential_service=FakeCredentialService(),
+            ),
+            credential_service=FakeCredentialService(),
+        )
+
+        await service.execute_definition(
+            "docker-engine",
+            PackageExecuteRequest(
+                target_server_id=server.id,
+                execution_credential_ref="package-sudo-password",
+            ),
+        )
+
+        assert adapter.calls[0]["password"] == "deploy-sudo-secret"
+        assert adapter.calls[0]["input_data"] == "deploy-sudo-secret\n"
+        assert "NEXUSOPS_ASKPASS=$(mktemp)" in adapter.calls[0]["command"]
 
 
 @pytest.mark.asyncio
@@ -279,6 +340,9 @@ async def test_deployment_service_updates_record_and_marks_draft(client) -> None
         server = await InventoryService(ServerRepository(db_session)).create_server(
             ServerCreate(**server_payload(hostname="update-deploy-01", ip_address="10.2.0.13"))
         )
+        next_server = await InventoryService(ServerRepository(db_session)).create_server(
+            ServerCreate(**server_payload(hostname="update-deploy-02", ip_address="10.2.0.14"))
+        )
         adapter = FakeSshAdapter()
         server_repository = ServerRepository(db_session)
         service = DockerComposeDeploymentService(
@@ -306,18 +370,99 @@ async def test_deployment_service_updates_record_and_marks_draft(client) -> None
             deployment.id,
             DeploymentCreate(
                 name="updated-deployment",
-                target_server_id=server.id,
+                target_server_id=next_server.id,
                 compose_content="services:\n  web:\n    image: caddy:alpine\n",
                 env_content="APP_ENV=lab",
                 remote_path="/home/ubuntu/nexusops/deployments",
+                execution_credential_ref="deploy-sudo-password",
             ),
         )
 
         assert updated.name == "updated-deployment"
         assert updated.status == "draft"
+        assert updated.target_server_id == next_server.id
+        assert updated.target_server_ids == [next_server.id]
         assert "image: caddy:alpine" in updated.compose_content
         assert updated.env_content == "APP_ENV=lab"
+        assert updated.execution_credential_ref == "deploy-sudo-password"
         assert updated.remote_path == "/home/ubuntu/nexusops/deployments"
+
+
+@pytest.mark.asyncio
+async def test_deployment_service_uses_execution_credential_for_docker_jobs(client) -> None:
+    session = next(iter(client.app.dependency_overrides.values()))
+    async for db_session in session():
+        server = await InventoryService(ServerRepository(db_session)).create_server(
+            ServerCreate(**server_payload(hostname="deploy-sudo-01", ip_address="10.2.0.15"))
+        )
+        adapter = FakeSshAdapter()
+        server_repository = ServerRepository(db_session)
+        service = DockerComposeDeploymentService(
+            repository=DeploymentRepository(db_session),
+            target_repository=DeploymentTargetRepository(db_session),
+            revision_repository=DeploymentRevisionRepository(db_session),
+            server_repository=server_repository,
+            job_service=JobService(
+                job_repository=JobRepository(db_session),
+                server_repository=server_repository,
+                ssh_adapter=adapter,
+                credential_service=FakeCredentialService(),
+            ),
+        )
+        deployment = await service.create_deployment(
+            DeploymentCreate(
+                name="sudo-deployment",
+                target_server_id=server.id,
+                compose_content="services:\n  web:\n    image: nginx:alpine\n",
+                execution_credential_ref="deploy-sudo-password",
+            )
+        )
+
+        await service.deploy(deployment.id)
+
+        assert adapter.calls[0]["password"] == "deploy-sudo-secret"
+        assert adapter.calls[0]["input_data"] == "deploy-sudo-secret\n"
+        assert "NEXUSOPS_ASKPASS=$(mktemp)" in adapter.calls[0]["command"]
+        assert "sudo docker \"$@\"" in adapter.calls[0]["command"]
+
+
+@pytest.mark.asyncio
+async def test_deployment_dry_run_returns_validation_and_redacted_commands(client) -> None:
+    session = next(iter(client.app.dependency_overrides.values()))
+    async for db_session in session():
+        server = await InventoryService(ServerRepository(db_session)).create_server(
+            ServerCreate(**server_payload(hostname="deploy-preview-01", ip_address="10.2.0.17"))
+        )
+        adapter = FakeSshAdapter()
+        server_repository = ServerRepository(db_session)
+        service = DockerComposeDeploymentService(
+            repository=DeploymentRepository(db_session),
+            target_repository=DeploymentTargetRepository(db_session),
+            revision_repository=DeploymentRevisionRepository(db_session),
+            server_repository=server_repository,
+            job_service=JobService(
+                job_repository=JobRepository(db_session),
+                server_repository=server_repository,
+                ssh_adapter=adapter,
+            ),
+        )
+        deployment = await service.create_deployment(
+            DeploymentCreate(
+                name="preview-deployment",
+                target_server_id=server.id,
+                compose_content="services:\n  web:\n    image: nginx:alpine\n",
+                env_content="APP_ENV=lab",
+            )
+        )
+
+        preview = await service.dry_run(deployment.id)
+
+        assert preview.validation.valid is True
+        assert preview.validation.services == ["web"]
+        assert preview.env_keys == ["APP_ENV"]
+        assert preview.targets[0].hostname == "deploy-preview-01"
+        assert "docker-compose.yaml" in preview.targets[0].redacted_command_preview
+        assert "up -d" in preview.targets[0].redacted_command_preview
 
 
 @pytest.mark.asyncio

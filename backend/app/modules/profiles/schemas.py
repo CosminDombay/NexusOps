@@ -154,6 +154,7 @@ class ProfileApplyRequest(BaseModel):
     stop_on_failure: bool = True
     variables: dict[str, str] = Field(default_factory=dict)
     credential_refs: dict[str, str] = Field(default_factory=dict)
+    execution_credential_ref: str | None = Field(default=None, max_length=255)
 
 
 class ProfileCloneRequest(BaseModel):
@@ -177,6 +178,7 @@ class ProfileBulkApplyRequest(BaseModel):
     stop_on_failure: bool = True
     variables: dict[str, str] = Field(default_factory=dict)
     credential_refs: dict[str, str] = Field(default_factory=dict)
+    execution_credential_ref: str | None = Field(default=None, max_length=255)
 
     @field_validator("profile_id")
     @classmethod

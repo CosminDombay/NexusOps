@@ -33,14 +33,16 @@ import type { Job } from '../jobs/types/job';
 import {
   createDeployment,
   deleteDeployment,
+  dryRunDeployment,
   getDeploymentLogs,
   getDeploymentStatus,
   listDeployments,
   refreshDeploymentRuntime,
   runDeploymentOperation,
   updateDeployment,
+  validateDeploymentPayload,
 } from './api/deploymentsApi';
-import type { CreateDeploymentPayload, Deployment, DeploymentStatus } from './types/deployment';
+import type { CreateDeploymentPayload, Deployment, DeploymentDryRun, DeploymentStatus } from './types/deployment';
 
 const defaultCompose = `services:
   web:
@@ -78,11 +80,13 @@ export function DeploymentsPage() {
   const [composeContent, setComposeContent] = useState(defaultCompose);
   const [envContent, setEnvContent] = useState('');
   const [remotePath, setRemotePath] = useState(defaultRemotePath);
+  const [executionCredentialId, setExecutionCredentialId] = useState('');
   const [credentialRefs, setCredentialRefs] = useState<
     Array<{ key: string; credentialId: string }>
   >([]);
   const [logs, setLogs] = useState('');
   const [inspectOutput, setInspectOutput] = useState('');
+  const [dryRunPreview, setDryRunPreview] = useState<DeploymentDryRun | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isWorking, setIsWorking] = useState(false);
@@ -140,6 +144,7 @@ export function DeploymentsPage() {
       compose_content: composeContent,
       env_content: envContent || null,
       remote_path: remotePath.trim(),
+      execution_credential_ref: executionCredentialId || null,
       credential_refs: Object.fromEntries(
         credentialRefs
           .filter((item) => item.key.trim() && item.credentialId)
@@ -154,7 +159,9 @@ export function DeploymentsPage() {
     setComposeContent(defaultCompose);
     setEnvContent('');
     setRemotePath(defaultRemotePath);
+    setExecutionCredentialId('');
     setCredentialRefs([]);
+    setDryRunPreview(null);
     targetSelector.setMode('single');
     targetSelector.setSelectedId(targetServerId);
     targetSelector.setSelectedIds([]);
@@ -172,6 +179,7 @@ export function DeploymentsPage() {
     setComposeContent(deployment.compose_content);
     setEnvContent(deployment.env_content ?? '');
     setRemotePath(deployment.remote_path ?? defaultRemotePath);
+    setExecutionCredentialId(deployment.execution_credential_ref ?? '');
     setCredentialRefs(
       Object.entries(deployment.credential_refs ?? {}).map(([key, credentialId]) => ({
         key,
@@ -184,6 +192,7 @@ export function DeploymentsPage() {
     setTargetServerId(deployment.target_server_id ?? '');
     setDrawerMode('edit');
     setError(null);
+    setDryRunPreview(null);
   }
 
   async function handleSave() {
@@ -205,6 +214,7 @@ export function DeploymentsPage() {
           current.map((item) => (item.id === deployment.id ? deployment : item)),
         );
         setSelectedDeploymentId(deployment.id);
+        await refreshDeploymentList();
       } else {
         const deployment = await createDeployment(payload);
         setDeployments((current) => [deployment, ...current]);
@@ -212,6 +222,26 @@ export function DeploymentsPage() {
       }
       setDrawerMode(null);
       resetForm();
+    } catch (caughtError) {
+      setError(getApiErrorMessage(caughtError));
+    } finally {
+      setIsWorking(false);
+    }
+  }
+
+  async function previewCurrentDeployment() {
+    const targets = selectedTargetIds({
+      ...targetSelector.selection,
+      selectedId: targetSelector.selection.selectedId || targetServerId,
+    });
+    if (!name.trim() || targets.length === 0 || !composeContent.trim() || !remotePath.trim()) {
+      setError('Deployment name, target, compose YAML, and remote path are required.');
+      return;
+    }
+    setIsWorking(true);
+    setError(null);
+    try {
+      setDryRunPreview(await validateDeploymentPayload(deploymentPayload(targets)));
     } catch (caughtError) {
       setError(getApiErrorMessage(caughtError));
     } finally {
@@ -229,6 +259,20 @@ export function DeploymentsPage() {
         current.map((item) => (item.id === result.deployment.id ? result.deployment : item)),
       );
       setLogs(formatJobsOutput(result.jobs.length ? result.jobs : result.job ? [result.job] : []));
+    } catch (caughtError) {
+      setError(getApiErrorMessage(caughtError));
+    } finally {
+      setIsWorking(false);
+    }
+  }
+
+  async function previewSavedDeployment(deployment: Deployment) {
+    setSelectedDeploymentId(deployment.id);
+    setIsWorking(true);
+    setError(null);
+    try {
+      const preview = await dryRunDeployment(deployment.id);
+      setInspectOutput(formatDryRunPreview(preview));
     } catch (caughtError) {
       setError(getApiErrorMessage(caughtError));
     } finally {
@@ -392,6 +436,7 @@ export function DeploymentsPage() {
             onInspect={inspect}
             onRefreshRuntime={refreshRuntime}
             onLogs={loadLogs}
+            onPreview={previewSavedDeployment}
             onEdit={openEditDrawer}
             onDelete={handleDeleteDeployment}
           />
@@ -426,14 +471,18 @@ export function DeploymentsPage() {
           composeContent={composeContent}
           envContent={envContent}
           remotePath={remotePath}
+          executionCredentialId={executionCredentialId}
           credentialRefs={credentialRefs}
+          dryRunPreview={dryRunPreview}
           isWorking={isWorking}
           onNameChange={setName}
           onComposeChange={setComposeContent}
           onEnvChange={setEnvContent}
           onRemotePathChange={setRemotePath}
+          onExecutionCredentialChange={setExecutionCredentialId}
           onCredentialRefsChange={setCredentialRefs}
           onTargetServerIdChange={setTargetServerId}
+          onPreview={() => void previewCurrentDeployment()}
           onClose={() => {
             setDrawerMode(null);
             resetForm();
@@ -454,6 +503,7 @@ function DeploymentCard({
   onInspect,
   onRefreshRuntime,
   onLogs,
+  onPreview,
   onEdit,
   onDelete,
 }: {
@@ -465,6 +515,7 @@ function DeploymentCard({
   onInspect: (deployment: Deployment) => Promise<void>;
   onRefreshRuntime: (deployment: Deployment) => Promise<void>;
   onLogs: (deployment: Deployment) => Promise<void>;
+  onPreview: (deployment: Deployment) => Promise<void>;
   onEdit: (deployment: Deployment) => void;
   onDelete: (deployment: Deployment) => Promise<void>;
 }) {
@@ -505,6 +556,8 @@ function DeploymentCard({
           <Info label="Health" value={deployment.health_state} />
           <Info label="Sync" value={deployment.sync_status} />
           <Info label="Uptime" value={formatDuration(deployment.uptime_seconds)} />
+          <Info label="Runtime age" value={deployment.runtime_stale ? 'stale' : formatDuration(deployment.runtime_age_seconds)} />
+          <Info label="Failure reason" value={deployment.runtime_failure_reason ?? 'none'} />
         </div>
         <DeploymentTargets deployment={deployment} />
         <DeploymentExecutionSummary deployment={deployment} />
@@ -515,6 +568,9 @@ function DeploymentCard({
               icon={KeyRound}
               label={`${Object.keys(deployment.credential_refs).length} secret refs`}
             />
+          ) : null}
+          {deployment.execution_credential_ref ? (
+            <Chip icon={KeyRound} label="execution credential" />
           ) : null}
           {deployment.remote_path ? (
             <Chip icon={Activity} label={deploymentPathPreview(deployment)} />
@@ -565,6 +621,12 @@ function DeploymentCard({
           onClick={() => void onLogs(deployment)}
         />
         <ActionButton
+          icon={FileText}
+          label="Preview"
+          disabled={isWorking}
+          onClick={() => void onPreview(deployment)}
+        />
+        <ActionButton
           icon={Pencil}
           label="Edit"
           disabled={isWorking}
@@ -602,6 +664,9 @@ function DeploymentTargets({ deployment }: { deployment: Deployment }) {
             sync_status: deployment.sync_status,
             runtime_checked_at: deployment.runtime_checked_at,
             runtime_error: deployment.runtime_error,
+            runtime_stale: deployment.runtime_stale,
+            runtime_age_seconds: deployment.runtime_age_seconds,
+            runtime_failure_reason: deployment.runtime_failure_reason,
             containers: [],
             missing_services: [],
             last_job_id: null,
@@ -639,6 +704,7 @@ function DeploymentTargets({ deployment }: { deployment: Deployment }) {
           <div className="basis-full text-xs text-zinc-500">
             runtime {formatLabel(target.runtime_state)} - health {formatLabel(target.health_state)} - sync {formatLabel(target.sync_status)}
             {target.runtime_checked_at ? ` - checked ${new Date(target.runtime_checked_at).toLocaleString()}` : ''}
+            {target.runtime_stale ? ' - stale' : ''}
           </div>
           {target.containers.length ? (
             <div className="basis-full space-y-1">
@@ -658,6 +724,9 @@ function DeploymentTargets({ deployment }: { deployment: Deployment }) {
           ) : null}
           {target.runtime_error ? (
             <p className="basis-full text-xs text-rose-700">{target.runtime_error}</p>
+          ) : null}
+          {target.runtime_failure_reason && target.runtime_failure_reason !== target.runtime_error ? (
+            <p className="basis-full text-xs text-amber-700">{target.runtime_failure_reason}</p>
           ) : null}
           {target.last_execution?.error_message ? (
             <p className="basis-full text-xs text-rose-700">{target.last_execution.error_message}</p>
@@ -717,14 +786,18 @@ function DeploymentDrawer({
   composeContent,
   envContent,
   remotePath,
+  executionCredentialId,
   credentialRefs,
+  dryRunPreview,
   isWorking,
   onNameChange,
   onComposeChange,
   onEnvChange,
   onRemotePathChange,
+  onExecutionCredentialChange,
   onCredentialRefsChange,
   onTargetServerIdChange,
+  onPreview,
   onClose,
   onSave,
 }: {
@@ -736,17 +809,22 @@ function DeploymentDrawer({
   composeContent: string;
   envContent: string;
   remotePath: string;
+  executionCredentialId: string;
   credentialRefs: Array<{ key: string; credentialId: string }>;
+  dryRunPreview: DeploymentDryRun | null;
   isWorking: boolean;
   onNameChange: (value: string) => void;
   onComposeChange: (value: string) => void;
   onEnvChange: (value: string) => void;
   onRemotePathChange: (value: string) => void;
+  onExecutionCredentialChange: (value: string) => void;
   onCredentialRefsChange: (value: Array<{ key: string; credentialId: string }>) => void;
   onTargetServerIdChange: (value: string) => void;
+  onPreview: () => void;
   onClose: () => void;
   onSave: () => void;
 }) {
+  const executionCredentials = credentials.filter((credential) => credential.credential_type === 'password' || credential.credential_type === 'ssh_password');
   return (
     <div className="fixed inset-0 z-40 overflow-hidden bg-zinc-950/40 p-3 sm:p-5">
       <aside className="mx-auto flex h-full w-[min(100%,56rem)] max-w-[calc(100vw-1.5rem)] flex-col overflow-hidden rounded-md bg-white shadow-xl sm:max-w-[calc(100vw-2.5rem)]">
@@ -811,6 +889,27 @@ function DeploymentDrawer({
               onChange={(event) => onRemotePathChange(event.target.value)}
             />
           </label>
+          <section className="rounded-md border border-zinc-200 bg-zinc-50 p-4">
+            <label className="block">
+              <span className="text-sm font-medium text-zinc-950">Execution / sudo credential</span>
+              <select
+                className="mt-2 h-10 w-full rounded-md border border-zinc-300 bg-white px-3 text-sm text-zinc-950"
+                value={executionCredentialId}
+                onChange={(event) => onExecutionCredentialChange(event.target.value)}
+              >
+                <option value="">Use target saved credential or passwordless access</option>
+                {executionCredentials.map((credential) => (
+                  <option key={credential.id} value={credential.id}>
+                    {credential.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <p className="mt-2 text-sm text-zinc-500">
+              Used by deployment Jobs for Docker commands and sudo fallback. This is separate from
+              credential-backed environment variables.
+            </p>
+          </section>
           <label className="block">
             <span className="text-sm font-medium text-zinc-950">Environment file</span>
             <textarea
@@ -891,6 +990,23 @@ function DeploymentDrawer({
               </p>
             )}
           </section>
+          <section className="rounded-md border border-zinc-200 bg-white p-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h3 className="text-sm font-semibold text-zinc-950">Deployment preview</h3>
+                <p className="mt-1 text-sm text-zinc-500">Validate Compose and inspect redacted runtime commands before saving.</p>
+              </div>
+              <button
+                className="inline-flex h-10 items-center rounded-md border border-zinc-300 px-4 text-sm font-semibold text-zinc-700 hover:bg-zinc-50 disabled:bg-zinc-100"
+                disabled={isWorking}
+                type="button"
+                onClick={onPreview}
+              >
+                Preview
+              </button>
+            </div>
+            {dryRunPreview ? <DryRunPreviewPanel preview={dryRunPreview} /> : null}
+          </section>
           <div className="flex justify-end gap-2 border-t border-zinc-200 pt-4">
             <button
               className="inline-flex h-10 items-center rounded-md border border-zinc-300 px-4 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
@@ -919,6 +1035,52 @@ function Metric({ label, value }: { label: string; value: number }) {
     <div>
       <p className="text-xs font-semibold uppercase text-zinc-500">{label}</p>
       <p className="mt-1 text-xl font-semibold text-zinc-950">{value}</p>
+    </div>
+  );
+}
+
+function DryRunPreviewPanel({ preview }: { preview: DeploymentDryRun }) {
+  return (
+    <div className="mt-4 space-y-3">
+      <div className="flex flex-wrap gap-2">
+        <span className={`rounded-full px-2 py-1 text-xs font-semibold ${preview.validation.valid ? 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200' : 'bg-rose-50 text-rose-700 ring-1 ring-rose-200'}`}>
+          {preview.validation.valid ? 'valid compose' : 'invalid compose'}
+        </span>
+        {preview.validation.services.map((service) => (
+          <span key={service} className="rounded-full bg-zinc-100 px-2 py-1 text-xs font-semibold text-zinc-700">
+            {service}
+          </span>
+        ))}
+      </div>
+      {[...preview.validation.errors, ...preview.validation.warnings].length ? (
+        <div className="space-y-1 text-sm">
+          {preview.validation.errors.map((item) => (
+            <p key={item} className="text-rose-700">{item}</p>
+          ))}
+          {preview.validation.warnings.map((item) => (
+            <p key={item} className="text-amber-700">{item}</p>
+          ))}
+        </div>
+      ) : null}
+      <div className="grid gap-2 sm:grid-cols-3">
+        <Info label="Env keys" value={preview.env_keys.length ? preview.env_keys.join(', ') : 'none'} />
+        <Info label="Secret refs" value={preview.credential_env_keys.length ? preview.credential_env_keys.join(', ') : 'none'} />
+        <Info label="Targets" value={String(preview.targets.length)} />
+      </div>
+      {preview.targets.map((target) => (
+        <div key={target.server_id} className="rounded-md border border-zinc-200 bg-zinc-50 p-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-sm font-semibold text-zinc-950">{target.hostname ?? target.server_id}</p>
+            <span className="rounded-full bg-white px-2 py-1 text-xs font-semibold text-zinc-700 ring-1 ring-zinc-200">
+              {target.execution_credential_ref ? 'execution credential' : 'target/passwordless'}
+            </span>
+          </div>
+          <p className="mt-1 break-all font-mono text-xs text-zinc-500">{target.deployment_path}</p>
+          <pre className="mt-3 max-h-52 overflow-auto rounded-md bg-zinc-950 p-3 text-xs leading-5 text-zinc-100">
+            {target.redacted_command_preview}
+          </pre>
+        </div>
+      ))}
     </div>
   );
 }
@@ -1031,6 +1193,27 @@ function formatJobsOutput(jobs: Job[]): string {
     .join('\n\n');
 }
 
+function formatDryRunPreview(preview: DeploymentDryRun): string {
+  return [
+    `operation: ${preview.operation}`,
+    `compose: ${preview.validation.valid ? 'valid' : 'invalid'}`,
+    `services: ${preview.validation.services.join(', ') || 'none'}`,
+    preview.validation.errors.length ? `errors: ${preview.validation.errors.join('; ')}` : '',
+    preview.validation.warnings.length ? `warnings: ${preview.validation.warnings.join('; ')}` : '',
+    `env keys: ${preview.env_keys.join(', ') || 'none'}`,
+    `credential env keys: ${preview.credential_env_keys.join(', ') || 'none'}`,
+    ...preview.targets.map((target) =>
+      [
+        '',
+        `===== ${target.hostname ?? target.server_id} =====`,
+        `path: ${target.deployment_path}`,
+        `execution credential: ${target.execution_credential_ref ? 'configured' : 'target/passwordless fallback'}`,
+        target.redacted_command_preview,
+      ].join('\n'),
+    ),
+  ].filter(Boolean).join('\n');
+}
+
 function selectedDeploymentSummary(deployment: Deployment | null): string {
   if (!deployment) return 'Select a deployment to inspect runtime state.';
   const execution = deployment.latest_execution;
@@ -1046,6 +1229,9 @@ function selectedDeploymentSummary(deployment: Deployment | null): string {
     `health: ${deployment.health_state}`,
     `sync: ${deployment.sync_status}`,
     `runtime checked: ${deployment.runtime_checked_at ? new Date(deployment.runtime_checked_at).toLocaleString() : 'not checked'}`,
+    `runtime age: ${formatDuration(deployment.runtime_age_seconds)}`,
+    `runtime stale: ${deployment.runtime_stale ? 'yes' : 'no'}`,
+    deployment.runtime_failure_reason ? `failure reason: ${deployment.runtime_failure_reason}` : '',
     deployment.runtime_error ? `runtime error: ${deployment.runtime_error}` : '',
     `remote path: ${deployment.remote_path ?? 'none'}`,
   ].filter(Boolean).join('\n');

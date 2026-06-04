@@ -119,11 +119,7 @@ export function InfrastructurePage() {
                 <button
                   className="inline-flex items-center gap-2 rounded-md border border-amber-300 bg-white px-3 py-2 text-sm font-semibold text-amber-700 transition hover:bg-amber-50"
                   type="button"
-                  onClick={() => {
-                    if (window.confirm('Remove stale unmanaged Proxmox guest discovery records? Managed inventory hosts and hypervisors will be kept.')) {
-                      void sanitizeDiscoveredInventory();
-                    }
-                  }}
+                  onClick={() => void sanitizeDiscoveredInventory()}
                 >
                   <Trash2 className="h-4 w-4" aria-hidden="true" />
                   Sanitize stale guests

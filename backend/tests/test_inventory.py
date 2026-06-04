@@ -614,3 +614,60 @@ def test_proxmox_sanitize_removes_only_discovered_unmanaged_guests(client) -> No
     assert result["deleted"] == ["stale-guest"]
     assert client.get(f"/api/v1/servers/{stale_id}").status_code == 404
     assert client.get(f"/api/v1/servers/{managed_id}").status_code == 200
+
+
+def test_proxmox_sanitize_dry_run_keeps_records(client) -> None:
+    stale_response = client.post(
+        "/api/v1/servers",
+        json=server_payload(
+            hostname="dry-run-stale-guest",
+            ip_address="10.0.0.33",
+            vmid="212",
+            external_id="212",
+            node_type="vm",
+            managed=False,
+            management_state="unmanaged",
+            lifecycle_state="unmanaged",
+            sync_status="unmanaged",
+            sync_state="unmanaged",
+            tags=["source:proxmox", "qemu", "discovered"],
+            provider="proxmox",
+            provider_type="qemu",
+            sync_metadata={"last_sync_reason": "guest_sync"},
+        ),
+    )
+    assert stale_response.status_code == 201
+    stale_id = stale_response.json()["id"]
+
+    sanitize_response = client.post("/api/v1/proxmox/inventory/sanitize-discovered?dry_run=true")
+
+    assert sanitize_response.status_code == 200
+    result = sanitize_response.json()
+    assert result["dry_run"] is True
+    assert result["deleted_count"] == 1
+    assert result["deleted"] == ["dry-run-stale-guest"]
+    assert client.get(f"/api/v1/servers/{stale_id}").status_code == 200
+
+
+def test_server_credential_readiness_reports_sudo_and_docker_signals(client) -> None:
+    response = client.post(
+        "/api/v1/servers",
+        json=server_payload(
+            hostname="readiness-host",
+            ip_address="10.0.0.34",
+            ssh_auth_method="password",
+            ssh_password="secret",
+            capabilities=["docker"],
+        ),
+    )
+    assert response.status_code == 201
+    server_id = response.json()["id"]
+
+    readiness_response = client.get(f"/api/v1/servers/{server_id}/readiness")
+
+    assert readiness_response.status_code == 200
+    readiness = readiness_response.json()
+    assert readiness["ssh_ready"] is True
+    assert readiness["sudo_ready"] is True
+    assert readiness["docker_ready"] is True
+    assert {signal["key"] for signal in readiness["signals"]} >= {"ssh", "sudo", "docker"}

@@ -23,7 +23,10 @@ from backend.app.modules.deployments.repository import (
 )
 from backend.app.modules.deployments.schemas import (
     DeploymentContainerRead,
+    DeploymentComposeValidationRead,
     DeploymentCreate,
+    DeploymentDryRunRead,
+    DeploymentDryRunTargetRead,
     DeploymentLogsRead,
     DeploymentExecutionRead,
     DeploymentOperationRead,
@@ -36,9 +39,11 @@ from backend.app.modules.deployments.schemas import (
     DeploymentUpdate,
 )
 from backend.app.modules.deployments.runtime import (
+    ComposeValidationResult,
     DeploymentRuntimeInspector,
     DeploymentRuntimeState,
     expected_compose_services,
+    validate_compose_content,
 )
 from backend.app.modules.credentials.service import CredentialService
 from backend.app.modules.inventory.models import InventoryLifecycleState
@@ -59,6 +64,7 @@ from backend.app.modules.orchestration.utils import (
 )
 
 logger = structlog.get_logger(__name__)
+RUNTIME_STALE_AFTER_SECONDS = 120
 
 
 class DeploymentNotFoundError(Exception):
@@ -184,6 +190,7 @@ class DeploymentRuntimeReconciler:
                     target_server_id=target.server_id,
                     operation_type=f"deployment:{deployment.id}:runtime-refresh",
                     command=command,
+                    credential_ref=deployment.execution_credential_ref,
                 )
             )
             if job.exit_code != 0:
@@ -251,6 +258,7 @@ class DockerComposeDeploymentService:
         return [await self._to_read(deployment) for deployment in deployments]
 
     async def create_deployment(self, payload: DeploymentCreate) -> DeploymentRead:
+        self._validate_compose_or_raise(payload.compose_content)
         target_ids = payload.target_server_ids or ([payload.target_server_id] if payload.target_server_id else [])
         if not target_ids:
             raise DeploymentValidationError("Select at least one deployment target")
@@ -262,6 +270,7 @@ class DockerComposeDeploymentService:
                 compose_content=payload.compose_content,
                 env_content=payload.env_content,
                 credential_refs=payload.credential_refs,
+                execution_credential_ref=payload.execution_credential_ref,
                 status=DeploymentStatus.DRAFT,
             )
         )
@@ -293,6 +302,7 @@ class DockerComposeDeploymentService:
         deployment = await self.repository.get_by_id(deployment_id)
         if deployment is None:
             raise DeploymentNotFoundError("Deployment not found")
+        self._validate_compose_or_raise(payload.compose_content)
 
         target_ids = payload.target_server_ids or ([payload.target_server_id] if payload.target_server_id else [])
         if not target_ids:
@@ -304,6 +314,7 @@ class DockerComposeDeploymentService:
         deployment.compose_content = payload.compose_content
         deployment.env_content = payload.env_content
         deployment.credential_refs = payload.credential_refs
+        deployment.execution_credential_ref = payload.execution_credential_ref
         deployment.status = DeploymentStatus.DRAFT
         await self.target_repository.delete_for_deployment(deployment.id)
         for server in servers:
@@ -322,6 +333,10 @@ class DockerComposeDeploymentService:
 
     async def deploy(self, deployment_id: UUID) -> DeploymentOperationRead:
         return await self._run_operation(deployment_id, "deploy")
+
+    async def dry_run(self, deployment_id: UUID, operation: str = "deploy") -> DeploymentDryRunRead:
+        deployment, targets = await self._deployment_and_targets(deployment_id)
+        return await self._dry_run_for(deployment, targets, operation)
 
     async def deploy_for_target(self, deployment_id: UUID, target_server_id: UUID) -> DeploymentOperationRead:
         deployment, targets = await self._deployment_and_targets(deployment_id)
@@ -350,6 +365,7 @@ class DockerComposeDeploymentService:
                         target_server_id=target.server_id,
                         operation_type=f"deployment:{deployment.id}:status",
                         command=command,
+                        credential_ref=deployment.execution_credential_ref,
                     )
                 )
             )
@@ -366,6 +382,36 @@ class DockerComposeDeploymentService:
         runtime_states = await self.runtime_reconciler.reconcile(deployment, targets)
         return await self._to_read(deployment, runtime_states=runtime_states)
 
+    async def validate_payload(self, payload: DeploymentCreate, operation: str = "deploy") -> DeploymentDryRunRead:
+        target_ids = payload.target_server_ids or ([payload.target_server_id] if payload.target_server_id else [])
+        servers = [await self._managed_server(target_id) for target_id in target_ids]
+        validation = validate_compose_content(payload.compose_content)
+        targets = []
+        synthetic_deployment = Deployment(
+            name=payload.name,
+            description=payload.description,
+            compose_content=payload.compose_content,
+            env_content=payload.env_content,
+            credential_refs=payload.credential_refs,
+            execution_credential_ref=payload.execution_credential_ref,
+            status=DeploymentStatus.DRAFT,
+        )
+        for server in servers:
+            synthetic_target = DeploymentTarget(
+                deployment_id=UUID(int=0),
+                server_id=server.id,
+                remote_path=payload.remote_path,
+                status=DeploymentStatus.DRAFT,
+            )
+            targets.append(await self._dry_run_target(synthetic_deployment, synthetic_target, server, operation))
+        return DeploymentDryRunRead(
+            operation=operation,
+            validation=self._compose_validation_to_read(validation),
+            targets=targets,
+            env_keys=self._env_keys(payload.env_content),
+            credential_env_keys=sorted(payload.credential_refs),
+        )
+
     async def logs(self, deployment_id: UUID) -> DeploymentLogsRead:
         deployment, targets = await self._deployment_and_targets(deployment_id)
         jobs = []
@@ -377,6 +423,7 @@ class DockerComposeDeploymentService:
                     target_server_id=target.server_id,
                     operation_type=f"deployment:{deployment.id}:logs",
                     command=command,
+                    credential_ref=deployment.execution_credential_ref,
                 )
             )
             jobs.append(job)
@@ -401,6 +448,8 @@ class DockerComposeDeploymentService:
             operation,
             target_server_ids=target_server_ids,
         )
+        if operation in {"deploy", "redeploy"}:
+            self._validate_compose_or_raise(deployment.compose_content)
 
         jobs: list[JobRead] = []
         revisions: list[DeploymentRevision] = []
@@ -501,6 +550,7 @@ class DockerComposeDeploymentService:
                     operation_type=f"deployment:{deployment.id}:{operation}",
                     command=command,
                     redacted_command=redacted_command,
+                    credential_ref=deployment.execution_credential_ref,
                 )
             )
             next_status = (
@@ -615,6 +665,8 @@ class DockerComposeDeploymentService:
             [target.runtime_checked_at for target in target_reads if target.runtime_checked_at],
             default=None,
         )
+        runtime_age_seconds = self._age_seconds(runtime_checked_at)
+        runtime_failure_reason = self._deployment_failure_reason(target_reads)
         return DeploymentRead(
             id=deployment.id,
             name=deployment.name,
@@ -622,6 +674,7 @@ class DockerComposeDeploymentService:
             compose_content=deployment.compose_content,
             env_content=deployment.env_content,
             credential_refs=deployment.credential_refs,
+            execution_credential_ref=deployment.execution_credential_ref,
             status=deployment.status,
             execution_status=executions[0].status if executions else None,
             target_server_id=first_target.server_id if first_target else None,
@@ -639,6 +692,9 @@ class DockerComposeDeploymentService:
             sync_status=sync_status,
             runtime_checked_at=runtime_checked_at,
             runtime_error="; ".join(target.runtime_error for target in target_reads if target.runtime_error) or None,
+            runtime_stale=self._is_runtime_stale(runtime_checked_at),
+            runtime_age_seconds=runtime_age_seconds,
+            runtime_failure_reason=runtime_failure_reason,
             created_at=deployment.created_at,
             updated_at=deployment.updated_at,
         )
@@ -652,6 +708,23 @@ class DockerComposeDeploymentService:
         server = await self.server_repository.get_by_id(target.server_id)
         executions = await self.target_execution_repository.list_for_deployment(target.deployment_id)
         last_execution = next((item for item in executions if item.target_id == target.id), None)
+        checked_at = runtime_state.inspected_at if runtime_state else target.runtime_checked_at
+        containers = [
+            DeploymentContainerRead(
+                service=container.service,
+                name=container.name,
+                state=container.state,
+                health=container.health,
+                uptime_seconds=container.uptime_seconds,
+                restart_count=container.restart_count,
+            )
+            for container in (runtime_state.containers if runtime_state else [])
+        ] if runtime_state else [
+            DeploymentContainerRead.model_validate(container)
+            for container in (target.runtime_containers or [])
+        ]
+        missing_services = runtime_state.missing_services if runtime_state else list(target.missing_services or [])
+        runtime_error = runtime_state.error if runtime_state else target.runtime_error
         return DeploymentTargetRead.model_validate(target).model_copy(
             update={
                 "hostname": server.hostname if server else None,
@@ -663,23 +736,18 @@ class DockerComposeDeploymentService:
                 "runtime_state": runtime_state.runtime_state if runtime_state else target.runtime_state,
                 "health_state": runtime_state.health_state if runtime_state else target.health_state,
                 "sync_status": runtime_state.sync_status if runtime_state else target.sync_status,
-                "runtime_checked_at": runtime_state.inspected_at if runtime_state else target.runtime_checked_at,
-                "runtime_error": runtime_state.error if runtime_state else target.runtime_error,
-                "containers": [
-                    DeploymentContainerRead(
-                        service=container.service,
-                        name=container.name,
-                        state=container.state,
-                        health=container.health,
-                        uptime_seconds=container.uptime_seconds,
-                        restart_count=container.restart_count,
-                    )
-                    for container in (runtime_state.containers if runtime_state else [])
-                ] if runtime_state else [
-                    DeploymentContainerRead.model_validate(container)
-                    for container in (target.runtime_containers or [])
-                ],
-                "missing_services": runtime_state.missing_services if runtime_state else list(target.missing_services or []),
+                "runtime_checked_at": checked_at,
+                "runtime_error": runtime_error,
+                "runtime_stale": self._is_runtime_stale(checked_at),
+                "runtime_age_seconds": self._age_seconds(checked_at),
+                "runtime_failure_reason": self._target_failure_reason(
+                    target,
+                    containers=containers,
+                    missing_services=missing_services,
+                    runtime_error=runtime_error,
+                ),
+                "containers": containers,
+                "missing_services": missing_services,
             }
         )
 
@@ -789,6 +857,72 @@ class DockerComposeDeploymentService:
             "\n".join([*prefix, compose, env, *actions]),
             "\n".join([*prefix, compose, redacted_env, *actions]),
         )
+
+    async def _dry_run_for(
+        self,
+        deployment: Deployment,
+        targets: list[DeploymentTarget],
+        operation: str,
+    ) -> DeploymentDryRunRead:
+        validation = validate_compose_content(deployment.compose_content)
+        dry_run_targets = []
+        for target in targets:
+            server = await self.server_repository.get_by_id(target.server_id)
+            dry_run_targets.append(await self._dry_run_target(deployment, target, server, operation))
+        return DeploymentDryRunRead(
+            deployment_id=deployment.id,
+            operation=operation,
+            validation=self._compose_validation_to_read(validation),
+            targets=dry_run_targets,
+            env_keys=self._env_keys(deployment.env_content),
+            credential_env_keys=sorted(deployment.credential_refs or {}),
+        )
+
+    async def _dry_run_target(
+        self,
+        deployment: Deployment,
+        target: DeploymentTarget,
+        server,
+        operation: str,
+    ) -> DeploymentDryRunTargetRead:
+        command, redacted_command = await self._operation_commands(deployment, target, operation)
+        deployment_path = self._deployment_path(target, deployment)
+        return DeploymentDryRunTargetRead(
+            server_id=target.server_id,
+            hostname=server.hostname if server else None,
+            remote_path=target.remote_path,
+            deployment_path=deployment_path,
+            execution_credential_ref=deployment.execution_credential_ref,
+            command_preview=self.secret_sanitizer.redact_text(command) or "",
+            redacted_command_preview=redacted_command,
+        )
+
+    @staticmethod
+    def _validate_compose_or_raise(compose_content: str) -> None:
+        validation = validate_compose_content(compose_content)
+        if validation.errors:
+            raise DeploymentValidationError("; ".join(validation.errors))
+
+    @staticmethod
+    def _compose_validation_to_read(validation: ComposeValidationResult) -> DeploymentComposeValidationRead:
+        return DeploymentComposeValidationRead(
+            valid=validation.valid,
+            errors=validation.errors,
+            warnings=validation.warnings,
+            services=validation.services,
+        )
+
+    @staticmethod
+    def _env_keys(env_content: str | None) -> list[str]:
+        keys: list[str] = []
+        for line in (env_content or "").splitlines():
+            clean = line.strip()
+            if not clean or clean.startswith("#") or "=" not in clean:
+                continue
+            key = clean.split("=", 1)[0].strip()
+            if key and key not in keys:
+                keys.append(key)
+        return keys
 
     async def _env_contents(self, deployment: Deployment) -> tuple[str, str]:
         lines = [deployment.env_content or ""]
@@ -908,6 +1042,51 @@ class DockerComposeDeploymentService:
         if updated_at.tzinfo is None:
             updated_at = updated_at.replace(tzinfo=UTC)
         return max(0, int((datetime.now(UTC) - updated_at).total_seconds()))
+
+    @staticmethod
+    def _age_seconds(value: datetime | None) -> int | None:
+        if value is None:
+            return None
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=UTC)
+        return max(0, int((datetime.now(UTC) - value).total_seconds()))
+
+    @classmethod
+    def _is_runtime_stale(cls, value: datetime | None) -> bool:
+        age = cls._age_seconds(value)
+        return age is None or age > RUNTIME_STALE_AFTER_SECONDS
+
+    @staticmethod
+    def _target_failure_reason(
+        target: DeploymentTarget,
+        *,
+        containers: list[DeploymentContainerRead],
+        missing_services: list[str],
+        runtime_error: str | None,
+    ) -> str | None:
+        if runtime_error:
+            return runtime_error
+        if missing_services:
+            return "Missing services: " + ", ".join(missing_services)
+        unhealthy = [container.service for container in containers if container.health == "unhealthy"]
+        if unhealthy:
+            return "Unhealthy services: " + ", ".join(unhealthy)
+        stopped = [container.service for container in containers if container.state not in {"running"}]
+        if target.status in {DeploymentStatus.RUNNING, DeploymentStatus.SUCCESS} and stopped:
+            return "Stopped services: " + ", ".join(stopped)
+        if target.status == DeploymentStatus.FAILED:
+            return "Last deployment execution failed"
+        return None
+
+    @staticmethod
+    def _deployment_failure_reason(targets: list[DeploymentTargetRead]) -> str | None:
+        reasons = [target.runtime_failure_reason for target in targets if target.runtime_failure_reason]
+        if reasons:
+            return "; ".join(dict.fromkeys(reasons))
+        stale = [target.hostname or str(target.server_id) for target in targets if target.runtime_stale]
+        if stale:
+            return "Runtime check stale on " + ", ".join(stale)
+        return None
 
     @staticmethod
     def _health_state(status: DeploymentStatus) -> str:

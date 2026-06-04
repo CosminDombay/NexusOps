@@ -6,6 +6,8 @@ import { ContextDrawer } from '../../../components/ContextDrawer';
 import { PageHeader } from '../../../components/layout/PageHeader';
 import { PageActionButton, RuntimeBadge, OperationalToolbar } from '../../../components/operations/OperationalComponents';
 import { getApiErrorMessage } from '../../../lib/api/client';
+import { listCredentials } from '../../credentials/api/credentialsApi';
+import type { Credential } from '../../credentials/types/credential';
 import { listServers } from '../../inventory/api/serversApi';
 import { TargetSelector } from '../../inventory/components/TargetSelector';
 import { useTargetSelection } from '../../inventory/hooks/useTargetSelection';
@@ -35,6 +37,7 @@ type FormState = {
   target_server_ids: string[];
   operation_type: 'action' | 'profile' | 'package';
   reference_id: string;
+  execution_credential_ref: string;
 };
 
 const initialForm: FormState = {
@@ -45,6 +48,7 @@ const initialForm: FormState = {
   target_server_ids: [],
   operation_type: 'action',
   reference_id: 'check-uptime',
+  execution_credential_ref: '',
 };
 
 export function AutomationsPage() {
@@ -53,6 +57,7 @@ export function AutomationsPage() {
   const [actions, setActions] = useState<OperationalAction[]>([]);
   const [profiles, setProfiles] = useState<InfrastructureProfile[]>([]);
   const [packages, setPackages] = useState<PackageDefinition[]>([]);
+  const [credentials, setCredentials] = useState<Credential[]>([]);
   const [form, setForm] = useState<FormState>(initialForm);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -74,19 +79,21 @@ export function AutomationsPage() {
     setIsLoading(true);
     setError(null);
     try {
-      const [nextAutomations, nextServers, nextActions, nextProfiles, nextPackages] =
+      const [nextAutomations, nextServers, nextActions, nextProfiles, nextPackages, nextCredentials] =
         await Promise.all([
           listAutomations(),
           listServers(),
           listOperationalActions(),
           listProfiles(),
           listPackageDefinitions(),
+          listCredentials(),
         ]);
       setAutomations(nextAutomations);
       setServers(nextServers);
       setActions(nextActions);
       setProfiles(nextProfiles);
       setPackages(nextPackages);
+      setCredentials(nextCredentials);
       setForm((current) => ({
         ...current,
         target_server_ids: current.target_server_ids.length
@@ -147,6 +154,7 @@ export function AutomationsPage() {
           ? automation.operation_type
           : 'action',
       reference_id: automation.reference_id ?? '',
+      execution_credential_ref: automation.execution_credential_ref ?? '',
     });
     targetSelector.setMode(automation.target_server_ids.length > 1 ? 'bulk' : 'single');
     targetSelector.setSelectedId(automation.target_server_ids[0] ?? '');
@@ -162,6 +170,7 @@ export function AutomationsPage() {
       ...initialForm,
       target_server_ids: servers[0] ? [servers[0].id] : [],
       reference_id: actions[0]?.id ?? '',
+      execution_credential_ref: '',
     });
     targetSelector.setMode('bulk');
     targetSelector.setSelectedId(servers[0]?.id ?? '');
@@ -314,6 +323,23 @@ export function AutomationsPage() {
               ))}
             </select>
           </label>
+          <label className="text-sm font-medium text-zinc-700">
+            Execution / sudo credential
+            <select
+              className="mt-1 h-10 w-full rounded-md border border-zinc-300 px-3 text-sm"
+              value={form.execution_credential_ref}
+              onChange={(event) => setForm({ ...form, execution_credential_ref: event.target.value })}
+            >
+              <option value="">Use target saved credential or passwordless access</option>
+              {credentials
+                .filter((credential) => credential.credential_type === 'password' || credential.credential_type === 'ssh_password')
+                .map((credential) => (
+                  <option key={credential.id} value={credential.id}>
+                    {credential.name} ({credential.credential_type.replace('_', ' ')})
+                  </option>
+                ))}
+            </select>
+          </label>
           <div className="lg:col-span-3">
             <TargetSelector
               servers={servers}
@@ -365,6 +391,11 @@ export function AutomationsPage() {
                         <span className="rounded-full bg-zinc-100 px-2 py-1 text-xs font-semibold text-zinc-700">
                           {automation.enabled ? 'enabled' : 'disabled'}
                         </span>
+                        {automation.execution_credential_ref ? (
+                          <span className="rounded-full bg-sky-50 px-2 py-1 text-xs font-semibold text-sky-700 ring-1 ring-inset ring-sky-200">
+                            execution credential
+                          </span>
+                        ) : null}
                       </div>
                       <p className="mt-1 text-sm text-zinc-500">
                         {automation.schedule_type === 'interval'
@@ -586,5 +617,6 @@ function toPayload(form: FormState): AutomationPayload | null {
     reference_id: form.reference_id,
     variables_json: {},
     credential_refs: {},
+    execution_credential_ref: form.execution_credential_ref || null,
   };
 }

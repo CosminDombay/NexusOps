@@ -19,6 +19,7 @@ from backend.app.modules.deployments.repository import (
 )
 from backend.app.modules.deployments.schemas import (
     DeploymentCreate,
+    DeploymentDryRunRead,
     DeploymentLogsRead,
     DeploymentOperationRead,
     DeploymentRead,
@@ -83,12 +84,30 @@ async def create_deployment(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
 
 
+@router.post("/validate", response_model=DeploymentDryRunRead)
+async def validate_deployment_payload(
+    payload: DeploymentCreate,
+    service: Annotated[DockerComposeDeploymentService, Depends(get_deployment_service)],
+    operation: str = "deploy",
+) -> DeploymentDryRunRead:
+    return await _run(lambda: service.validate_payload(payload, operation))
+
+
 @router.post("/{deployment_id}/deploy", response_model=DeploymentOperationRead)
 async def deploy(
     deployment_id: UUID,
     service: Annotated[DockerComposeDeploymentService, Depends(get_deployment_service)],
 ) -> DeploymentOperationRead:
     return await _run(lambda: service.deploy(deployment_id))
+
+
+@router.get("/{deployment_id}/dry-run", response_model=DeploymentDryRunRead)
+async def dry_run(
+    deployment_id: UUID,
+    service: Annotated[DockerComposeDeploymentService, Depends(get_deployment_service)],
+    operation: str = "deploy",
+) -> DeploymentDryRunRead:
+    return await _run(lambda: service.dry_run(deployment_id, operation))
 
 
 @router.delete("/{deployment_id}", status_code=status.HTTP_204_NO_CONTENT)

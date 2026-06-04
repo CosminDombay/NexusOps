@@ -4,6 +4,7 @@ import type {
   HostDocker,
   HostNetwork,
   HostSystem,
+  InventoryCredentialReadiness,
   ImportProxmoxVmPayload,
   InventoryHealthCheckResult,
   InventoryHealthSummary,
@@ -95,6 +96,11 @@ export async function checkServersHealthBulk(serverIds?: string[]): Promise<Inve
 
 export async function getHealthSummary(): Promise<InventoryHealthSummary> {
   const response = await apiClient.get<InventoryHealthSummary>('/servers/health-summary');
+  return response.data;
+}
+
+export async function getServerReadiness(serverId: string): Promise<InventoryCredentialReadiness> {
+  const response = await apiClient.get<InventoryCredentialReadiness>(`/servers/${serverId}/readiness`);
   return response.data;
 }
 

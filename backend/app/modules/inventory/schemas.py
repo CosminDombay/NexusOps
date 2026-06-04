@@ -230,6 +230,23 @@ class ServerRead(ServerBase):
     model_config = ConfigDict(from_attributes=True)
 
 
+class InventoryReadinessSignal(BaseModel):
+    key: str
+    label: str
+    status: str
+    detail: str
+
+
+class InventoryCredentialReadinessRead(BaseModel):
+    server_id: UUID
+    hostname: str
+    ssh_ready: bool
+    sudo_ready: bool
+    docker_ready: bool
+    overall_status: str
+    signals: list[InventoryReadinessSignal] = Field(default_factory=list)
+
+
 class InventoryHealthCheckResult(BaseModel):
     server_id: UUID
     hostname: str

@@ -353,17 +353,20 @@ async def sanitize_discovered_proxmox_inventory(
     request: Request,
     session: Annotated[AsyncSession, Depends(get_db_session)],
     current_user: Annotated[User, Depends(require_operator)],
+    dry_run: bool = False,
 ) -> ProxmoxInventorySanitizeRead:
-    deleted, skipped = await InventoryService(ServerRepository(session)).sanitize_proxmox_discovered_guests()
-    await audit_service_from_session(session).record(
-        event_type="inventory.proxmox_sanitized",
-        actor=current_user,
-        target_type="inventory",
-        result="success",
-        source_ip=source_ip_from_request(request),
-        metadata={"deleted_count": len(deleted), "skipped_count": len(skipped), "deleted": deleted},
-    )
+    deleted, skipped = await InventoryService(ServerRepository(session)).sanitize_proxmox_discovered_guests(dry_run=dry_run)
+    if not dry_run:
+        await audit_service_from_session(session).record(
+            event_type="inventory.proxmox_sanitized",
+            actor=current_user,
+            target_type="inventory",
+            result="success",
+            source_ip=source_ip_from_request(request),
+            metadata={"deleted_count": len(deleted), "skipped_count": len(skipped), "deleted": deleted},
+        )
     return ProxmoxInventorySanitizeRead(
+        dry_run=dry_run,
         deleted_count=len(deleted),
         skipped_count=len(skipped),
         deleted=deleted,

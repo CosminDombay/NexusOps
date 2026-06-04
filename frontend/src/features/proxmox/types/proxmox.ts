@@ -98,6 +98,7 @@ export type ProxmoxGuestSyncResult = {
 };
 
 export type ProxmoxInventorySanitizeResult = {
+  dry_run: boolean;
   deleted_count: number;
   skipped_count: number;
   deleted: string[];

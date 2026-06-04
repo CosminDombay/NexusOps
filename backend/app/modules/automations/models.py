@@ -63,6 +63,7 @@ class Automation(Base, UuidPrimaryKeyMixin, TimestampMixin):
     raw_command: Mapped[str | None] = mapped_column(Text, nullable=True)
     variables_json: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
     credential_refs: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+    execution_credential_ref: Mapped[str | None] = mapped_column(String(255), nullable=True)
     last_run_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     next_run_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_status: Mapped[str | None] = mapped_column(String(50), nullable=True)

@@ -287,6 +287,7 @@ class ProfileService:
                         stop_on_failure=payload.stop_on_failure,
                         variables=payload.variables,
                         credential_refs=payload.credential_refs,
+                        execution_credential_ref=payload.execution_credential_ref,
                     ),
                 )
                 results.append(
@@ -337,7 +338,7 @@ class ProfileService:
             )
             return deployment_result.jobs or ([deployment_result.job] if deployment_result.job else [])
 
-        credential_ref = getattr(step, "credential_ref", None)
+        credential_ref = getattr(step, "credential_ref", None) or payload.execution_credential_ref
         command, redacted_command = await self._resolve_step_commands(
             step.kind,
             step.reference_id,

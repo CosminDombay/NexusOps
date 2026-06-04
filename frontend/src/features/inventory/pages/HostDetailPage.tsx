@@ -28,9 +28,10 @@ import {
   getServer,
   getServerDocker,
   getServerNetwork,
+  getServerReadiness,
   getServerSystem,
 } from '../api/serversApi';
-import type { HostDocker, HostNetwork, HostSystem, Server } from '../types/server';
+import type { HostDocker, HostNetwork, HostSystem, InventoryCredentialReadiness, Server } from '../types/server';
 import { EnvironmentBadge, HealthBadge, LifecycleBadge, SyncBadge } from '../components/ServerBadges';
 
 type LoadState = {
@@ -38,6 +39,7 @@ type LoadState = {
   system: HostSystem | null;
   network: HostNetwork | null;
   docker: HostDocker | null;
+  readiness: InventoryCredentialReadiness | null;
   metrics: ServerMetrics | null;
   deployments: Deployment[];
   jobs: Job[];
@@ -55,6 +57,7 @@ const initialState: LoadState = {
   system: null,
   network: null,
   docker: null,
+  readiness: null,
   metrics: null,
   deployments: [],
   jobs: [],
@@ -90,11 +93,12 @@ export function HostDetailPage() {
       return;
     }
 
-    const [system, network, docker, metrics, deployments, jobs, workflows, automations, users, groups, sshKeys] =
+    const [system, network, docker, readiness, metrics, deployments, jobs, workflows, automations, users, groups, sshKeys] =
       await Promise.all([
         settle(() => getServerSystem(id)),
         settle(() => getServerNetwork(id)),
         settle(() => getServerDocker(id)),
+        settle(() => getServerReadiness(id)),
         settle(() => getServerMetrics(id)),
         settle(() => listDeployments({ serverId: id })),
         settle(() => listJobs({ targetServerId: id })),
@@ -110,6 +114,7 @@ export function HostDetailPage() {
       system: system.ok ? system.value : null,
       network: network.ok ? network.value : null,
       docker: docker.ok ? docker.value : null,
+      readiness: readiness.ok ? readiness.value : null,
       metrics: metrics.ok ? metrics.value : null,
       deployments: deployments.ok ? deployments.value : [],
       jobs: jobs.ok ? jobs.value.slice(0, 8) : [],
@@ -265,6 +270,8 @@ export function HostDetailPage() {
               <Info label="Provider state" value={server.runtime_state?.provider_state ?? 'unknown'} />
             </dl>
           </Panel>
+
+          <CredentialReadinessPanel readiness={state.readiness} />
 
           <ReconciliationPanel server={server} />
 
@@ -570,6 +577,38 @@ function ReconciliationPanel({ server }: { server: Server }) {
         emptyText="No reconciliation drift detected."
         items={[...(reconciliation?.drift_indicators ?? []), ...(reconciliation?.mismatch_explanations ?? [])]}
       />
+    </Panel>
+  );
+}
+
+function CredentialReadinessPanel({ readiness }: { readiness: InventoryCredentialReadiness | null }) {
+  return (
+    <Panel title="Credential Readiness">
+      {!readiness ? (
+        <EmptyText text="Credential readiness has not been loaded." />
+      ) : (
+        <div className="space-y-3">
+          <div className="flex flex-wrap gap-2">
+            <Badge tone={readiness.overall_status === 'ready' ? 'success' : readiness.overall_status === 'blocked' ? 'warning' : 'muted'}>
+              {formatReadiness(readiness.overall_status)}
+            </Badge>
+            <Badge tone={readiness.ssh_ready ? 'success' : 'warning'}>SSH {readiness.ssh_ready ? 'ready' : 'blocked'}</Badge>
+            <Badge tone={readiness.sudo_ready ? 'success' : 'warning'}>sudo {readiness.sudo_ready ? 'ready' : 'needs credential'}</Badge>
+            <Badge tone={readiness.docker_ready ? 'success' : 'warning'}>Docker {readiness.docker_ready ? 'ready' : 'needs check'}</Badge>
+          </div>
+          <div className="grid gap-2 md:grid-cols-2">
+            {readiness.signals.map((signal) => (
+              <div key={signal.key} className="rounded-md border border-zinc-200 p-3">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-sm font-semibold text-zinc-950">{signal.label}</span>
+                  <Badge tone={signal.status === 'ready' ? 'success' : signal.status === 'blocked' ? 'warning' : 'muted'}>{formatReadiness(signal.status)}</Badge>
+                </div>
+                <p className="mt-2 text-sm text-zinc-500">{signal.detail}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </Panel>
   );
 }

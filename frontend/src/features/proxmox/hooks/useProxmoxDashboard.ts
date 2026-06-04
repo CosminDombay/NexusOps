@@ -146,7 +146,21 @@ export function useProxmoxDashboard(): UseProxmoxDashboardResult {
     setNotification(null);
 
     try {
-      const result = await sanitizeDiscoveredProxmoxInventory();
+      const preview = await sanitizeDiscoveredProxmoxInventory(true);
+      const previewMessage = [
+        `${preview.deleted_count} stale discovered Proxmox guest record(s) would be removed.`,
+        preview.deleted.length ? `Candidates: ${preview.deleted.join(', ')}` : '',
+        preview.skipped.length ? `Skipped: ${preview.skipped.slice(0, 5).join('; ')}${preview.skipped.length > 5 ? '...' : ''}` : '',
+      ].filter(Boolean).join('\n');
+      const confirmed = window.confirm(`${previewMessage}\n\nApply cleanup now?`);
+      if (!confirmed) {
+        setNotification({
+          tone: 'success',
+          message: `Sanitize preview complete: ${preview.deleted_count} candidate(s), ${preview.skipped_count} skipped.`,
+        });
+        return;
+      }
+      const result = await sanitizeDiscoveredProxmoxInventory(false);
       setNotification({
         tone: 'success',
         message: `${result.deleted_count} stale discovered Proxmox guest record(s) removed.`,

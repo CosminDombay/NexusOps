@@ -4,6 +4,8 @@ import { ContextDrawer } from '../../components/ContextDrawer';
 import { PageHeader } from '../../components/layout/PageHeader';
 import { CollapsibleSection, PageActionButton } from '../../components/operations/OperationalComponents';
 import { getApiErrorMessage } from '../../lib/api/client';
+import { listCredentials } from '../credentials/api/credentialsApi';
+import type { Credential } from '../credentials/types/credential';
 import { listServers } from '../inventory/api/serversApi';
 import type { Server } from '../inventory/types/server';
 import {
@@ -37,9 +39,11 @@ export function JobsPage() {
   const [servers, setServers] = useState<Server[]>([]);
   const [jobs, setJobs] = useState<Job[]>([]);
   const [actions, setActions] = useState<OperationalAction[]>([]);
+  const [credentials, setCredentials] = useState<Credential[]>([]);
   const [selectedServerId, setSelectedServerId] = useState('');
   const [selectedServerIds, setSelectedServerIds] = useState<string[]>([]);
   const [selectedActionId, setSelectedActionId] = useState('');
+  const [executionCredentialRef, setExecutionCredentialRef] = useState('');
   const [operationType, setOperationType] = useState('command');
   const [command, setCommand] = useState('uptime');
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
@@ -65,14 +69,16 @@ export function JobsPage() {
     setLoadError(null);
 
     try {
-      const [nextServers, nextJobs, nextActions] = await Promise.all([
+      const [nextServers, nextJobs, nextActions, nextCredentials] = await Promise.all([
         listServers(),
         listJobs(),
         listOperationalActions(),
+        listCredentials(),
       ]);
       setServers(nextServers);
       setJobs(nextJobs);
       setActions(nextActions);
+      setCredentials(nextCredentials);
       setSelectedServerId((current) => current || nextServers[0]?.id || '');
       setSelectedActionId((current) => current || nextActions[0]?.id || '');
     } catch (error) {
@@ -96,6 +102,7 @@ export function JobsPage() {
           target_server_ids: selectedServerIds,
           operation_type: operationType,
           command,
+          credential_ref: executionCredentialRef || null,
         });
         const resultJobs = result.results.flatMap((item) => (item.job ? [item.job] : []));
         setJobs((currentJobs) => [...resultJobs, ...currentJobs]);
@@ -106,6 +113,7 @@ export function JobsPage() {
           target_server_id: selectedServerId,
           operation_type: operationType,
           command,
+          credential_ref: executionCredentialRef || null,
         });
         setJobs((currentJobs) => [job, ...currentJobs]);
         setSelectedJobId(job.id);
@@ -138,6 +146,7 @@ export function JobsPage() {
       const job = await executeOperationalAction({
         target_server_id: selectedServerId,
         action_id: selectedActionId,
+        credential_ref: executionCredentialRef || null,
       });
       setJobs((currentJobs) => [job, ...currentJobs]);
       setSelectedJobId(job.id);
@@ -256,12 +265,15 @@ export function JobsPage() {
       >
         <OperationalActionsPanel
           actions={actions}
+          credentials={credentials}
           error={actionError}
+          executionCredentialRef={executionCredentialRef}
           isExecuting={isExecutingAction}
           selectedActionId={selectedActionId}
           selectedServerId={selectedServerId}
           servers={servers}
           onExecute={handleExecuteAction}
+          onExecutionCredentialChange={setExecutionCredentialRef}
           onDeleteAction={removeAction}
           onEditAction={startEditAction}
           onSelectedActionChange={setSelectedActionId}
@@ -292,13 +304,16 @@ export function JobsPage() {
       >
         <RunCommandPanel
           command={command}
+          credentials={credentials}
           error={executeError}
+          executionCredentialRef={executionCredentialRef}
           isExecuting={isExecuting}
           operationType={operationType}
           selectedServerId={selectedServerId}
           selectedServerIds={selectedServerIds}
           servers={servers}
           onCommandChange={setCommand}
+          onExecutionCredentialChange={setExecutionCredentialRef}
           onOperationTypeChange={setOperationType}
           onSelectedServerChange={setSelectedServerId}
           onSelectedServersChange={setSelectedServerIds}
