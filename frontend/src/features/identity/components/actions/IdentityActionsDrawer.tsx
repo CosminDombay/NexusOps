@@ -10,6 +10,7 @@ export type IdentityActionForm = {
   username: string;
   shell: string;
   passwordCredentialId: string;
+  executionCredentialId: string;
   sudoMode: string;
   groups: string;
   groupName: string;

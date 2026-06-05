@@ -51,6 +51,7 @@ import {
   listPermissionTemplates,
   listSSHKeys,
   lockLinuxUser,
+  removeGroupMembers,
   replicateLinuxGroup,
   replicateLinuxUser,
   revokeSSHKey,
@@ -82,6 +83,7 @@ const initialForm: IdentityActionForm = {
   username: 'deploy',
   shell: '/bin/bash',
   passwordCredentialId: '',
+  executionCredentialId: '',
   sudoMode: 'password',
   groups: 'docker,www-data',
   groupName: 'deploy',
@@ -115,6 +117,7 @@ export function IdentityPage() {
   const [form, setForm] = useState<IdentityActionForm>(initialForm);
   const [modalMode, setModalMode] = useState<ModalMode>(null);
   const [modalIntent, setModalIntent] = useState<'create' | 'edit'>('edit');
+  const [groupMemberOperation, setGroupMemberOperation] = useState<'add' | 'remove'>('add');
   const [result, setResult] = useState<BulkExecutionResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -198,6 +201,7 @@ export function IdentityPage() {
         sudoMode: entity.user.sudo_enabled ? (entity.user.sudo_nopasswd ? 'nopasswd' : 'password') : 'none',
         groups: current.groups,
         passwordCredentialId: '',
+        executionCredentialId: current.executionCredentialId,
       }));
       setUserMembership(null);
     }
@@ -288,10 +292,10 @@ export function IdentityPage() {
           onReplicate={() => setModalMode('replication')}
           onInspectUserGroups={() => void inspectUserGroups()}
           onInspectGroupMembers={() => void inspectGroupMembers()}
-          onLockUser={() => void work(async () => selectedUser ? lockLinuxUser(selectedUser.id, selectedTargetIds, form.passwordCredentialId || null) : null)}
-          onUnlockUser={() => void work(async () => selectedUser ? unlockLinuxUser(selectedUser.id, selectedTargetIds, form.passwordCredentialId || null) : null)}
-          onDisableShell={() => void work(async () => selectedUser ? disableLinuxUserShell(selectedUser.id, selectedTargetIds, form.passwordCredentialId || null) : null)}
-          onExpirePassword={() => void work(async () => selectedUser ? expireLinuxUserPassword(selectedUser.id, selectedTargetIds, form.passwordCredentialId || null) : null)}
+          onLockUser={() => void work(async () => selectedUser ? lockLinuxUser(selectedUser.id, selectedTargetIds, executionCredentialRef()) : null)}
+          onUnlockUser={() => void work(async () => selectedUser ? unlockLinuxUser(selectedUser.id, selectedTargetIds, executionCredentialRef()) : null)}
+          onDisableShell={() => void work(async () => selectedUser ? disableLinuxUserShell(selectedUser.id, selectedTargetIds, executionCredentialRef()) : null)}
+          onExpirePassword={() => void work(async () => selectedUser ? expireLinuxUserPassword(selectedUser.id, selectedTargetIds, executionCredentialRef()) : null)}
           onDelete={() => void deleteSelectedObject()}
         />
       </div>
@@ -305,10 +309,12 @@ export function IdentityPage() {
           selectedEntity={modalIntent === 'edit' ? selectedEntity : null}
           permissionPresets={permissionPresets}
           passwordCredentials={passwordCredentials}
+          groupMemberOperation={groupMemberOperation}
           isWorking={isWorking}
           targetsReady={targetsReady}
           onClose={() => setModalMode(null)}
           onFormChange={(patch) => setForm((current) => ({ ...current, ...patch }))}
+          onGroupMemberOperationChange={setGroupMemberOperation}
           onPresetSelect={applyPermissionPreset}
           onSubmit={() => void submitActionModal(modalMode)}
         />
@@ -332,10 +338,10 @@ export function IdentityPage() {
           entity={selectedEntity}
           servers={servers}
           targetSelector={targetSelector}
-          credentialId={form.passwordCredentialId}
+          credentialId={form.executionCredentialId}
           passwordCredentials={passwordCredentials}
           isWorking={isWorking}
-          onCredentialChange={(passwordCredentialId) => setForm((current) => ({ ...current, passwordCredentialId }))}
+          onCredentialChange={(executionCredentialId) => setForm((current) => ({ ...current, executionCredentialId }))}
           onClose={() => setModalMode(null)}
           onExecute={() => void replicateSelectedObject()}
         />
@@ -344,8 +350,13 @@ export function IdentityPage() {
   );
 
   function openCreate(mode: IdentityActionMode) {
-    setForm((current) => ({ ...initialForm, passwordCredentialId: current.passwordCredentialId }));
+    setForm((current) => ({
+      ...initialForm,
+      passwordCredentialId: current.passwordCredentialId,
+      executionCredentialId: current.executionCredentialId,
+    }));
     setModalIntent('create');
+    setGroupMemberOperation('add');
     setModalMode(mode);
   }
 
@@ -380,6 +391,7 @@ export function IdentityPage() {
       username: form.username,
       shell: form.shell,
       password_credential_ref: form.passwordCredentialId || null,
+      execution_credential_ref: executionCredentialRef(),
       sudo_enabled: form.sudoMode !== 'none',
       sudo_nopasswd: form.sudoMode === 'nopasswd',
       locked: selectedUser?.locked ?? false,
@@ -392,6 +404,7 @@ export function IdentityPage() {
         shell: form.shell,
         home_directory: selectedUser.home_directory || `/home/${form.username}`,
         password_credential_ref: form.passwordCredentialId || null,
+        execution_credential_ref: executionCredentialRef(),
         sudo_enabled: form.sudoMode !== 'none',
         sudo_nopasswd: form.sudoMode === 'nopasswd',
         locked: selectedUser.locked,
@@ -410,6 +423,7 @@ export function IdentityPage() {
         shell: form.shell,
         home_directory: response.item.home_directory || `/home/${form.username}`,
         password_credential_ref: form.passwordCredentialId || null,
+        execution_credential_ref: executionCredentialRef(),
         sudo_enabled: form.sudoMode !== 'none',
         sudo_nopasswd: form.sudoMode === 'nopasswd',
         locked: response.item.locked,
@@ -428,7 +442,7 @@ export function IdentityPage() {
       description: form.groupDescription || null,
       managed: true,
       target_server_ids: selectedTargetIds,
-      credential_ref: form.passwordCredentialId || null,
+      credential_ref: executionCredentialRef(),
     };
     if (modalIntent === 'edit' && selectedGroup) {
       const response = await updateLinuxGroup(selectedGroup.id, payload);
@@ -439,7 +453,7 @@ export function IdentityPage() {
       : await createLinuxGroup(payload);
     setSelectedEntityId(`group:${response.item.id}`);
     if (modalIntent === 'edit' && selectedEntity?.kind === 'discovered-group' && selectedTargetIds.length) {
-      const replication = await replicateLinuxGroup(response.item.id, selectedTargetIds, form.passwordCredentialId || null);
+      const replication = await replicateLinuxGroup(response.item.id, selectedTargetIds, executionCredentialRef());
       return await addMembersIfRequested(response.item.id, replication);
     }
     return await addMembersIfRequested(response.item.id, response.replication);
@@ -448,7 +462,10 @@ export function IdentityPage() {
   async function addMembersIfRequested(groupId: string, fallback: BulkExecutionResponse | null) {
     const members = splitCsv(form.memberNames);
     if (!members.length || !targetsReady) return fallback;
-    return addGroupMembers(groupId, members, selectedTargetIds, form.passwordCredentialId || null);
+    if (groupMemberOperation === 'remove') {
+      return removeGroupMembers(groupId, members, selectedTargetIds, executionCredentialRef());
+    }
+    return addGroupMembers(groupId, members, selectedTargetIds, executionCredentialRef());
   }
 
   async function saveOrDeployKey() {
@@ -474,12 +491,16 @@ export function IdentityPage() {
   async function replicateSelectedObject() {
     if (!targetsReady) return;
     await work(async () => {
-      if (selectedUser) return replicateLinuxUser(selectedUser.id, selectedTargetIds, form.passwordCredentialId || null);
-      if (selectedGroup) return replicateLinuxGroup(selectedGroup.id, selectedTargetIds, form.passwordCredentialId || null);
+      if (selectedUser) return replicateLinuxUser(selectedUser.id, selectedTargetIds, executionCredentialRef());
+      if (selectedGroup) return replicateLinuxGroup(selectedGroup.id, selectedTargetIds, executionCredentialRef());
       if (selectedKey) return deploySSHKey(selectedKey.id, form.keyUsername, selectedTargetIds);
       if (selectedPermission) return applyPermissionNow();
       return null;
     });
+  }
+
+  function executionCredentialRef() {
+    return form.executionCredentialId || form.passwordCredentialId || null;
   }
 
   async function deleteSelectedObject() {
@@ -810,10 +831,12 @@ function ActionModal({
   selectedEntity,
   permissionPresets,
   passwordCredentials,
+  groupMemberOperation,
   isWorking,
   targetsReady,
   onClose,
   onFormChange,
+  onGroupMemberOperationChange,
   onPresetSelect,
   onSubmit,
 }: {
@@ -824,10 +847,12 @@ function ActionModal({
   selectedEntity: IdentityEntity | null;
   permissionPresets: PermissionPreset[];
   passwordCredentials: Credential[];
+  groupMemberOperation: 'add' | 'remove';
   isWorking: boolean;
   targetsReady: boolean;
   onClose: () => void;
   onFormChange: (patch: Partial<IdentityActionForm>) => void;
+  onGroupMemberOperationChange: (operation: 'add' | 'remove') => void;
   onPresetSelect: (presetId: string) => void;
   onSubmit: () => void;
 }) {
@@ -850,8 +875,12 @@ function ActionModal({
               <option value="password">Require password for sudo</option>
               <option value="nopasswd">Passwordless sudo</option>
             </SelectInput>
-            <SelectInput label="Password / sudo credential" value={form.passwordCredentialId} onChange={(value) => onFormChange({ passwordCredentialId: value })}>
-              <option value="">Use target saved credential</option>
+            <SelectInput label="Account password credential" value={form.passwordCredentialId} onChange={(value) => onFormChange({ passwordCredentialId: value })}>
+              <option value="">Do not set account password</option>
+              {passwordCredentials.map((credential) => <option key={credential.id} value={credential.id}>{credential.name}</option>)}
+            </SelectInput>
+            <SelectInput label="Execution / sudo credential" value={form.executionCredentialId} onChange={(value) => onFormChange({ executionCredentialId: value })}>
+              <option value="">Use account password or target saved credential</option>
               {passwordCredentials.map((credential) => <option key={credential.id} value={credential.id}>{credential.name}</option>)}
             </SelectInput>
             <TextInput label="Groups" value={form.groups} onChange={(value) => onFormChange({ groups: value })} placeholder="docker,www-data" />
@@ -861,8 +890,31 @@ function ActionModal({
           <div className="space-y-3">
             <TextInput label="Group name" value={form.groupName} onChange={(value) => onFormChange({ groupName: value })} />
             <TextInput label="Description" value={form.groupDescription} onChange={(value) => onFormChange({ groupDescription: value })} />
-            <TextInput label="Members" value={form.memberNames} onChange={(value) => onFormChange({ memberNames: value })} placeholder="deploy,cerberus" />
-            <SelectInput label="Sudo credential" value={form.passwordCredentialId} onChange={(value) => onFormChange({ passwordCredentialId: value })}>
+            {selectedEntity ? (
+              <div className="grid grid-cols-2 gap-2 rounded-md border border-slate-700 bg-slate-950/50 p-2">
+                <button
+                  className={`h-9 rounded-md border text-sm font-semibold transition ${groupMemberOperation === 'add' ? 'border-cyan-300 bg-cyan-400 text-slate-950' : 'border-slate-700 bg-slate-900 text-slate-300 hover:border-slate-500 hover:text-white'}`}
+                  type="button"
+                  onClick={() => onGroupMemberOperationChange('add')}
+                >
+                  Add members
+                </button>
+                <button
+                  className={`h-9 rounded-md border text-sm font-semibold transition ${groupMemberOperation === 'remove' ? 'border-cyan-300 bg-cyan-400 text-slate-950' : 'border-slate-700 bg-slate-900 text-slate-300 hover:border-slate-500 hover:text-white'}`}
+                  type="button"
+                  onClick={() => onGroupMemberOperationChange('remove')}
+                >
+                  Remove members
+                </button>
+              </div>
+            ) : null}
+            <TextInput
+              label={selectedEntity ? `Members to ${groupMemberOperation}` : 'Members to add'}
+              value={form.memberNames}
+              onChange={(value) => onFormChange({ memberNames: value })}
+              placeholder="deploy,cerberus"
+            />
+            <SelectInput label="Execution / sudo credential" value={form.executionCredentialId} onChange={(value) => onFormChange({ executionCredentialId: value })}>
               <option value="">Use target saved credential</option>
               {passwordCredentials.map((credential) => <option key={credential.id} value={credential.id}>{credential.name}</option>)}
             </SelectInput>
@@ -896,6 +948,7 @@ function ActionModal({
         ) : null}
         <div className="rounded-md border border-slate-700 bg-slate-950/50 p-3 text-xs text-slate-400">
           Remote execution uses selected hosts from Replicate To Hosts or Discovery. Current target state: {targetsReady ? 'ready' : 'no hosts selected'}.
+          {mode === 'group' ? ' Empty member lists only save the group record; member add/remove requires selected hosts.' : null}
           {users.length || groups.length ? null : null}
         </div>
         <div className="flex justify-end gap-2">

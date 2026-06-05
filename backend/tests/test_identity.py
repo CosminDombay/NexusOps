@@ -398,3 +398,77 @@ async def test_linux_user_replication_uses_selected_sudo_credential(client) -> N
         assert "| sudo tee /etc/sudoers.d/nexusops-deploy" in adapter.calls[0]["command"]
         assert "SuperSecret123!" not in adapter.calls[0]["command"]
         assert adapter.calls[0]["input_data"] == "SuperSecret123!\n"
+
+
+@pytest.mark.asyncio
+async def test_linux_user_create_splits_account_password_from_execution_credential(client) -> None:
+    session = next(iter(client.app.dependency_overrides.values()))
+    async for db_session in session():
+        server = await InventoryService(ServerRepository(db_session)).create_server(
+            ServerCreate(**server_payload(hostname="identity-split-create-01", ip_address="10.4.0.21"))
+        )
+        adapter = FakeSshAdapter()
+        service = LinuxUserService(
+            repository=LinuxUserRepository(db_session),
+            replication_service=IdentityReplicationService(
+                job_service=JobService(
+                    job_repository=JobRepository(db_session),
+                    server_repository=ServerRepository(db_session),
+                    ssh_adapter=adapter,
+                    credential_service=FakeCredentialService(),
+                ),
+                execution_repository=IdentityExecutionRepository(db_session),
+            ),
+            credential_service=FakeCredentialService(),
+        )
+
+        await service.create_user(
+            LinuxUserCreate(
+                username="deploy",
+                sudo_enabled=True,
+                password_credential_ref="account-password",
+                execution_credential_ref="sudo-password",
+                target_server_ids=[server.id],
+            )
+        )
+
+        assert "chpasswd" in adapter.calls[0]["command"]
+        assert adapter.calls[0]["input_data"] == "SuperSecret123!\n"
+
+
+@pytest.mark.asyncio
+async def test_linux_user_update_can_use_execution_credential_without_resetting_password(client) -> None:
+    session = next(iter(client.app.dependency_overrides.values()))
+    async for db_session in session():
+        server = await InventoryService(ServerRepository(db_session)).create_server(
+            ServerCreate(**server_payload(hostname="identity-split-update-01", ip_address="10.4.0.22"))
+        )
+        adapter = FakeSshAdapter()
+        service = LinuxUserService(
+            repository=LinuxUserRepository(db_session),
+            replication_service=IdentityReplicationService(
+                job_service=JobService(
+                    job_repository=JobRepository(db_session),
+                    server_repository=ServerRepository(db_session),
+                    ssh_adapter=adapter,
+                    credential_service=FakeCredentialService(),
+                ),
+                execution_repository=IdentityExecutionRepository(db_session),
+            ),
+            credential_service=FakeCredentialService(),
+        )
+
+        created = await service.create_user(LinuxUserCreate(username="deploy", target_server_ids=[]))
+        await service.update_user(
+            created.item.id,
+            LinuxUserUpdate(
+                sudo_enabled=True,
+                supplementary_groups=["docker"],
+                execution_credential_ref="sudo-password",
+                target_server_ids=[server.id],
+            ),
+        )
+
+        assert "chpasswd" not in adapter.calls[0]["command"]
+        assert "sudo usermod -aG" in adapter.calls[0]["command"]
+        assert adapter.calls[0]["input_data"] == "SuperSecret123!\n"

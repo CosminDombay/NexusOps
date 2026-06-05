@@ -126,6 +126,7 @@ export type CreateLinuxUserPayload = {
   shell: string;
   home_directory?: string | null;
   password_credential_ref?: string | null;
+  execution_credential_ref?: string | null;
   sudo_enabled: boolean;
   sudo_nopasswd: boolean;
   locked: boolean;

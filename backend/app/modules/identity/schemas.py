@@ -42,6 +42,7 @@ class LinuxUserCreate(BaseModel):
     shell: str = "/bin/bash"
     home_directory: str | None = None
     password_credential_ref: str | None = Field(default=None, max_length=255)
+    execution_credential_ref: str | None = Field(default=None, max_length=255)
     sudo_enabled: bool = False
     sudo_nopasswd: bool = False
     locked: bool = False
@@ -83,6 +84,14 @@ class LinuxUserCreate(BaseModel):
         stripped = value.strip()
         return stripped or None
 
+    @field_validator("execution_credential_ref")
+    @classmethod
+    def validate_execution_credential_ref(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        stripped = value.strip()
+        return stripped or None
+
     @field_validator("supplementary_groups")
     @classmethod
     def validate_groups(cls, value: list[str]) -> list[str]:
@@ -117,6 +126,7 @@ class LinuxUserUpdate(BaseModel):
     shell: str = "/bin/bash"
     home_directory: str | None = None
     password_credential_ref: str | None = Field(default=None, max_length=255)
+    execution_credential_ref: str | None = Field(default=None, max_length=255)
     sudo_enabled: bool = False
     sudo_nopasswd: bool = False
     locked: bool = False
@@ -142,6 +152,14 @@ class LinuxUserUpdate(BaseModel):
     @field_validator("password_credential_ref")
     @classmethod
     def validate_password_credential_ref(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        stripped = value.strip()
+        return stripped or None
+
+    @field_validator("execution_credential_ref")
+    @classmethod
+    def validate_execution_credential_ref(cls, value: str | None) -> str | None:
         if value is None:
             return None
         stripped = value.strip()

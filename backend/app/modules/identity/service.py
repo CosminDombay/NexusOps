@@ -447,7 +447,7 @@ class LinuxUserService:
                 operation_type=f"identity:user:{user.username}:replicate",
                 command=command,
                 redacted_command=redacted_command,
-                credential_ref=payload.password_credential_ref,
+                credential_ref=payload.execution_credential_ref or payload.password_credential_ref,
             )
         return IdentityMutationRead(item=LinuxUserRead.model_validate(user), replication=replication)
 
@@ -513,7 +513,7 @@ class LinuxUserService:
                 operation_type=f"identity:user:{user.username}:update",
                 command=command,
                 redacted_command=redacted_command,
-                credential_ref=payload.password_credential_ref,
+                credential_ref=payload.execution_credential_ref or payload.password_credential_ref,
             )
         return IdentityMutationRead(item=LinuxUserRead.model_validate(user), replication=replication)
 
