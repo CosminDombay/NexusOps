@@ -61,19 +61,20 @@ Self-hosted deployment entrypoints:
 ./scripts/healthcheck.sh
 ```
 
-### 2026-06-03 Validation Status
+### 2026-06-04 Validation Status
 
 Latest local validation from the project root:
 
 - `cd frontend && npm run lint`: passed
 - `cd frontend && npm run build`: passed
-- `DEBUG=false .venv/bin/python -m pytest backend/tests -q`: passed with 147 tests
-- Focused Identity/Jobs/Logging stabilization suite: passed with 25 tests
+- `DEBUG=false .venv/bin/python -m pytest backend/tests/test_packages_profiles.py backend/tests/test_inventory.py -q`: passed with 38 focused deployment/inventory tests
+- `DEBUG=false .venv/bin/python -m pytest backend/tests/test_automations.py backend/tests/test_jobs.py -q`: passed during execution credential stabilization
+- `DEBUG=false .venv/bin/alembic heads`: single head `20260604_0035`
 
 Notes:
 
 - Use `DEBUG=false` in local validation if your shell has an unrelated `DEBUG` value.
-- Full backend validation is intentionally slower than focused smoke checks; use focused suites while stabilizing a single feature, then run the full suite before pushing broad changes.
+- Full backend validation is intentionally slower than focused smoke checks; use focused suites while stabilizing a single feature, then run the full suite before broad release candidates.
 - Staging validation currently runs backend, frontend, and deployment scripts from GitHub Actions/self-hosted runner workflows.
 
 ## Architecture

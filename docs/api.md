@@ -1,6 +1,6 @@
 # NexusOps API Overview
 
-Current date: 03.06.2026
+Current date: 04.06.2026
 
 NexusOps exposes its backend API under `/api/v1` by default. The prefix is configurable through `API_V1_PREFIX`.
 
@@ -24,6 +24,8 @@ Access tokens are short lived. Refresh tokens are persisted as hashed sessions, 
 - inventory lifecycle actions: archive, restore, decommission, unmanage
 - inventory health and bulk health checks
 - Proxmox import, synchronization, reconciliation, and stale-record self-sanitize actions
+- `POST /api/v1/proxmox/inventory/sanitize-discovered?dry_run=true` previews stale discovered guest cleanup before deletion
+- `GET /api/v1/servers/{server_id}/readiness` reports managed-state, SSH, sudo fallback, credential-reference, and Docker operation readiness
 - `GET /api/v1/proxmox/dashboard`
 - Proxmox nodes, VMs, storage, cluster summary, guest status, and guarded lifecycle actions
 
@@ -40,6 +42,8 @@ Inventory is the control-plane target boundary. Jobs, deployments, identity, mon
 - custom action CRUD and execution
 
 Jobs execute over SSH through Inventory targets. They persist redacted command display, actual command metadata, stdout, stderr, exit code, status, correlation ID, command policy, and activity events.
+
+Raw Jobs and operational actions can carry an explicit `credential_ref` for execution/sudo use. This is separate from template or environment secret references and is resolved server-side into the SSH/Jobs runtime.
 
 ## Credentials, Variables, And Integrations
 
@@ -73,13 +77,19 @@ Provisioning uses Proxmox templates/cloud-init only. It registers Inventory befo
 
 Packages and profiles resolve into Jobs. Automations create WorkflowRuns and dispatch through existing service pipelines.
 
+Package, profile, and automation execution can carry an execution/sudo credential reference where privileged Linux commands need sudo. Automations persist this reference so unattended scheduled runs use the same execution credential.
+
 ## Deployments
 
 - `GET/POST/PUT/DELETE /api/v1/deployments`
+- `POST /api/v1/deployments/validate`
+- `GET /api/v1/deployments/{deployment_id}/dry-run`
 - deploy, redeploy, restart, stop
 - status, runtime refresh, and logs
 
 Docker Compose deployments persist definitions, revisions, targets, executions, target executions, runtime state, and redacted credential-backed env injection. Runtime refresh reconciles observed Docker state into persisted deployment target state.
+
+Deployment validation and dry-run preview expose Compose validation, service names, selected targets, remote deployment paths, env keys, credential-backed env keys, execution/sudo credential presence, and redacted generated commands. Deployment reads include runtime stale markers, runtime age, failure reason, per-target container state, missing services, health, and sync drift.
 
 ## Identity
 

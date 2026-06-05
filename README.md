@@ -180,7 +180,9 @@ For a self-hosted runner deployment job on the LXC host:
 - Infrastructure profiles orchestrate ordered package/action/command workflows through Jobs and can be built from built-in or custom structured steps.
 - Built-in profiles can be edited as persisted working copies, cloned into user-managed templates, reordered, or restored to the system default.
 - Integration records provide a central place to store and test provider/monitoring connection metadata while runtime adapters still primarily use local environment configuration.
-- Docker Compose deployments store compose/env definitions and execute deploy/redeploy/restart/stop/status/logs through the Jobs -> SSH pipeline. Deployment-specific credential references are resolved server-side into `.env` at runtime and redacted from persisted job command history.
+- Docker Compose deployments store compose/env definitions and execute deploy/redeploy/restart/stop/status/logs through the Jobs -> SSH pipeline. Deployment-specific credential references are resolved server-side into `.env` at runtime and redacted from persisted job command history. Deployment execution/sudo credentials are selected separately from application environment secrets.
+- Deployment preflight validation checks Compose structure before save and execution. Operators can run a dry-run preview to see services, targets, remote paths, env keys, secret refs, and redacted generated commands before dispatching Jobs.
+- Deployment runtime reconciliation persists per-target runtime age, stale state, failure reason, container state, missing services, health, and sync drift so common Docker failures can be diagnosed without backend container logs.
 - Remote shell access uses short-lived, one-time, server-scoped remote-access tokens instead of sending the long-lived auth JWT through the WebSocket URL.
 - SSH connections use a trust-on-first-use fingerprint foundation for remote access and reject later host-key mismatches.
 - Monitoring stores lightweight validation snapshots for managed Inventory nodes, checks node_exporter, promtail, and cAdvisor availability, validates Prometheus as provider-level infrastructure, and links operators to Grafana when configured.
@@ -189,6 +191,8 @@ For a self-hosted runner deployment job on the LXC host:
 - Identity resolves administrator access through a distro-aware abstraction, using `sudo` on Debian/Ubuntu style hosts and `wheel` on RHEL/CentOS/Fedora style hosts during replicated execution.
 - Identity user/group discovery can adopt discovered objects into managed records, show host-origin context, pass selected password/SSH-password credentials into sudo-backed replication, and keep local create/adopt separate from remote sync target selection.
 - Permission workflows include presets and a human-friendly read/write/execute matrix that generates octal modes while retaining advanced raw mode controls.
+- Node Management / Host Detail includes credential readiness signals for managed state, SSH execution metadata, credential references, sudo fallback, and Docker operation readiness.
+- Proxmox discovered-guest self-sanitize supports dry-run preview before deleting stale unmanaged discovery records.
 
 Current orchestration flow:
 
@@ -201,3 +205,5 @@ not destroy provider infrastructure. Remote execution intentionally runs through
 Inventory-managed targets. Identity is Linux access orchestration and replication,
 not centralized authentication; NexusOps does not implement LDAP, Kerberos,
 FreeIPA, Active Directory, or SSSD.
+
+Current deployment management intentionally separates NexusOps record deletion from machine-side service removal. Future Docker deployment work should add Compose discovery/adoption and explicit destructive removal from the target host so existing services can be brought under management and removed cleanly when desired.

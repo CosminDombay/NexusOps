@@ -109,7 +109,7 @@ Jobs follow the same architecture:
 - `actions.py` defines the predefined operational action registry.
 - `schemas.py` defines command, action, and job response contracts.
 
-Operational actions do not duplicate execution logic. They resolve an action into a command and call the same Jobs execution flow used by raw commands. Custom operational action create/update/delete operations are admin-only, while operators can execute available actions. Jobs can resolve SSH authentication from legacy inline inventory metadata, a node-level `credential_id`, or an explicit execution `credential_ref`. When package/profile/deployment/identity execution injects sensitive runtime values, Jobs persist the server-generated redacted command instead of the in-memory command sent to SSH.
+Operational actions do not duplicate execution logic. They resolve an action into a command and call the same Jobs execution flow used by raw commands. Custom operational action create/update/delete operations are admin-only, while operators can execute available actions. Jobs can resolve SSH authentication from legacy inline inventory metadata, a node-level `credential_id`, or an explicit execution `credential_ref`. The execution credential is used for SSH/sudo behavior and is intentionally separate from template variables or deployment environment secrets. When package/profile/deployment/identity execution injects sensitive runtime values, Jobs persist the server-generated redacted command instead of the in-memory command sent to SSH.
 
 Jobs also persist immutable execution intent metadata: actual command, display command, command hash, command policy result, initiator metadata, correlation ID, and append-only execution events. Raw HTTP job requests do not trust client-provided redaction.
 
@@ -205,7 +205,7 @@ Inventory commits are currently performed in the service layer after repository 
 
 Alembic is configured at the repository root through `alembic.ini` and migration code under `backend/migrations`.
 
-Current migrations create the `servers` and `jobs` tables, inventory SSH authentication metadata, definition tables, provisioning requests, provisioning blueprints, inventory synchronization metadata, integration records and integration sync state, template override/variable metadata, encrypted credentials, credential usages, variables, inventory credential references, deployment credential references, integration credential references, provisioning additional disk metadata, LXC provisioning metadata, and deployment runtime execution tables.
+Current migrations create the `servers` and `jobs` tables, inventory SSH authentication metadata, definition tables, provisioning requests, provisioning blueprints, inventory synchronization metadata, integration records and integration sync state, template override/variable metadata, encrypted credentials, credential usages, variables, inventory credential references, deployment credential references, deployment execution credential references, automation execution credential references, integration credential references, provisioning additional disk metadata, LXC provisioning metadata, and deployment runtime execution tables.
 Security-hardening migrations add refresh-token sessions, remote-access tokens, SSH host-key fingerprint metadata, job execution intent metadata, and append-only job execution events. Runtime refresh stabilization adds persisted deployment target runtime state so ordinary deployment reads can show the latest reconciled Docker state without live inspection on every request.
 
 Important migration characteristics:
@@ -444,17 +444,19 @@ Frontend Deployments page
   -> DockerComposeDeploymentService
   -> create DeploymentExecution
   -> create DeploymentTargetExecution for each target
+  -> validate Compose and optionally dry-run generated commands
   -> resolve deployment credential_refs into .env content
+  -> pass execution_credential_ref into Jobs when configured
   -> JobService.execute() per target
   -> SSH adapter
   -> docker compose on inventory-managed host
 ```
 
-Docker Compose deployments persist compose content, optional plaintext env content for non-secret values, credential-backed env references for secrets, deployment target metadata, deployment revisions, deployment executions, and per-target execution records. Deploy/redeploy/restart/stop/status/logs reuse Jobs and never create a parallel remote-execution path.
+Docker Compose deployments persist compose content, optional plaintext env content for non-secret values, credential-backed env references for secrets, an execution/sudo credential reference, deployment target metadata, deployment revisions, deployment executions, and per-target execution records. Deploy/redeploy/restart/stop/status/logs/runtime refresh reuse Jobs and never create a parallel remote-execution path.
 
 Deployment command history is redacted when credential-backed env values are injected.
 
-Deployment create requests accept both the existing `target_server_id` and a `target_server_ids` list. The service persists all selected targets, runs sequential per-target fanout in the MVP, records target-level status/log summaries/failure reasons, and rolls the deployment execution up to `success`, `failed`, or `partial_success`. Runtime refresh inspects Docker Compose state through the existing Jobs/SSH path and persists target runtime fields such as running/stopped/degraded/unreachable, container state, health, missing services, checked timestamp, and runtime errors. Distributed worker queueing, cancellation, and retry scheduling remain future work.
+Deployment create requests accept both the existing `target_server_id` and a `target_server_ids` list. The service persists all selected targets, runs sequential per-target fanout in the MVP, records target-level status/log summaries/failure reasons, and rolls the deployment execution up to `success`, `failed`, or `partial_success`. Compose validation runs before create/update/deploy/redeploy, and dry-run endpoints return validation results plus redacted generated commands without creating Jobs. Runtime refresh inspects Docker Compose state through the existing Jobs/SSH path and persists target runtime fields such as running/stopped/degraded/unreachable, container state, health, missing services, checked timestamp, stale/age state, failure reason, and runtime errors. Distributed worker queueing, cancellation, retry scheduling, Compose project adoption, and destructive machine-side removal remain future work.
 
 ## Monitoring Readiness Flow
 

@@ -108,11 +108,15 @@ Setup checklist:
 - create the deployment definition
 - provide Docker Compose content or the expected deployment payload
 - configure deployment variables and secret-backed environment values
+- select an execution/sudo credential separately from application environment secrets when Docker commands need sudo
 - add target inventory hosts
+- preview Compose validation, target paths, env keys, secret refs, and redacted generated commands
 - run deploy or redeploy
-- review deployment execution, per-target history, linked jobs, and timeline
+- review deployment execution, per-target history, runtime age, stale state, failure reasons, linked jobs, and timeline
 
 Deployment operations should preserve revision history, target execution records, status aggregation, and Jobs runtime ownership.
+
+Deployment record deletion currently removes the NexusOps control-plane record and history only. Future adoption/removal work should add explicit Compose discovery, adoption of existing projects, and destructive machine-side removal that runs Compose down and optionally removes remote files.
 
 ## Automations
 
@@ -130,12 +134,14 @@ Operational readiness should be interpreted from backend-provided state and bloc
 
 When a deployment fails:
 
-1. Open the deployment execution and target execution history.
-2. Follow linked job records for stdout, stderr, and exit code.
-3. Check the operational timeline for ordering, duration, skipped steps, and cancellation.
-4. Verify inventory SSH metadata and credentials.
-5. Validate Docker availability on the target host.
-6. Check credential-backed environment variables and rendered Compose inputs.
-7. Re-run status or logs before redeploying.
+1. Open the deployment card and read runtime age, stale state, and failure reason.
+2. Open the deployment execution and target execution history.
+3. Follow linked job records for stdout, stderr, and exit code.
+4. Check the operational timeline for ordering, duration, skipped steps, and cancellation.
+5. Verify inventory SSH metadata, Host Detail credential readiness, and selected execution/sudo credential.
+6. Validate Docker availability on the target host.
+7. Check credential-backed environment variables and rendered Compose inputs.
+8. Run the dry-run preview to confirm generated commands and target paths.
+9. Re-run status or logs before redeploying.
 
 When a profile or package fails, start from the linked job output and then review the higher-level profile or workflow summary.

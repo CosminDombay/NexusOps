@@ -849,8 +849,9 @@ class DockerComposeDeploymentService:
 
         prefix = [
             "set -e",
+            self._deployment_filesystem_function(),
             self._docker_sudo_fallback_function(),
-            f"mkdir -p {self._sh_quote(deployment_path)}",
+            f"nexusops_ensure_deployment_dir {self._sh_quote(deployment_path)}",
             f"cd {self._sh_quote(deployment_path)}",
         ]
         return (
@@ -1012,6 +1013,19 @@ class DockerComposeDeploymentService:
                 "  cat \"$err_file\" >&2",
                 "  rm -f \"$err_file\"",
                 "  return \"$status\"",
+                "}",
+            ]
+        )
+
+    @staticmethod
+    def _deployment_filesystem_function() -> str:
+        return "\n".join(
+            [
+                "nexusops_ensure_deployment_dir() {",
+                "  deployment_dir=\"$1\"",
+                "  if mkdir -p \"$deployment_dir\" 2>/dev/null; then return 0; fi",
+                "  sudo mkdir -p \"$deployment_dir\"",
+                "  sudo chown \"$(id -u):$(id -g)\" \"$deployment_dir\"",
                 "}",
             ]
         )

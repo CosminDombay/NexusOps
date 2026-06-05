@@ -22,6 +22,7 @@ Current timeline sources include:
 - job execution lifecycle and output events
 - workflow run and step state
 - deployment execution and target execution state
+- deployment runtime stale state, runtime age, failure reason, missing services, and container health
 - profile workflow-backed execution metadata
 - automation-triggered runtime metadata
 
@@ -36,6 +37,7 @@ Backend services are responsible for describing operational reasons such as:
 - execution cancelled
 - execution degraded
 - eligibility blocked execution
+- observed runtime state is stale or drifted from desired state
 
 Frontend views should render those reasons consistently instead of reinterpreting backend state. The shared frontend runtime helpers and timeline component keep status labels, duration formatting, event ordering, and metadata display aligned across Jobs, Workflows, and Deployments.
 

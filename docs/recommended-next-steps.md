@@ -2,7 +2,7 @@
 
 Created: 2026-05-23
 
-Updated: 2026-06-03
+Updated: 2026-06-04
 
 ## Priority Roadmap
 
@@ -55,8 +55,10 @@ Updated: 2026-06-03
 
 16. Add feature-specific smoke suites for the current stabilization phase:
    - Identity discovery/adopt/sync and sudo credential propagation
-   - Docker deployment create/deploy/runtime refresh/log visibility
-   - Inventory import/re-import/stale-record self-sanitize
+   - Docker deployment create/edit/preview/deploy/runtime refresh/log visibility
+   - Execution/sudo credential selectors for Jobs, Packages, Profiles, Automations, and Deployments
+   - Inventory import/re-import/stale-record self-sanitize dry-run/apply
+   - Host Detail credential readiness
    - Auth login/session restore/logout
 
 17. Improve Identity operator UX around target-first workflows:
@@ -65,11 +67,29 @@ Updated: 2026-06-03
    - separate account-password and execution/sudo credential controls
    - clearer disabled-action prerequisites
 
-18. Improve Docker deployment runtime diagnostics:
+18. Completed on 2026-06-04: improve Docker deployment runtime diagnostics:
    - stale observed state marker
    - desired versus observed status split
    - first failure line and suggested remediation
-   - runtime event filtering by correlation ID and target
+   - runtime age and per-target failure reason
+
+19. Completed on 2026-06-04: add execution/sudo credential selectors across Jobs, Packages, Profiles, Automations, and Deployments so privileged commands can use a selected password/SSH-password credential while application/env secrets stay separate.
+
+20. Completed on 2026-06-04: add deployment preflight validation and dry-run previews with redacted generated commands.
+
+21. Completed on 2026-06-04: add inventory credential readiness signals on Host Detail / Node Management.
+
+22. Completed on 2026-06-04: add dry-run preview before Proxmox discovered-record self-sanitize.
+
+23. Add Docker Compose discovery, adoption, and destructive machine-side removal:
+   - scan nodes for existing Compose projects/configurations
+   - adopt discovered projects into NexusOps-managed deployments
+   - manage adopted deployments through Deployments and per-node Deployment views
+   - keep "Delete NexusOps record" separate from "Remove from machine"
+   - support Compose down and optional remote file/env cleanup
+   - mark orphaned/stale deployment records when expected files or containers are missing
+
+24. Add runtime event filtering by correlation ID and target for deployment, job, workflow, and scheduler diagnostics.
 
 ## Notes
 
@@ -80,6 +100,8 @@ The 2026-05-26 hardening pass intentionally stayed practical for a bachelor-proj
 The 2026-05-27 preparation pass adds deployment guidance and keeps automated container updates intentionally operator-triggered until backup, rollback, and smoke-test automation are in place.
 
 The 2026-06-03 stabilization pass prioritizes manual findings over new feature breadth. Identity users/groups management and Docker deployment runtime clarity are the main product-stabilization tracks; backlog items believed fixed should remain `Needs testing` until manually confirmed.
+
+The 2026-06-04 stabilization pass added execution/sudo credential consistency, deployment validation/dry-run previews, runtime stale/failure diagnostics, Host Detail credential readiness, and self-sanitize dry-run preview. These improvements are implementation-complete but remain in manual `Needs testing` status until the staging pipeline and operator tests confirm them.
 
 ## Review Findings Added on 2026-05-23
 

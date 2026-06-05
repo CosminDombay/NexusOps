@@ -423,6 +423,9 @@ async def test_deployment_service_uses_execution_credential_for_docker_jobs(clie
         assert adapter.calls[0]["password"] == "deploy-sudo-secret"
         assert adapter.calls[0]["input_data"] == "deploy-sudo-secret\n"
         assert "NEXUSOPS_ASKPASS=$(mktemp)" in adapter.calls[0]["command"]
+        assert "nexusops_ensure_deployment_dir" in adapter.calls[0]["command"]
+        assert "sudo mkdir -p \"$deployment_dir\"" in adapter.calls[0]["command"]
+        assert "sudo chown \"$(id -u):$(id -g)\" \"$deployment_dir\"" in adapter.calls[0]["command"]
         assert "sudo docker \"$@\"" in adapter.calls[0]["command"]
 
 
@@ -531,6 +534,14 @@ def test_deployment_docker_command_uses_sudo_fallback_wrapper() -> None:
     assert "sudo docker \"$@\"" in wrapper
     assert "if sudo docker \"$@\" 2>\"$sudo_err_file\"; then" in wrapper
     assert wrapper.index("if sudo docker") < wrapper.index("cat \"$err_file\" >&2")
+
+
+def test_deployment_filesystem_command_uses_sudo_fallback_for_protected_paths() -> None:
+    wrapper = DockerComposeDeploymentService._deployment_filesystem_function()
+
+    assert "if mkdir -p \"$deployment_dir\" 2>/dev/null; then return 0; fi" in wrapper
+    assert "sudo mkdir -p \"$deployment_dir\"" in wrapper
+    assert "sudo chown \"$(id -u):$(id -g)\" \"$deployment_dir\"" in wrapper
 
 
 def test_deployment_heredoc_marker_keeps_changing_until_unique() -> None:

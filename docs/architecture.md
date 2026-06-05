@@ -103,12 +103,15 @@ Deployments follow the same runtime separation:
 
 ```text
 Deployment definition
+  -> Compose validation / dry-run preview
   -> DeploymentExecution
   -> DeploymentTargetExecution per node
   -> Jobs
   -> SSH adapter
   -> inventory-managed Linux host
 ```
+
+Deployment environment secrets and execution/sudo credentials are separate. Credential-backed env refs render into `.env` at execution time, while execution credentials feed SSH/sudo for Docker commands when needed. Runtime reads include stale state, runtime age, failure reason, missing services, and container state. Deleting a deployment record does not yet remove machine-side Compose services; discovery/adoption and explicit destructive removal remain future work.
 
 Monitoring follows the same managed-node convergence:
 

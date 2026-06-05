@@ -62,8 +62,12 @@ After updating, verify:
 - `/api/v1/proxmox/dashboard` when Proxmox is configured
 - monitoring page when monitoring integrations are configured
 - Identity discovery, adopt/create, group membership sync, and sudo credential-backed replication on a known test node
-- Docker deployment create/deploy/runtime refresh/log visibility on a known Docker-capable node
-- deployment/runtime status is recent, includes checked timestamps/errors, and does not show stale "running" state without an observed runtime refresh
+- Docker deployment create/edit/deploy/runtime refresh/log visibility on a known Docker-capable node
+- Docker deployment execution/sudo credential selection on a node without Docker group access
+- deployment preflight preview, Compose validation, redacted generated command preview, and credential-backed env separation
+- deployment/runtime status is recent, includes checked timestamps/errors/stale age/failure reasons, and does not show stale "running" state without an observed runtime refresh
+- Host Detail credential readiness for SSH, sudo fallback, and Docker operations
+- Proxmox discovered-record sanitize preview before deletion
 
 Fully automated container updates are possible, but they should wait until image tagging, backup retention, rollback, migration checks, and post-update smoke tests are scripted.
 
@@ -74,11 +78,12 @@ The current GitHub staging workflow validates backend and frontend scripts on a 
 Recommended smoke-test priority during V1 stabilization:
 
 1. Auth login/session restore/logout.
-2. Inventory import/re-import and stale-record self-sanitize.
+2. Inventory import/re-import and stale-record self-sanitize dry-run/apply.
 3. Node SSH connectivity and Host Tools.
-4. Docker deployment deploy/redeploy/runtime refresh/logs.
-5. Identity user/group discovery, adoption, modification, and sudo credential-backed sync.
-6. Jobs/actions, packages, profiles, workflows, and automations.
+4. Docker deployment preview/save/deploy/redeploy/runtime refresh/logs.
+5. Execution/sudo credential selectors in Jobs, Packages, Profiles, Automations, and Deployments.
+6. Identity user/group discovery, adoption, modification, and sudo credential-backed sync.
+7. Jobs/actions, packages, profiles, workflows, and automations.
 
 ## On-Prem LXC Or VM Deployment
 

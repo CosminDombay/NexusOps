@@ -40,6 +40,8 @@ This backlog captures near-term product and engineering improvements from the Ma
 - Add storage target discovery for Proxmox disks instead of requiring operators to type `local-lvm`.
 - Add confirmation dialogs for deployment stop/redeploy and any operation likely to disrupt services.
 - Make job/deployment logs easier to read with wrapping, copy, search, timestamps, and stdout/stderr tabs.
+- Add Docker Compose discovery/adoption UI so existing per-node Compose projects can be scanned, reviewed, adopted into NexusOps management, and then managed from Deployments or the node Deployment tab.
+- Split Docker deployment record deletion from destructive machine-side removal. A future "Remove from machine" action should run Compose down and optionally clean remote compose/env files, while "Delete NexusOps record" should only remove the control-plane record.
 - Turn Identity live discovery results into richer, filterable tables with per-host drilldowns for users, groups, memberships, and replication drift.
 - Rework Identity around target-first workflows so selected hosts, discovered observations, managed desired state, and drift/reconciliation status are visible in one place.
 - Split Identity password controls into "account password to set" and "execution/sudo credential" to reduce operator confusion during sync/replication.
@@ -55,6 +57,8 @@ This backlog captures near-term product and engineering improvements from the Ma
 - Add realtime status updates through polling endpoints first, then WebSockets or server-sent events later.
 - Expand the workflow domain into full orchestration chaining. WorkflowRun and WorkflowStep now expose runtime visibility, but provisioning, identity, and direct package/profile execution still need complete step-by-step workflow refactors.
 - Deepen deployment/profile integration so profile steps can orchestrate deployments with full execution context and rollback-ready behavior.
+- Add Docker Compose project discovery and adoption services. Discovery should inspect existing Compose labels/files where possible, map services/ports/containers to candidate deployment records, and allow operators to adopt rather than recreate existing services.
+- Add machine-side deployment removal as an explicit destructive workflow with confirmation, audit, generated command preview, and optional cleanup of remote compose/env files.
 - Expand audit reporting and filtering for infrastructure actions, provisioning tasks, deployment operations, identity replication, and destructive operations. Durable audit persistence is now present; the next step is operator-facing analysis and retention policy.
 - Extend the persisted integration authority model to future providers. Proxmox discovery/synchronization now resolves through database integrations; new provider adapters should follow the same integration-owned discovery, state, and stale-resource model.
 - Add provisioning blueprint or provisioning batch as a Workflow/Automation operation with minimal runtime inputs.
@@ -68,6 +72,7 @@ This backlog captures near-term product and engineering improvements from the Ma
 - Poll Proxmox lifecycle tasks to completion for start/stop/reboot/shutdown, not only provisioning tasks.
 - Store Proxmox task logs/status snapshots for later debugging.
 - Add rollback/cleanup strategy for provisioning failures after clone but before inventory registration.
+- Add stale/orphaned deployment reconciliation for records whose expected containers/files no longer exist on the target, and for unmanaged Compose projects found during discovery.
 - Deepen CT/LXC readiness checks beyond the current discovery/provisioning/lifecycle foundation: interface detection, gateway reachability, DNS validation, SSH readiness polling, storage discovery, and richer template metadata.
 - Add cancellation support for queued/running Jobs and long-running provisioning workflows where technically possible.
 - Add distributed execution leases before running multiple backend workers or self-hosted deployment runners against the same queue/runtime tables.
@@ -86,7 +91,7 @@ This backlog captures near-term product and engineering improvements from the Ma
 
 ### Testing and Tooling
 
-- Add backend tests for provisioning blueprints, additional disks, deployment credential env injection, integration credential refs, LXC provisioning, hypervisor reconciliation, deployment target executions, and monitoring readiness derivation.
+- Add backend tests for provisioning blueprints, additional disks, deployment credential env injection, deployment execution credentials, deployment dry-run previews, integration credential refs, LXC provisioning, hypervisor reconciliation, deployment target executions, and monitoring readiness derivation.
 - Add backend tests around monitoring snapshot refresh boundaries so overview reads remain database-bounded.
 - Add frontend tests for provisioning blueprint fill/save/delete, inventory edit modal behavior, and deployment credential env rows.
 - Add Playwright smoke tests for login, target selection, deployment deploy button visibility, Identity discovery/adopt/sync, credential edit, and inventory import.

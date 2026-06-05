@@ -407,6 +407,10 @@ The frontend no longer sends the long-lived access token directly as the shell W
 
 Deployments now pass both `target_server_id` and optional `target_server_ids` in the request shape. The backend persists all selected targets, executes per-target Jobs sequentially in the MVP, returns per-target execution state, and polls persisted runtime state so operators can see succeeded, failed, partial, degraded, drifted, and stale outcomes without reading backend logs.
 
+The deployment drawer includes an execution/sudo credential selector that is separate from credential-backed environment variables. Operators can preview a deployment before saving or running it; the preview shows Compose validation, discovered services, target paths, env keys, credential-backed env keys, and redacted generated commands.
+
+Deployment cards and inspect summaries expose runtime age, stale state, failure reasons, target container state, missing services, and sync/health drift. Record deletion remains separate from future destructive machine-side Compose removal.
+
 ## Monitoring Frontend Flow
 
 ```text

@@ -472,6 +472,19 @@ The 2026-06-03 stabilization pass focused on deployment and identity manual test
 - The local ignored `backlog.md` is the manual stabilization tracker. Items believed fixed should be marked `Needs testing` until manual validation confirms the final status.
 - Full backend validation passed locally with `DEBUG=false .venv/bin/python -m pytest backend/tests -q` producing 147 passing tests after the Identity replication credential changes.
 
+### Stabilization Update on 2026-06-04
+
+The 2026-06-04 stabilization update tightened execution credentials, deployment diagnostics, and operator preflight checks:
+
+- Jobs, Packages, Profiles, Automations, and Deployments can pass an execution/sudo credential separately from application environment secrets.
+- Deployments persist `execution_credential_ref` and use it for deploy, redeploy, restart, stop, status, logs, and runtime refresh Jobs.
+- Deployment create/update/deploy/redeploy paths validate Compose structure before execution.
+- Deployment dry-run previews show Compose validation, service names, target hosts, remote paths, env keys, credential-backed env keys, and redacted generated commands.
+- Deployment runtime reads include stale state, runtime age, concise failure reason, per-target container state, missing services, health, and sync drift.
+- Host Detail / Node Management includes credential readiness signals for managed state, SSH metadata, credential references, sudo fallback, and Docker operation readiness.
+- Proxmox discovered-record self-sanitize supports dry-run preview before deletion.
+- Manual testing is still required before these are moved from `Needs testing` to fixed/tested in the local backlog.
+
 ## Architecture Status
 
 - Backend remains organized as a modular monolith.
@@ -487,8 +500,8 @@ The 2026-06-03 stabilization pass focused on deployment and identity manual test
 - Provisioning orchestrates Proxmox, Inventory, and bootstrap Jobs without creating a separate execution path.
 - Provisioning blueprints persist reusable provisioning defaults while keeping Proxmox VM templates as the provider-side base image.
 - Batch provisioning creates a parent batch record and normal child provisioning requests. Each generated VM still goes through the existing Proxmox clone, cloud-init, SSH readiness, Inventory registration, and optional bootstrap flow.
-- Docker Compose deployments reuse Jobs for deploy/redeploy/restart/stop/status/logs, resolve credential-backed env values server-side, and persist definition/execution/target-execution runtime separation.
-- Deployment API reads include derived operational metadata and per-target runtime state while execution still flows through the existing Jobs pipeline.
+- Docker Compose deployments reuse Jobs for deploy/redeploy/restart/stop/status/logs, resolve credential-backed env values server-side, and persist definition/execution/target-execution runtime separation. Application/env secrets and execution/sudo credentials are distinct concepts.
+- Deployment API reads include derived operational metadata, per-target runtime state, runtime age, stale markers, failure reasons, and redacted dry-run previews while execution still flows through the existing Jobs pipeline.
 - Frontend create/edit/configuration workflows should prefer `ContextDrawer` or focused modals over permanent page-level forms.
 - Frontend operational pages should prefer shared page-header actions, operational toolbars, runtime badges, and collapsible action panels over page-local button/form patterns.
 - Remote Access reuses Inventory as the target boundary and Credential Manager resolution for SSH material; it does not accept arbitrary host targets or expose credentials to the frontend.
@@ -523,6 +536,7 @@ The 2026-06-03 stabilization pass focused on deployment and identity manual test
 - Provisioning blueprints do not yet discover valid Proxmox storage targets per node; extra disks currently rely on operator-entered storage names.
 - Deployment logs are pulled on demand from Docker Compose and are not yet indexed as first-class log records.
 - Docker deployment steps can execute through `ProfileService`, but richer blueprint-style deployment composition still needs refinement.
+- Docker deployment discovery/adoption is not implemented yet. NexusOps can manage deployments it creates or records explicitly, but it does not yet scan existing Compose projects, adopt them into managed records, or destructively remove machine-side services/files through a dedicated removal workflow.
 - No centralized domain identity provider. Identity is Linux orchestration only; LDAP, Kerberos, FreeIPA, Active Directory, SSSD, PAM rewriting, and login federation are intentionally out of scope.
 - Identity discovery reads live Linux state through Jobs and does not yet persist per-host user/group membership snapshots as first-class inventory records.
 - Identity UI still needs a clearer target-first matrix for large environments so managed records, discovered host observations, and drift/reconciliation status are not visually blended.
@@ -542,4 +556,4 @@ The 2026-06-03 stabilization pass focused on deployment and identity manual test
 
 ## Current Safety Boundary
 
-The platform can authenticate local NexusOps users, enforce coarse RBAC boundaries, revoke existing JWT sessions through token-version changes, mutate NexusOps-owned inventory data, import and reconcile discovered Proxmox hypervisors, VMs, and LXCs into Inventory, request controlled Proxmox guest lifecycle actions, provision VMs from Proxmox templates, provision LXCs from Proxmox container templates, edit reusable automation templates, execute commands/actions/packages/profiles against inventory-managed Linux hosts over SSH, provide backend-mediated shell/file access to inventory-managed Linux hosts, resolve encrypted runtime secrets server-side, run multi-target Docker Compose deployments, derive monitoring readiness from telemetry providers, and replicate non-root Linux identity state. Inventory deletion and archival are CMDB operations only unless a provider-specific lifecycle endpoint explicitly performs provider mutation. Template reset restores NexusOps defaults only; it does not alter historical Jobs. The platform does not expose ISO installation, Kubernetes, Terraform execution, SSO/federated login, arbitrary SSH targets, raw Proxmox consoles, Docker/container shells, root account orchestration, dynamic Grafana dashboard generation, or arbitrary provider-side infrastructure mutation.
+The platform can authenticate local NexusOps users, enforce coarse RBAC boundaries, revoke existing JWT sessions through token-version changes, mutate NexusOps-owned inventory data, import and reconcile discovered Proxmox hypervisors, VMs, and LXCs into Inventory, request controlled Proxmox guest lifecycle actions, provision VMs from Proxmox templates, provision LXCs from Proxmox container templates, edit reusable automation templates, execute commands/actions/packages/profiles against inventory-managed Linux hosts over SSH, provide backend-mediated shell/file access to inventory-managed Linux hosts, resolve encrypted runtime secrets server-side, run multi-target Docker Compose deployments, derive monitoring readiness from telemetry providers, and replicate non-root Linux identity state. Inventory deletion and archival are CMDB operations only unless a provider-specific lifecycle endpoint explicitly performs provider mutation. Deployment record deletion is a NexusOps record operation only; destructive machine-side Compose removal remains future work. Template reset restores NexusOps defaults only; it does not alter historical Jobs. The platform does not expose ISO installation, Kubernetes, Terraform execution, SSO/federated login, arbitrary SSH targets, raw Proxmox consoles, Docker/container shells, root account orchestration, dynamic Grafana dashboard generation, or arbitrary provider-side infrastructure mutation.
