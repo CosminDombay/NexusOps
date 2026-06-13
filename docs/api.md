@@ -1,6 +1,6 @@
 # NexusOps API Overview
 
-Current date: 04.06.2026
+Current date: 2026-06-06
 
 NexusOps exposes its backend API under `/api/v1` by default. The prefix is configurable through `API_V1_PREFIX`.
 
@@ -13,7 +13,9 @@ OpenAPI is available at `/api/v1/openapi.json` and Swagger UI at `/docs` when `E
 - `POST /api/v1/auth/logout`
 - `POST /api/v1/auth/logout-all`
 - `GET /api/v1/auth/me`
-- `GET/POST/PUT /api/v1/auth/users`
+- `GET /api/v1/auth/users`
+- `POST /api/v1/auth/users`
+- `PUT /api/v1/auth/users/{user_id}`
 - `POST /api/v1/auth/users/{user_id}/reset-password`
 
 Access tokens are short lived. Refresh tokens are persisted as hashed sessions, rotate on refresh, and support token-family replay detection. Frontend auth currently stores tokens in session-scoped browser storage; httpOnly refresh-cookie transport remains a future hardening item.
@@ -21,13 +23,37 @@ Access tokens are short lived. Refresh tokens are persisted as hashed sessions, 
 ## Core Inventory And Providers
 
 - `GET/POST/PUT/DELETE /api/v1/servers`
-- inventory lifecycle actions: archive, restore, decommission, unmanage
-- inventory health and bulk health checks
-- Proxmox import, synchronization, reconciliation, and stale-record self-sanitize actions
+- inventory lifecycle actions:
+  - `POST /api/v1/servers/{server_id}/archive`
+  - `POST /api/v1/servers/{server_id}/restore`
+  - `POST /api/v1/servers/{server_id}/decommission`
+  - `POST /api/v1/servers/{server_id}/unmanage`
+- inventory health and host inspection:
+  - `GET /api/v1/servers/health-summary`
+  - `POST /api/v1/servers/{server_id}/health-check`
+  - `POST /api/v1/servers/health-check/bulk`
+  - `GET /api/v1/servers/{server_id}/system`
+  - `GET /api/v1/servers/{server_id}/network`
+  - `GET /api/v1/servers/{server_id}/docker`
+- Proxmox inventory import and reconciliation:
+  - `POST /api/v1/servers/sync/proxmox/import`
+  - `POST /api/v1/servers/sync/proxmox/reconcile`
 - `POST /api/v1/proxmox/inventory/sanitize-discovered?dry_run=true` previews stale discovered guest cleanup before deletion
 - `GET /api/v1/servers/{server_id}/readiness` reports managed-state, SSH, sudo fallback, credential-reference, and Docker operation readiness
 - `GET /api/v1/proxmox/dashboard`
-- Proxmox nodes, VMs, storage, cluster summary, guest status, and guarded lifecycle actions
+- `GET /api/v1/proxmox/nodes`
+- `GET /api/v1/proxmox/nodes/{node_name}`
+- `GET /api/v1/proxmox/vms`
+- `GET /api/v1/proxmox/storage`
+- `GET /api/v1/proxmox/vms/{node}/{vm_type}/{vm_id}/status`
+- `GET /api/v1/proxmox/cluster/summary`
+- `POST /api/v1/proxmox/hosts/sync`
+- `POST /api/v1/proxmox/guests/sync`
+- guarded Proxmox guest lifecycle actions:
+  - `POST /api/v1/proxmox/vms/{vm_id}/start`
+  - `POST /api/v1/proxmox/vms/{vm_id}/stop`
+  - `POST /api/v1/proxmox/vms/{vm_id}/reboot`
+  - `POST /api/v1/proxmox/vms/{vm_id}/shutdown`
 
 Inventory is the control-plane target boundary. Jobs, deployments, identity, monitoring, remote access, packages, profiles, workflows, and automations operate against Inventory-managed hosts.
 
@@ -39,6 +65,7 @@ Inventory is the control-plane target boundary. Jobs, deployments, identity, mon
 - `POST /api/v1/jobs/execute/bulk`
 - `POST /api/v1/jobs/{job_id}/cancel`
 - `GET /api/v1/jobs/actions`
+- `POST /api/v1/jobs/actions/execute`
 - custom action CRUD and execution
 
 Jobs execute over SSH through Inventory targets. They persist redacted command display, actual command metadata, stdout, stderr, exit code, status, correlation ID, command policy, and activity events.
@@ -48,19 +75,22 @@ Raw Jobs and operational actions can carry an explicit `credential_ref` for exec
 ## Credentials, Variables, And Integrations
 
 - `GET/POST/PUT/DELETE /api/v1/credentials`
-- `GET/POST/PUT/DELETE /api/v1/variables`
+- `GET/POST /api/v1/variables`
 - `GET/POST/PUT/DELETE /api/v1/integrations`
-- integration test and provider sync endpoints
+- integration test and provider sync endpoints:
+  - `POST /api/v1/integrations/{integration_id}/test`
+  - `POST /api/v1/integrations/{integration_id}/sync/proxmox-hosts`
+  - `POST /api/v1/integrations/{integration_id}/sync/proxmox-guests`
 
 Credential APIs never return decrypted secrets. Runtime services resolve credentials server-side and redact injected values from job/deployment history.
 
 ## Provisioning
 
 - VM provisioning under `/api/v1/vms`
-- LXC provisioning foundations under `/api/v1/vms/lxc`
-- provisioning blueprints
-- provisioning batch requests
-- template and provider metadata endpoints
+- LXC provisioning foundations use the same `/api/v1/vms` create endpoint with `provisioning_type="lxc"`
+- `GET /api/v1/vms/templates`
+- provisioning blueprints under `/api/v1/vms/blueprints`
+- provisioning batch requests under `/api/v1/vms/batches`
 
 Provisioning uses Proxmox templates/cloud-init only. It registers Inventory before optional profile/package bootstrap execution.
 
@@ -113,10 +143,15 @@ Remote Access only targets Inventory-managed hosts. Shell WebSockets use short-l
 ## Monitoring And Runtime State
 
 - `GET /api/v1/monitoring/overview`
-- provider health endpoints
+- `GET /api/v1/monitoring/prometheus/health`
 - per-server metrics and validation attempts
-- monitoring validation refresh actions
-- `/api/v1/runtime-state` snapshot and refresh visibility
+- monitoring validation refresh actions:
+  - `POST /api/v1/monitoring/validate`
+  - `POST /api/v1/monitoring/servers/{server_id}/validate`
+- runtime refresh visibility and manual refresh:
+  - `GET /api/v1/runtime-state/refresh-status`
+  - `POST /api/v1/runtime-state/refresh/inventory`
+  - `POST /api/v1/runtime-state/refresh/all`
 
 Monitoring is snapshot-first during ordinary page rendering. Explicit refresh flows update snapshots and validation attempts.
 

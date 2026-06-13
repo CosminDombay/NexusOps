@@ -33,6 +33,7 @@ Current routing pattern:
 Current implemented domain routes include:
 
 - `/api/v1/auth` for local login, JWT refresh, logout hooks, current-user lookup, and admin-only user management
+- `/api/v1/audit-events` for admin-only audit event reads
 - `/api/v1/servers` for CMDB inventory, lifecycle operations, Proxmox import, and reconciliation
 - `/api/v1/proxmox` for Proxmox visibility, hypervisor/LXC/VM discovery, and controlled lifecycle actions
 - `/api/v1/vms` for template-based Proxmox VM and LXC provisioning
@@ -49,8 +50,19 @@ Current implemented domain routes include:
 - `/api/v1/remote-access` for role-aware browser shell and SFTP file access to Inventory-managed hosts
 - `/api/v1/deployments` for deployment definitions, multi-target deployment executions, and per-target runtime state
 - `/api/v1/monitoring` for telemetry provider health and infrastructure observability readiness
+- `/api/v1/runtime-state` for refresh status and manual runtime snapshot refreshes
+- `/api/v1/variables` for admin-managed variable records
 
 Most operator-facing modules now have implemented API surface. The legacy `execution` module remains placeholder scaffolding; active remote execution uses the Jobs module.
+
+The router authorization boundary is centralized in `backend/app/api/v1/router.py`:
+
+```text
+viewer: servers, proxmox, monitoring, runtime-state, workflows
+operator: automations, vms, deployments, packages, profiles, jobs
+admin: audit-events, credentials, identity, integrations, variables
+module-owned auth: auth, remote-access
+```
 
 ## Module Organization
 
@@ -205,7 +217,7 @@ Inventory commits are currently performed in the service layer after repository 
 
 Alembic is configured at the repository root through `alembic.ini` and migration code under `backend/migrations`.
 
-Current migrations create the `servers` and `jobs` tables, inventory SSH authentication metadata, definition tables, provisioning requests, provisioning blueprints, inventory synchronization metadata, integration records and integration sync state, template override/variable metadata, encrypted credentials, credential usages, variables, inventory credential references, deployment credential references, deployment execution credential references, automation execution credential references, integration credential references, provisioning additional disk metadata, LXC provisioning metadata, and deployment runtime execution tables.
+Current migrations create the `servers` and `jobs` tables, inventory SSH authentication metadata, definition tables, provisioning requests, provisioning blueprints, inventory synchronization metadata, integration records and integration sync state, template override/variable metadata, encrypted credentials, credential usages, variables, inventory credential references, deployment credential references, deployment execution credential references, automation execution credential references, integration credential references, provisioning additional disk metadata, LXC provisioning metadata, deployment runtime execution tables, audit events, monitoring validation attempts, and runtime snapshot/status/event tables.
 Security-hardening migrations add refresh-token sessions, remote-access tokens, SSH host-key fingerprint metadata, job execution intent metadata, and append-only job execution events. Runtime refresh stabilization adds persisted deployment target runtime state so ordinary deployment reads can show the latest reconciled Docker state without live inspection on every request.
 
 Important migration characteristics:
@@ -426,7 +438,7 @@ LXC provisioning is modeled as the same managed-node lifecycle with a different 
 
 ```text
 Frontend Provisioning page
-  -> FastAPI /api/v1/vms/lxc or LXC provisioning action
+  -> FastAPI /api/v1/vms with provisioning_type="lxc"
   -> ProvisioningService
   -> ProxmoxAdapter create CT from downloaded template
   -> optional start and readiness checks

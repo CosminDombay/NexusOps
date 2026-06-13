@@ -61,6 +61,16 @@ Self-hosted deployment entrypoints:
 ./scripts/healthcheck.sh
 ```
 
+### 2026-06-06 Documentation Audit Status
+
+Latest documentation/code audit from the project root:
+
+- compared durable docs against `backend/app/api/v1/router.py`, module route decorators, runtime snapshot models, and `frontend/src/app/router.tsx`
+- updated API route documentation, frontend route authorization notes, backend routing notes, runtime snapshot notes, and project review logs
+- no application code changed in this pass
+
+Because this pass changed Markdown documentation only, frontend/backend runtime tests were not rerun. Run the validation commands above before merging this with application-code changes.
+
 ### 2026-06-04 Validation Status
 
 Latest local validation from the project root:

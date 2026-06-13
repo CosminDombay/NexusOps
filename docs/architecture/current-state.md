@@ -425,7 +425,7 @@ The next refinement pass standardized create/edit workflows around contextual dr
 
 ### Review Findings on 2026-05-20
 
-The latest review confirms the platform has shifted from inventory plus CRUD pages toward a managed-node operational control plane:
+The 2026-05-20 review confirmed the platform had shifted from inventory plus CRUD pages toward a managed-node operational control plane:
 
 - Proxmox hypervisors, VMs, LXCs, and physical hosts are represented as distinct managed node types.
 - Hypervisor host discovery and decommissioning are integration-driven rather than VM lifecycle features.
@@ -468,6 +468,16 @@ The 2026-06-03 stabilization pass focused on deployment and identity manual test
 - Credential Manager edit, infrastructure storage display, inventory import, stale inventory import conflicts, provisioning frontend/backend synchronization, and Node Management SSH connectivity were fixed before the current documentation refresh.
 - Docker deployment runtime diagnostics were improved with per-target execution output, better status/error visibility, runtime refresh reconciliation, Docker discovery sudo fallback, and permission-aware messaging.
 - Identity discovery, user/group creation, discovered-object adoption, group membership synchronization, sudo credential propagation, and user/group card host-origin context were improved.
+
+### Documentation And Code Audit on 2026-06-06
+
+The 2026-06-06 documentation/code audit aligned durable Markdown docs with the current router tree, frontend route tree, and runtime snapshot models:
+
+- `docs/api.md` now lists the more exact implemented route surface for auth, inventory, Proxmox, Jobs, integrations, provisioning, monitoring, and runtime-state refresh.
+- `docs/architecture/backend.md` now includes audit, runtime-state, variables, and the centralized router authorization boundary.
+- `docs/architecture/frontend.md` now matches `frontend/src/app/router.tsx`, including route groups for authenticated, operator, and admin users.
+- `docs/architecture/runtime-snapshots.md` now describes the implemented snapshot/status/event tables more precisely.
+- The current review log is `docs/project-review-2026-06-06-doc-code-audit.md`.
 - Failed job completion and failed audit events now log at error severity. Human-readable logs are the default with JSON logging still available through `LOG_FORMAT=json`.
 - The local ignored `backlog.md` is the manual stabilization tracker. Items believed fixed should be marked `Needs testing` until manual validation confirms the final status.
 - Full backend validation passed locally with `DEBUG=false .venv/bin/python -m pytest backend/tests -q` producing 147 passing tests after the Identity replication credential changes.

@@ -15,7 +15,7 @@ infrastructure profiles, editable operational templates, credential-backed secre
 Linux identity orchestration, remote shell/file access, runtime diagnostics, simple variable-driven execution, and
 production-aware security guardrails.
 
-The latest preparation review is documented in `docs/project-review-2026-05-27-prep.md`.
+The latest code/documentation review is documented in `docs/project-review-2026-06-06-doc-code-audit.md`.
 
 ## MVP Domains
 

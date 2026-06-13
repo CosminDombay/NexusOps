@@ -44,19 +44,31 @@ Key files:
 Current main routes:
 
 - `/` inventory
+- `/nodes/:id` host detail alias
 - `/inventory/:id` host detail
 - `/infrastructure` Proxmox visibility, import, and inventory synchronization
-- `/infrastructure/credentials` credential manager
 - `/infrastructure/nodes/:id` Proxmox node detail
+- `/monitoring` monitoring readiness
+- `/workflows` workflow runs and timelines
 - `/jobs` SSH-backed operations and job history
+- `/inventory/:id/tools` inventory-bounded Host Tools workspace
+- `/automations` scheduled automation management
 - `/identity` Linux user, group, SSH key, sudo, and permission replication
+- `/infrastructure/credentials` credential manager
 - `/packages` package definition catalog
 - `/profiles` reusable infrastructure profile templates
 - `/provisioning` Proxmox template provisioning workflow
 - `/deployments` Docker Compose deployment workflows
-- `/monitoring` Prometheus/Grafana monitoring foundations
 - `/settings/integrations` integration records and connection tests
 - `/settings/users` admin-only user and RBAC lifecycle management
+
+Route authorization mirrors `frontend/src/app/router.tsx`:
+
+```text
+authenticated: /, /nodes/:id, /inventory/:id, /infrastructure, /infrastructure/nodes/:id, /monitoring, /workflows
+operator: /provisioning, /deployments, /packages, /profiles, /jobs, /automations, /inventory/:id/tools
+admin: /infrastructure/credentials, /identity, /settings/integrations, /settings/users
+```
 
 ## Feature-Based Structure
 
