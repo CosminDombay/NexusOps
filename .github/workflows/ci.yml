@@ -179,3 +179,44 @@ jobs:
           test "${{ needs.backend-tests.result }}" = "success"
           test "${{ needs.backend-migrations.result }}" = "success"
           test "${{ needs.frontend.result }}" = "success"
+
+  staging-deploy:
+    name: Validate and deploy staging
+    runs-on: self-hosted
+    timeout-minutes: 45
+    needs:
+      - ci-summary
+    if: github.event_name == 'push' && github.ref == 'refs/heads/development'
+    environment: staging
+    concurrency:
+      group: staging-deploy
+      cancel-in-progress: false
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          clean: false
+
+      - name: Set executable permissions
+        run: chmod +x scripts/*.sh
+
+      - name: Backend validation
+        run: ./scripts/ci-backend.sh
+
+      - name: Frontend validation
+        run: ./scripts/ci-frontend.sh
+
+      - name: Create staging env file
+        env:
+          STAGING_ENV_FILE: ${{ secrets.STAGING_ENV_FILE || secrets.NEXUSOPS_STAGING_ENV_FILE }}
+        run: |
+          if [[ -z "$STAGING_ENV_FILE" ]]; then
+            echo "STAGING_ENV_FILE is empty or unavailable to this workflow." >&2
+            echo "Create an environment or repository secret named STAGING_ENV_FILE." >&2
+            exit 1
+          fi
+          umask 077
+          printf '%s\n' "$STAGING_ENV_FILE" > .env
+
+      - name: Deploy stack
+        run: ./scripts/deploy.sh

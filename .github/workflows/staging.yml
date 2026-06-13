@@ -1,13 +1,6 @@
-name: NexusOps Staging Deploy
+name: NexusOps Manual Staging Deploy
 
 on:
-  workflow_run:
-    workflows:
-      - CI
-    types:
-      - completed
-    branches:
-      - development
   workflow_dispatch:
 
 permissions:
@@ -23,7 +16,6 @@ jobs:
     runs-on: self-hosted
     timeout-minutes: 45
     environment: staging
-    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
 
     steps:
       - name: Checkout repository
