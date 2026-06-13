@@ -1,3 +1,4 @@
+from datetime import UTC, datetime
 from types import SimpleNamespace
 from typing import Any
 from uuid import uuid4
@@ -5,9 +6,18 @@ from uuid import uuid4
 import pytest
 
 from backend.app.adapters.ssh import SshAdapter, SshExecutionResult
+from backend.app.common.constants import (
+    InventoryHealthStatus,
+    InventorySyncStatus,
+    ManagedNodeType,
+    ManagementState,
+    ServerEnvironment,
+    ServerStatus,
+)
 from backend.app.modules.credentials.schemas import ResolvedCredential
 from backend.app.modules.inventory.discovery import HostDiscoveryService
 from backend.app.modules.inventory.models import ServerSshAuthMethod
+from backend.app.modules.inventory.schemas import ServerRead
 from backend.app.modules.proxmox.schemas import ProxmoxVmRead
 from backend.app.modules.proxmox.service import ProxmoxService
 
@@ -250,6 +260,92 @@ def test_inventory_update_password_auth_response_does_not_require_echoed_secret(
     payload = update_response.json()
     assert payload["ssh_auth_method"] == "password"
     assert "ssh_password" not in payload
+
+
+def test_inventory_read_tolerates_password_auth_without_current_secret() -> None:
+    now = datetime.now(UTC)
+    server = SimpleNamespace(
+        id=uuid4(),
+        hostname="orphaned-password-host",
+        ip_address="10.0.0.32",
+        operating_system="Ubuntu",
+        vmid=None,
+        node_type=ManagedNodeType.PHYSICAL,
+        environment=ServerEnvironment.LAB,
+        tags=[],
+        ssh_port=22,
+        ssh_username="ubuntu",
+        ssh_auth_method=ServerSshAuthMethod.PASSWORD,
+        ssh_password=None,
+        ssh_private_key_path=None,
+        trusted_ssh_host_key_sha256=None,
+        trusted_ssh_host_key_accepted_at=None,
+        credential_id=None,
+        status=ServerStatus.UNKNOWN,
+        provider="manual",
+        external_id=None,
+        source="manual",
+        integration_id=None,
+        source_type="manual",
+        managed=True,
+        management_state=ManagementState.MANAGED,
+        lifecycle_state="managed",
+        sync_status=InventorySyncStatus.UNKNOWN,
+        sync_state=InventorySyncStatus.UNKNOWN,
+        provider_node=None,
+        provider_type=None,
+        monitoring_interface=None,
+        monitoring_target=None,
+        monitoring_strategy=None,
+        provider_metadata={},
+        sync_metadata={},
+        capabilities=[],
+        last_seen_at=None,
+        last_sync_at=None,
+        stale_since=None,
+        last_health_check_at=None,
+        last_health_status=InventoryHealthStatus.UNKNOWN,
+        last_health_error=None,
+        created_at=now,
+        updated_at=now,
+        runtime_state=None,
+    )
+
+    payload = ServerRead.model_validate(server)
+
+    assert payload.hostname == "orphaned-password-host"
+    assert payload.ssh_auth_method == ServerSshAuthMethod.PASSWORD
+    assert payload.credential_id is None
+
+
+def test_credential_delete_is_blocked_when_inventory_server_references_it(client) -> None:
+    credential_response = client.post(
+        "/api/v1/credentials",
+        json={
+            "name": "inventory-ssh-password",
+            "credential_type": "ssh_password",
+            "username": "ubuntu",
+            "secret": "secret-password",
+        },
+    )
+    assert credential_response.status_code == 201
+    credential_id = credential_response.json()["id"]
+
+    server_response = client.post(
+        "/api/v1/servers",
+        json=server_payload(
+            hostname="credential-backed-host",
+            ip_address="10.0.0.33",
+            ssh_auth_method="password",
+            credential_id=credential_id,
+        ),
+    )
+    assert server_response.status_code == 201
+
+    delete_response = client.delete(f"/api/v1/credentials/{credential_id}")
+
+    assert delete_response.status_code == 409
+    assert "inventory server" in delete_response.json()["detail"]
 
 
 @pytest.mark.asyncio

@@ -1,5 +1,6 @@
 from uuid import UUID
 
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 
 from backend.app.modules.credentials.encryption_service import EncryptionService
@@ -11,6 +12,7 @@ from backend.app.modules.credentials.schemas import (
     CredentialUpdate,
     ResolvedCredential,
 )
+from backend.app.modules.inventory.models import Server
 
 
 class CredentialConflictError(Exception):
@@ -19,6 +21,10 @@ class CredentialConflictError(Exception):
 
 class CredentialNotFoundError(Exception):
     """Raised when a credential cannot be found."""
+
+
+class CredentialInUseError(Exception):
+    """Raised when a credential is still referenced by an orchestration record."""
 
 
 class CredentialService:
@@ -93,6 +99,12 @@ class CredentialService:
         credential = await self.repository.get_by_id(credential_id)
         if credential is None:
             raise CredentialNotFoundError("Credential not found")
+        server_count = await self._count_inventory_references(credential_id)
+        if server_count:
+            raise CredentialInUseError(
+                f"Credential is still referenced by {server_count} inventory server(s). "
+                "Update those servers before deleting this credential."
+            )
         await self.repository.delete(credential)
         await self.repository.session.commit()
 
@@ -133,3 +145,9 @@ class CredentialService:
             created_at=credential.created_at,
             updated_at=credential.updated_at,
         )
+
+    async def _count_inventory_references(self, credential_id: UUID) -> int:
+        result = await self.repository.session.execute(
+            select(func.count()).select_from(Server).where(Server.credential_id == credential_id)
+        )
+        return int(result.scalar_one())

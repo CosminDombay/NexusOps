@@ -229,6 +229,10 @@ class ServerRead(ServerBase):
 
     model_config = ConfigDict(from_attributes=True)
 
+    @model_validator(mode="after")
+    def validate_ssh_auth(self) -> Self:
+        return self
+
 
 class InventoryReadinessSignal(BaseModel):
     key: str

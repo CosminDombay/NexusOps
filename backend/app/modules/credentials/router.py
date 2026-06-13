@@ -13,6 +13,7 @@ from backend.app.modules.credentials.repository import CredentialRepository
 from backend.app.modules.credentials.schemas import CredentialCreate, CredentialRead, CredentialUpdate
 from backend.app.modules.credentials.service import (
     CredentialConflictError,
+    CredentialInUseError,
     CredentialNotFoundError,
     CredentialService,
 )
@@ -108,3 +109,5 @@ async def delete_credential(
         )
     except CredentialNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except CredentialInUseError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
