@@ -200,11 +200,8 @@ jobs:
       - name: Set executable permissions
         run: chmod +x scripts/*.sh
 
-      - name: Backend validation
-        run: ./scripts/ci-backend.sh
-
-      - name: Frontend validation
-        run: ./scripts/ci-frontend.sh
+      - name: Ensure runner dependencies
+        run: ./scripts/ensure-runner-env.sh
 
       - name: Create staging env file
         env:
@@ -217,6 +214,9 @@ jobs:
           fi
           umask 077
           printf '%s\n' "$STAGING_ENV_FILE" > .env
+
+      - name: Validate Docker Compose config
+        run: docker compose config --quiet
 
       - name: Deploy stack
         run: ./scripts/deploy.sh

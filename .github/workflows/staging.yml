@@ -1,7 +1,17 @@
-name: NexusOps Manual Staging Deploy
+name: NexusOps Staging Maintenance
 
 on:
   workflow_dispatch:
+    inputs:
+      task:
+        description: "Choose what to run on the self-hosted staging runner."
+        required: true
+        default: "validate-and-deploy"
+        type: choice
+        options:
+          - prepare-runner
+          - validate-and-deploy
+          - deploy-only
 
 permissions:
   contents: read
@@ -11,8 +21,8 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  deploy:
-    name: Validate and deploy staging
+  staging-maintenance:
+    name: Staging maintenance
     runs-on: self-hosted
     timeout-minutes: 45
     environment: staging
@@ -26,13 +36,23 @@ jobs:
       - name: Set executable permissions
         run: chmod +x scripts/*.sh
 
+      - name: Ensure runner dependencies
+        run: ./scripts/ensure-runner-env.sh
+
       - name: Backend validation
+        if: ${{ inputs.task != 'deploy-only' }}
+        env:
+          SKIP_BACKEND_DEP_INSTALL: "true"
         run: ./scripts/ci-backend.sh
 
       - name: Frontend validation
+        if: ${{ inputs.task != 'deploy-only' }}
+        env:
+          SKIP_NPM_CI: "true"
         run: ./scripts/ci-frontend.sh
 
       - name: Create staging env file
+        if: ${{ inputs.task != 'prepare-runner' }}
         env:
           STAGING_ENV_FILE: ${{ secrets.STAGING_ENV_FILE || secrets.NEXUSOPS_STAGING_ENV_FILE }}
         run: |
@@ -44,5 +64,10 @@ jobs:
           umask 077
           printf '%s\n' "$STAGING_ENV_FILE" > .env
 
+      - name: Validate Docker Compose config
+        if: ${{ inputs.task != 'prepare-runner' }}
+        run: docker compose config --quiet
+
       - name: Deploy stack
+        if: ${{ inputs.task != 'prepare-runner' }}
         run: ./scripts/deploy.sh

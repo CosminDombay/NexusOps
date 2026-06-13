@@ -13,12 +13,14 @@ if ! command -v "$PYTHON_BIN" >/dev/null 2>&1; then
   exit 1
 fi
 
-if [[ ! -d "$VENV_DIR" ]]; then
-  "$PYTHON_BIN" -m venv "$VENV_DIR"
-fi
+if [[ "${SKIP_BACKEND_DEP_INSTALL:-false}" != "true" ]]; then
+  if [[ ! -d "$VENV_DIR" ]]; then
+    "$PYTHON_BIN" -m venv "$VENV_DIR"
+  fi
 
-"$VENV_DIR/bin/python" -m pip install --upgrade pip setuptools wheel
-"$VENV_DIR/bin/python" -m pip install -r "$REPO_ROOT/requirements.txt"
+  "$VENV_DIR/bin/python" -m pip install --upgrade pip setuptools wheel
+  "$VENV_DIR/bin/python" -m pip install -r "$REPO_ROOT/requirements.txt"
+fi
 
 export DEBUG=false
 export CORS_ORIGINS="${CORS_ORIGINS:-[\"http://localhost:5173\",\"http://127.0.0.1:5173\"]}"
