@@ -47,11 +47,15 @@ class FakeSshAdapter(SshAdapter):
 
 class FakeCredentialService:
     async def resolve_credential(self, credential_id_or_name):
+        secrets = {
+            "account-password": "AccountSecret123!",
+            "sudo-password": "SudoSecret123!",
+        }
         return ResolvedCredential(
             id="11111111-1111-1111-1111-111111111111",
             name=str(credential_id_or_name),
             credential_type="password",
-            secret="SuperSecret123!",
+            secret=secrets.get(str(credential_id_or_name), "SuperSecret123!"),
         )
 
 
@@ -397,7 +401,7 @@ async def test_linux_user_replication_uses_selected_sudo_credential(client) -> N
         assert "sudo() { SUDO_ASKPASS=\"$NEXUSOPS_ASKPASS\" command sudo -A -p '' \"$@\"; }" in adapter.calls[0]["command"]
         assert "| sudo tee /etc/sudoers.d/nexusops-deploy" in adapter.calls[0]["command"]
         assert "SuperSecret123!" not in adapter.calls[0]["command"]
-        assert adapter.calls[0]["input_data"] == "SuperSecret123!\n"
+        assert adapter.calls[0]["input_data"] == "SudoSecret123!\n"
 
 
 @pytest.mark.asyncio
@@ -433,7 +437,44 @@ async def test_linux_user_create_splits_account_password_from_execution_credenti
         )
 
         assert "chpasswd" in adapter.calls[0]["command"]
-        assert adapter.calls[0]["input_data"] == "SuperSecret123!\n"
+        assert "AccountSecret123!" in adapter.calls[0]["command"]
+        assert "SudoSecret123!" not in adapter.calls[0]["command"]
+        assert adapter.calls[0]["input_data"] == "SudoSecret123!\n"
+
+
+@pytest.mark.asyncio
+async def test_linux_user_create_does_not_use_account_password_as_sudo_credential(client) -> None:
+    session = next(iter(client.app.dependency_overrides.values()))
+    async for db_session in session():
+        server = await InventoryService(ServerRepository(db_session)).create_server(
+            ServerCreate(**server_payload(hostname="identity-account-only-01", ip_address="10.4.0.23"))
+        )
+        adapter = FakeSshAdapter()
+        service = LinuxUserService(
+            repository=LinuxUserRepository(db_session),
+            replication_service=IdentityReplicationService(
+                job_service=JobService(
+                    job_repository=JobRepository(db_session),
+                    server_repository=ServerRepository(db_session),
+                    ssh_adapter=adapter,
+                    credential_service=FakeCredentialService(),
+                ),
+                execution_repository=IdentityExecutionRepository(db_session),
+            ),
+            credential_service=FakeCredentialService(),
+        )
+
+        await service.create_user(
+            LinuxUserCreate(
+                username="deploy",
+                password_credential_ref="account-password",
+                target_server_ids=[server.id],
+            )
+        )
+
+        assert "chpasswd" in adapter.calls[0]["command"]
+        assert "AccountSecret123!" in adapter.calls[0]["command"]
+        assert adapter.calls[0]["input_data"] is None
 
 
 @pytest.mark.asyncio
@@ -471,4 +512,4 @@ async def test_linux_user_update_can_use_execution_credential_without_resetting_
 
         assert "chpasswd" not in adapter.calls[0]["command"]
         assert "sudo usermod -aG" in adapter.calls[0]["command"]
-        assert adapter.calls[0]["input_data"] == "SuperSecret123!\n"
+        assert adapter.calls[0]["input_data"] == "SudoSecret123!\n"

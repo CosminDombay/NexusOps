@@ -500,7 +500,7 @@ export function IdentityPage() {
   }
 
   function executionCredentialRef() {
-    return form.executionCredentialId || form.passwordCredentialId || null;
+    return form.executionCredentialId || null;
   }
 
   async function deleteSelectedObject() {
