@@ -9,7 +9,7 @@ on:
       - "*.md"
   push:
     branches:
-      - main
+      - development
     paths-ignore:
       - "docs/**"
       - "review/**"
