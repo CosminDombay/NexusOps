@@ -318,16 +318,7 @@ class DockerComposeDeploymentService:
         deployment.credential_refs = payload.credential_refs
         deployment.execution_credential_ref = payload.execution_credential_ref
         deployment.status = DeploymentStatus.DRAFT
-        await self.target_repository.delete_for_deployment(deployment.id)
-        for server in servers:
-            await self.target_repository.create(
-                DeploymentTarget(
-                    deployment_id=deployment.id,
-                    server_id=server.id,
-                    remote_path=payload.remote_path,
-                    status=DeploymentStatus.DRAFT,
-                )
-            )
+        await self._sync_deployment_targets(deployment, [server.id for server in servers], payload.remote_path)
 
         await self.repository.session.commit()
         await self.repository.session.refresh(deployment)
@@ -906,6 +897,37 @@ class DockerComposeDeploymentService:
         validation = validate_compose_content(compose_content)
         if validation.errors:
             raise DeploymentValidationError("; ".join(validation.errors))
+
+    async def _sync_deployment_targets(
+        self,
+        deployment: Deployment,
+        target_server_ids: list[UUID],
+        remote_path: str,
+    ) -> None:
+        existing_targets = await self.target_repository.list_for_deployment(deployment.id)
+        existing_by_server = {target.server_id: target for target in existing_targets}
+        desired_ids = set(target_server_ids)
+
+        removed_target_ids = [
+            target.id for target in existing_targets if target.server_id not in desired_ids
+        ]
+        await self.target_execution_repository.delete_for_targets(removed_target_ids)
+        await self.target_repository.delete_by_ids(removed_target_ids)
+
+        for server_id in target_server_ids:
+            target = existing_by_server.get(server_id)
+            if target is None:
+                await self.target_repository.create(
+                    DeploymentTarget(
+                        deployment_id=deployment.id,
+                        server_id=server_id,
+                        remote_path=remote_path,
+                        status=DeploymentStatus.DRAFT,
+                    )
+                )
+                continue
+            target.remote_path = remote_path
+            target.status = DeploymentStatus.DRAFT
 
     async def _validate_execution_credential_ref(self, credential_ref: str | None) -> None:
         if not credential_ref or self.credential_service is None:

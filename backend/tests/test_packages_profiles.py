@@ -568,6 +568,58 @@ async def test_deployment_update_rejects_missing_execution_credential(client) ->
 
 
 @pytest.mark.asyncio
+async def test_deployment_update_preserves_existing_target_after_execution(client) -> None:
+    session = next(iter(client.app.dependency_overrides.values()))
+    async for db_session in session():
+        server = await InventoryService(ServerRepository(db_session)).create_server(
+            ServerCreate(**server_payload(hostname="preserve-target-01", ip_address="10.2.0.19"))
+        )
+        adapter = FakeSshAdapter()
+        server_repository = ServerRepository(db_session)
+        service = DockerComposeDeploymentService(
+            repository=DeploymentRepository(db_session),
+            target_repository=DeploymentTargetRepository(db_session),
+            revision_repository=DeploymentRevisionRepository(db_session),
+            server_repository=server_repository,
+            job_service=JobService(
+                job_repository=JobRepository(db_session),
+                server_repository=server_repository,
+                ssh_adapter=adapter,
+            ),
+        )
+        deployment = await service.create_deployment(
+            DeploymentCreate(
+                name="preserve-target-deployment",
+                target_server_id=server.id,
+                compose_content="services:\n  web:\n    image: nginx:alpine\n",
+            )
+        )
+        await service.deploy(deployment.id)
+        targets_before = await service.target_repository.list_for_deployment(deployment.id)
+        target_executions_before = await service.target_execution_repository.list_for_deployment(deployment.id)
+
+        updated = await service.update_deployment(
+            deployment.id,
+            DeploymentCreate(
+                name="preserve-target-deployment",
+                target_server_id=server.id,
+                compose_content="services:\n  web:\n    image: caddy:alpine\n",
+                remote_path="/opt/nexusops/updated",
+                execution_credential_ref="deploy-sudo-password",
+            ),
+        )
+        targets_after = await service.target_repository.list_for_deployment(deployment.id)
+        target_executions_after = await service.target_execution_repository.list_for_deployment(deployment.id)
+
+        assert updated.execution_credential_ref == "deploy-sudo-password"
+        assert updated.remote_path == "/opt/nexusops/updated"
+        assert [target.id for target in targets_after] == [target.id for target in targets_before]
+        assert [execution.id for execution in target_executions_after] == [
+            execution.id for execution in target_executions_before
+        ]
+
+
+@pytest.mark.asyncio
 async def test_deployment_service_uses_execution_credential_for_docker_jobs(client) -> None:
     session = next(iter(client.app.dependency_overrides.values()))
     async for db_session in session():

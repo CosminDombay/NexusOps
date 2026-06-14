@@ -64,6 +64,11 @@ class DeploymentTargetRepository(BaseRepository[DeploymentTarget]):
     async def delete_for_deployment(self, deployment_id: UUID) -> None:
         await self.session.execute(delete(DeploymentTarget).where(DeploymentTarget.deployment_id == deployment_id))
 
+    async def delete_by_ids(self, target_ids: list[UUID]) -> None:
+        if not target_ids:
+            return
+        await self.session.execute(delete(DeploymentTarget).where(DeploymentTarget.id.in_(target_ids)))
+
 
 class DeploymentRevisionRepository(BaseRepository[DeploymentRevision]):
     async def create(self, revision: DeploymentRevision) -> DeploymentRevision:
@@ -138,3 +143,8 @@ class DeploymentTargetExecutionRepository(BaseRepository[DeploymentTargetExecuti
         await self.session.execute(
             delete(DeploymentTargetExecution).where(DeploymentTargetExecution.deployment_id == deployment_id)
         )
+
+    async def delete_for_targets(self, target_ids: list[UUID]) -> None:
+        if not target_ids:
+            return
+        await self.session.execute(delete(DeploymentTargetExecution).where(DeploymentTargetExecution.target_id.in_(target_ids)))
