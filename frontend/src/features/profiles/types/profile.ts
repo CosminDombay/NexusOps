@@ -3,9 +3,9 @@ import type { Job } from '../../jobs/types/job';
 export type ProfileStep = {
   id: string;
   name: string;
-  kind: 'action' | 'package' | 'command' | 'deployment' | 'script';
+  kind: 'action' | 'package' | 'command' | 'deployment' | 'script' | 'identity_user' | 'identity_group' | 'identity_permission';
   reference_id: string;
-  type?: 'action' | 'package' | 'deployment' | 'script' | null;
+  type?: 'action' | 'package' | 'deployment' | 'script' | 'identity_user' | 'identity_group' | 'identity_permission' | null;
   target?: string | null;
   enabled?: boolean;
   credential_ref?: string | null;

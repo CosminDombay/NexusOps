@@ -423,6 +423,7 @@ class LinuxUserService:
             username=payload.username,
             shell=payload.shell,
             home_directory=payload.home_directory or f"/home/{payload.username}",
+            password_credential_ref=payload.password_credential_ref,
             sudo_enabled=payload.sudo_enabled,
             sudo_nopasswd=payload.sudo_nopasswd,
             locked=payload.locked,
@@ -459,6 +460,7 @@ class LinuxUserService:
             username=payload.username,
             shell=payload.shell,
             home_directory=payload.home_directory or f"/home/{payload.username}",
+            password_credential_ref=payload.password_credential_ref,
             sudo_enabled=payload.sudo_enabled,
             sudo_nopasswd=payload.sudo_nopasswd,
             locked=payload.locked,
@@ -488,6 +490,7 @@ class LinuxUserService:
         )
         user.shell = payload.shell
         user.home_directory = next_home_directory
+        user.password_credential_ref = payload.password_credential_ref
         user.sudo_enabled = payload.sudo_enabled
         user.sudo_nopasswd = payload.sudo_nopasswd
         user.locked = payload.locked

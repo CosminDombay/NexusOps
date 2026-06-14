@@ -21,6 +21,7 @@ class LinuxUser(Base, UuidPrimaryKeyMixin, TimestampMixin):
     username: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)
     shell: Mapped[str] = mapped_column(String(255), default="/bin/bash", nullable=False)
     home_directory: Mapped[str] = mapped_column(String(500), nullable=False)
+    password_credential_ref: Mapped[str | None] = mapped_column(String(255), nullable=True)
     sudo_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     sudo_nopasswd: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     locked: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)

@@ -112,6 +112,7 @@ class LinuxUserRead(BaseModel):
     username: str
     shell: str
     home_directory: str
+    password_credential_ref: str | None
     sudo_enabled: bool
     sudo_nopasswd: bool
     locked: bool

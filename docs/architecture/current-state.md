@@ -179,8 +179,8 @@ The implemented system is focused on foundations, visibility, narrowly scoped pr
   - editable built-in working copies that preserve recoverable system defaults
   - clone workflow for deriving user-managed profiles from built-ins or custom records
   - restore-default workflow for built-in profile overrides
-  - action, package, and raw command steps
-  - structured visual step cards for package, action, deployment placeholder, and script placeholder steps
+  - action, package, deployment, Identity user, Identity group, Identity permission, and raw command steps
+  - structured visual step cards for package, action, deployment, Identity, and script steps
   - variable definitions through a visual editor
   - execution modal with normal runtime inputs and credential dropdowns for sensitive variables
   - move up/down and drag-and-drop step ordering in the editor
@@ -226,13 +226,14 @@ The implemented system is focused on foundations, visibility, narrowly scoped pr
   - NexusOps treats Prometheus and Grafana as external observability tools, not dashboard lifecycle systems
 - Linux identity orchestration:
   - reusable Linux user and group records
+  - optional stored account password credential references on managed Linux users
   - SSH public key records
   - filesystem permission templates
   - user/group/key/permission replication across selected inventory hosts
   - existing Linux user and group discovery through Jobs
   - discovered user/group adoption into managed records
   - managed user edit/delete and managed group edit/delete flows
-  - optional Credential Manager password selection when creating/updating Linux users; passwords are applied with `chpasswd` and redacted from Job history
+  - optional Credential Manager password selection when creating/updating Linux users; stored account password credential references can be reused by Profile Identity steps; passwords are applied with `chpasswd` and redacted from Job history
   - selected password/SSH-password credential support for sudo-backed user/group replication, lock/unlock, shell-disable, password-expire, and member add/remove actions
   - group-only user updates avoid unrelated password, lock, sudoers, and shell/home operations unless those fields changed
   - live user group inspection per host using `id -nG`
@@ -294,13 +295,13 @@ Inventory remains the source of managed execution targets. Jobs persist every co
 
 Package definitions describe reusable install, uninstall, validation, variable, and metadata fields. Built-in package definitions provide starter standards, and custom definitions can be created for local workflows. Built-ins can also be edited as persisted working copies: the original code-defined template remains recoverable, while the persisted record carries `is_builtin`, `is_modified`, `base_version`, `source_template_id`, and `modified_at` metadata.
 
-Profiles compose ordered package/action/command steps and apply them to inventory-managed hosts through the Jobs pipeline:
+Profiles compose ordered package/action/deployment/Identity/command steps and apply them to inventory-managed hosts through the Jobs pipeline:
 
 ```text
-Profile -> Package/Action step -> Job -> SSH adapter -> managed Linux host
+Profile -> Package/Action/Deployment/Identity step -> Job -> SSH adapter -> managed Linux host
 ```
 
-Profile execution is synchronous and sequential for the MVP. Each step creates a persisted job. Profiles can be built from built-in actions, built-in packages, custom package definitions, and raw command steps. Built-in profiles can be edited as persisted working copies, cloned into user-managed templates, or reset to the code-defined default.
+Profile execution is synchronous and sequential for the MVP. Each step creates a persisted job or calls a module service that creates persisted Jobs. Profiles can be built from built-in actions, built-in packages, custom package definitions, Docker Compose deployments, managed Identity users/groups/permission templates, and raw command steps. Built-in profiles can be edited as persisted working copies, cloned into user-managed templates, or reset to the code-defined default.
 
 Template variables use the intentionally small syntax `{{ variable_name }}`. Variables are resolved before Jobs execution using definition defaults, execution-time inputs, and server-side credential references for sensitive values. Sensitive variables marked `sensitive=true` must be supplied as `credential_refs`; plaintext sensitive variable values are rejected. This is not a full templating engine: NexusOps does not execute Jinja, Python, or arbitrary template logic.
 
@@ -550,7 +551,7 @@ The 2026-06-04 stabilization update tightened execution credentials, deployment 
 - No centralized domain identity provider. Identity is Linux orchestration only; LDAP, Kerberos, FreeIPA, Active Directory, SSSD, PAM rewriting, and login federation are intentionally out of scope.
 - Identity discovery reads live Linux state through Jobs and does not yet persist per-host user/group membership snapshots as first-class inventory records.
 - Identity UI still needs a clearer target-first matrix for large environments so managed records, discovered host observations, and drift/reconciliation status are not visually blended.
-- Identity should split "account password to set" from "execution/sudo credential" so operators do not confuse password reset with sudo authentication.
+- Identity splits "account password to set" from "execution/sudo credential"; future UX work should continue making that distinction visible in target-first workflows.
 - Existing `docs/architecture.md` is older and less precise than the newer files in `docs/architecture/`.
 - Runtime adapter support from persisted integration records is partial; Proxmox and Monitoring can resolve active integration records, while future adapters still need deeper runtime integration.
 - Proxmox integration failover/replacement workflows are not implemented yet.

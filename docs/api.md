@@ -1,10 +1,12 @@
 # NexusOps API Overview
 
-Current date: 2026-06-06
+Current date: 2026-06-13
 
 NexusOps exposes its backend API under `/api/v1` by default. The prefix is configurable through `API_V1_PREFIX`.
 
 OpenAPI is available at `/api/v1/openapi.json` and Swagger UI at `/docs` when `ENABLE_OPENAPI=true` or the app is not running in production. In production, set `ENABLE_OPENAPI=false` if public API documentation should be hidden.
+
+This overview was refreshed against the versioned router map and feature routes on 2026-06-13. It remains a compact operator/developer guide rather than a generated endpoint reference; use Swagger/OpenAPI for request and response schemas.
 
 ## Authentication
 
@@ -107,6 +109,8 @@ Provisioning uses Proxmox templates/cloud-init only. It registers Inventory befo
 
 Packages and profiles resolve into Jobs. Automations create WorkflowRuns and dispatch through existing service pipelines.
 
+Profiles can include package, action, deployment, raw command, Identity user, Identity group, and Identity permission steps. Identity profile steps reference managed Identity records and execute through the existing Identity -> Jobs -> SSH path.
+
 Package, profile, and automation execution can carry an execution/sudo credential reference where privileged Linux commands need sudo. Automations persist this reference so unattended scheduled runs use the same execution credential.
 
 ## Deployments
@@ -129,7 +133,7 @@ Deployment validation and dry-run preview expose Compose validation, service nam
 - permission template CRUD/replication
 - access profiles, group presets, and permission presets
 
-Identity is Linux infrastructure orchestration, not platform login federation. It uses Jobs for SSH execution, supports discovered user/group adoption, passes selected password/SSH-password credentials into sudo-backed replication, and excludes the `root` account from orchestration.
+Identity is Linux infrastructure orchestration, not platform login federation. It uses Jobs for SSH execution, supports discovered user/group adoption, stores optional account password credential references for managed Linux users, passes selected password/SSH-password credentials into sudo-backed replication, and excludes the `root` account from orchestration.
 
 ## Remote Access
 
@@ -154,6 +158,8 @@ Remote Access only targets Inventory-managed hosts. Shell WebSockets use short-l
   - `POST /api/v1/runtime-state/refresh/all`
 
 Monitoring is snapshot-first during ordinary page rendering. Explicit refresh flows update snapshots and validation attempts.
+
+Runtime-state endpoints report refresh status and trigger backend-owned refresh tasks for inventory and deployment snapshots. They are intended to keep frontend pages polling normalized persisted state instead of performing live infrastructure checks during ordinary rendering.
 
 ## Audit
 

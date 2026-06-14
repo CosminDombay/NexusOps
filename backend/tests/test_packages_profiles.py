@@ -15,6 +15,19 @@ from backend.app.modules.deployments.repository import (
 from backend.app.modules.deployments.schemas import DeploymentCreate
 from backend.app.modules.deployments.service import DockerComposeDeploymentService
 from backend.app.modules.deployments.runtime import validate_compose_content
+from backend.app.modules.identity.repository import (
+    IdentityExecutionRepository,
+    LinuxGroupRepository,
+    LinuxUserRepository,
+    PermissionTemplateRepository,
+)
+from backend.app.modules.identity.schemas import LinuxGroupCreate, LinuxUserCreate, PermissionTemplateCreate
+from backend.app.modules.identity.service import (
+    IdentityReplicationService,
+    LinuxGroupService,
+    LinuxPermissionService,
+    LinuxUserService,
+)
 from backend.app.modules.jobs.repository import JobRepository
 from backend.app.modules.jobs.service import JobService
 from backend.app.modules.packages.service import PackageAutomationService
@@ -295,6 +308,114 @@ async def test_profile_apply_runs_deployment_step(client) -> None:
         assert "\nNEXUSOPS_COMPOSE_EOF\ncat > .env <<'NEXUSOPS_ENV_EOF'" in command
         assert "nexusops_docker compose -f docker-compose.yaml --env-file .env up -d" in command
         assert "sudo docker \"$@\"" in command
+
+
+@pytest.mark.asyncio
+async def test_profile_apply_runs_identity_steps_from_managed_records(client) -> None:
+    session = next(iter(client.app.dependency_overrides.values()))
+    async for db_session in session():
+        server = await InventoryService(ServerRepository(db_session)).create_server(
+            ServerCreate(**server_payload(hostname="identity-profile-01", ip_address="10.2.0.17"))
+        )
+        adapter = FakeSshAdapter()
+        server_repository = ServerRepository(db_session)
+        job_service = JobService(
+            job_repository=JobRepository(db_session),
+            server_repository=server_repository,
+            ssh_adapter=adapter,
+            credential_service=FakeCredentialService(),
+        )
+        identity_replication = IdentityReplicationService(
+            job_service=job_service,
+            execution_repository=IdentityExecutionRepository(db_session),
+        )
+        user_service = LinuxUserService(
+            repository=LinuxUserRepository(db_session),
+            replication_service=identity_replication,
+            credential_service=FakeCredentialService(),
+        )
+        group_service = LinuxGroupService(
+            repository=LinuxGroupRepository(db_session),
+            replication_service=identity_replication,
+        )
+        permission_service = LinuxPermissionService(
+            repository=PermissionTemplateRepository(db_session),
+            replication_service=identity_replication,
+        )
+        user_response = await user_service.create_user(
+            LinuxUserCreate(
+                username="deploy",
+                shell="/bin/bash",
+                password_credential_ref="deploy-account-password",
+                sudo_enabled=True,
+                sudo_nopasswd=False,
+                target_server_ids=[],
+            )
+        )
+        group_response = await group_service.create_group(
+            LinuxGroupCreate(name="docker", description="Docker operators", target_server_ids=[])
+        )
+        permission = await permission_service.create_template(
+            PermissionTemplateCreate(
+                path="/opt/app",
+                owner="deploy",
+                group="docker",
+                mode="0755",
+                recursive=False,
+            )
+        )
+        profile_service = ProfileService(
+            job_service=job_service,
+            repository=InfrastructureProfileRepository(db_session),
+            identity_user_service=user_service,
+            identity_group_service=group_service,
+            identity_permission_service=permission_service,
+        )
+        profile = await profile_service.create_profile(
+            InfrastructureProfileCreate(
+                id="identity-profile",
+                name="Identity Profile",
+                category="Identity",
+                description="Applies Identity templates.",
+                tags=[],
+                steps=[
+                    {
+                        "kind": "identity_group",
+                        "reference_id": str(group_response.item.id),
+                        "name": "Apply docker group",
+                    },
+                    {
+                        "kind": "identity_user",
+                        "reference_id": str(user_response.item.id),
+                        "name": "Apply deploy user",
+                    },
+                    {
+                        "kind": "identity_permission",
+                        "reference_id": str(permission.id),
+                        "name": "Apply app permissions",
+                    },
+                ],
+            )
+        )
+
+        result = await profile_service.apply_profile(
+            profile.id,
+            ProfileApplyRequest(target_server_id=server.id, execution_credential_ref="sudo-password"),
+        )
+
+        assert result.status == "success"
+        assert len(result.jobs) == 3
+        assert [job.operation_type for job in result.jobs] == [
+            "identity:group:docker:replicate",
+            "identity:user:deploy:update",
+            f"identity:permissions:{permission.id}:replicate",
+        ]
+        commands = "\n".join(call["command"] for call in adapter.calls)
+        assert "groupadd docker" in commands
+        assert "useradd -m -d /home/deploy -s /bin/bash deploy" in commands
+        assert "deploy:deploy-sudo-secret" in commands
+        assert "chown deploy:docker /opt/app" in commands
+        assert "chmod 0755 /opt/app" in commands
 
 
 @pytest.mark.asyncio

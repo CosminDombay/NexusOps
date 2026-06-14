@@ -168,6 +168,7 @@ backend/app/adapters/
   - built-in profile reset-to-default workflow
   - profile variable definitions and execution-time variable injection
   - raw command profile steps
+  - Identity user, group, and permission profile steps
   - frontend step reordering preview
 - Packages and Profiles frontend pages
 - Workflows domain:
@@ -237,6 +238,9 @@ backend/app/adapters/
 
 ## Operational Safety
 
+- At the start of each working session, Codex should check root `backlog.md` to understand local manual-test status, recent fixes, open retest items, and what should be summarized back to the user.
+- After each meaningful code or behavior change, Codex should review whether durable documentation needs updates and keep relevant docs current.
+- Session summaries should include a short backlog review: what was done, what was tested, what still needs manual testing, and what remains pending.
 - Proxmox lifecycle actions are intentionally limited to start, stop, reboot, and shutdown.
 - The backend resolves VM node/type server-side before dispatching lifecycle actions.
 - The backend validates VM existence and status before action dispatch.
@@ -260,6 +264,13 @@ backend/app/adapters/
 - SSH passwords and private key paths are temporary local MVP metadata; do not treat them as production-grade secret management.
 - Secrets must not be committed. Proxmox token values belong in local environment variables or ignored `.env` files.
 - Generated logs, screenshots, local SQLite files, and build artifacts must not be committed.
+- Local manual-testing trackers such as root `backlog.md`, review scratch files, and screenshots are for local use only and must not be pushed to the main repository.
+- Keep pushes clean: include only relevant code, migrations, tests, and durable project documentation intended for the main repository.
+- Codex must not push to `development` or `main` unless the user explicitly approves the exact changes to be pushed.
+- `development` is the test/validation branch for fixes and improvements. `main` is the stable branch.
+- Pushes to `development` may trigger automatic deployment to the development/test environment after the user approves the push.
+- Future production deployment target is a server named `nexusops`; deploy stable app versions from `main` only after fixes are validated and the user explicitly approves promotion.
+- Production deployment from `main` should be manually triggered, not silently run on every push unless the user changes this policy.
 
 ## Validation Requirements
 
@@ -272,3 +283,15 @@ Before finalizing substantial changes:
 - smoke-test inventory after backend changes
 - smoke-test `/api/v1/proxmox/dashboard` after Proxmox changes
 - smoke-test `/api/v1/jobs` and `/api/v1/jobs/actions` after Jobs/actions changes
+
+## Codex Project Skills
+
+The following local Codex skills are installed under `/home/cerberus/.codex/skills/` for NexusOps work:
+
+- `nexusops-backend`: backend module, service/repository/router, migrations, jobs/actions, adapters, auth/RBAC, credentials, Proxmox, monitoring, identity, deployment, workflow, automation, and backend test guidance.
+- `nexusops-frontend`: React/Vite/Tailwind feature structure, API/type contracts, shared operational UI, route loading, destructive-action confirmation, and frontend validation guidance.
+- `nexusops-review`: repository/change review checklist for architecture boundaries, operational safety, inventory constraints, secret handling, RBAC, migrations, frontend/backend contracts, and validation.
+
+## Review Snapshot
+
+As of 2026-06-13, the repository contains a broad implemented modular monolith with approximately 186 backend Python files, 108 frontend TypeScript/TSX files, and 35 Alembic migration files. Existing generated or local artifacts must remain out of commits. Current known intentionally-flexible areas include in-process scheduling/runtime execution, JSON runtime metadata columns marked for future typed-column promotion, persisted integration records that are not a full vault/rotation system, and polling/read-refresh patterns instead of realtime updates.

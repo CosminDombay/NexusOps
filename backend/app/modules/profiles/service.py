@@ -5,6 +5,8 @@ from sqlalchemy.exc import IntegrityError
 
 from backend.app.common.variables import VariableResolutionError, VariableResolutionService
 from backend.app.modules.deployments.service import DockerComposeDeploymentService
+from backend.app.modules.identity.schemas import LinuxUserUpdate, PermissionReplicateRequest, ReplicationRequest
+from backend.app.modules.identity.service import LinuxGroupService, LinuxPermissionService, LinuxUserService
 from backend.app.modules.jobs.actions import get_action
 from backend.app.modules.jobs.models import JobStatus
 from backend.app.modules.jobs.schemas import JobExecuteRequest
@@ -127,12 +129,18 @@ class ProfileService:
         repository: InfrastructureProfileRepository | None = None,
         package_repository: PackageDefinitionRepository | None = None,
         deployment_service: DockerComposeDeploymentService | None = None,
+        identity_user_service: LinuxUserService | None = None,
+        identity_group_service: LinuxGroupService | None = None,
+        identity_permission_service: LinuxPermissionService | None = None,
         workflow_service: WorkflowService | None = None,
     ) -> None:
         self.job_service = job_service
         self.repository = repository
         self.package_repository = package_repository
         self.deployment_service = deployment_service
+        self.identity_user_service = identity_user_service
+        self.identity_group_service = identity_group_service
+        self.identity_permission_service = identity_permission_service
         self.workflow_service = workflow_service
         self.variable_service = VariableResolutionService()
         self.command_builder = SafeCommandBuilder(self.variable_service)
@@ -339,6 +347,63 @@ class ProfileService:
             return deployment_result.jobs or ([deployment_result.job] if deployment_result.job else [])
 
         credential_ref = getattr(step, "credential_ref", None) or payload.execution_credential_ref
+        if step.kind == "identity_user":
+            if self.identity_user_service is None:
+                raise ProfileStepResolutionError("Identity user service is required for identity user profile steps")
+            try:
+                user_id = UUID(step.reference_id)
+            except ValueError as exc:
+                raise ProfileStepResolutionError(
+                    f"Identity user step requires a user UUID: {step.reference_id}"
+                ) from exc
+            user = await self.identity_user_service._user(user_id)
+            replication = await self.identity_user_service.update_user(
+                user.id,
+                LinuxUserUpdate(
+                    shell=user.shell,
+                    home_directory=user.home_directory,
+                    password_credential_ref=user.password_credential_ref,
+                    execution_credential_ref=credential_ref,
+                    sudo_enabled=user.sudo_enabled,
+                    sudo_nopasswd=user.sudo_nopasswd,
+                    locked=user.locked,
+                    managed=user.managed,
+                    supplementary_groups=[],
+                    target_server_ids=[payload.target_server_id],
+                ),
+            )
+            return self._jobs_from_identity_replication(replication.replication)
+
+        if step.kind == "identity_group":
+            if self.identity_group_service is None:
+                raise ProfileStepResolutionError("Identity group service is required for identity group profile steps")
+            try:
+                group_id = UUID(step.reference_id)
+            except ValueError as exc:
+                raise ProfileStepResolutionError(
+                    f"Identity group step requires a group UUID: {step.reference_id}"
+                ) from exc
+            replication = await self.identity_group_service.replicate_group(
+                group_id,
+                ReplicationRequest(target_server_ids=[payload.target_server_id], credential_ref=credential_ref),
+            )
+            return self._jobs_from_identity_replication(replication)
+
+        if step.kind == "identity_permission":
+            if self.identity_permission_service is None:
+                raise ProfileStepResolutionError("Identity permission service is required for identity permission profile steps")
+            try:
+                permission_id = UUID(step.reference_id)
+            except ValueError as exc:
+                raise ProfileStepResolutionError(
+                    f"Identity permission step requires a permission template UUID: {step.reference_id}"
+                ) from exc
+            replication = await self.identity_permission_service.replicate(
+                permission_id,
+                PermissionReplicateRequest(target_server_ids=[payload.target_server_id], credential_ref=credential_ref),
+            )
+            return self._jobs_from_identity_replication(replication)
+
         command, redacted_command = await self._resolve_step_commands(
             step.kind,
             step.reference_id,
@@ -494,6 +559,12 @@ class ProfileService:
         return "\n".join(errors) if errors else "Profile step failed"
 
     @staticmethod
+    def _jobs_from_identity_replication(replication):
+        if replication is None:
+            return []
+        return [result.job for result in replication.results if result.job is not None]
+
+    @staticmethod
     def _profile_workflow_summary(profile: InfrastructureProfileRead, status: str, jobs) -> dict:
         return {
             "profile_id": profile.id,
@@ -522,7 +593,7 @@ class ProfileService:
                 variables=variables,
             )
 
-        if kind in {"deployment", "script"}:
+        if kind in {"deployment", "script", "identity_user", "identity_group", "identity_permission"}:
             raise ProfileStepResolutionError(f"Unsupported profile step kind: {kind}")
 
         if kind == "action":

@@ -5,6 +5,7 @@ export type LinuxUser = {
   username: string;
   shell: string;
   home_directory: string;
+  password_credential_ref: string | null;
   sudo_enabled: boolean;
   sudo_nopasswd: boolean;
   locked: boolean;

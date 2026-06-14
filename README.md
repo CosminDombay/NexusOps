@@ -15,7 +15,8 @@ infrastructure profiles, editable operational templates, credential-backed secre
 Linux identity orchestration, remote shell/file access, runtime diagnostics, simple variable-driven execution, and
 production-aware security guardrails.
 
-The latest code/documentation review is documented in `docs/project-review-2026-06-06-doc-code-audit.md`.
+The latest detailed code/documentation review is documented in `docs/project-review-2026-06-06-doc-code-audit.md`.
+A lightweight documentation refresh was completed on 2026-06-13; see `docs/development.md` for validation notes.
 
 ## MVP Domains
 
@@ -51,6 +52,9 @@ The latest code/documentation review is documented in `docs/project-review-2026-
 - Local ignored `backlog.md` workflow for manual stabilization findings and test status tracking
 
 ## Quick Start With Docker
+
+> WSL note: in this local setup the checkout lives at `/home/cerberus/Projects/NexusOps`.
+> If you are launching commands from Windows tooling, use WSL commands or open the folder through the WSL integration rather than treating it as `C:\home\cerberus\Projects\NexusOps`.
 
 Copy the example environment file and set a local admin password:
 
@@ -187,6 +191,7 @@ For a self-hosted runner deployment job on the LXC host:
 - SSH connections use a trust-on-first-use fingerprint foundation for remote access and reject later host-key mismatches.
 - Monitoring stores lightweight validation snapshots for managed Inventory nodes, checks node_exporter, promtail, and cAdvisor availability, validates Prometheus as provider-level infrastructure, and links operators to Grafana when configured.
 - Identity orchestration stores Linux users, groups, SSH public keys, and permission templates, then replicates user/group/access/permission changes across selected Inventory-managed hosts through Jobs and SSH.
+- Profiles can reference managed Identity users, groups, and permission templates as ordered host-setup steps while keeping Identity as the source of Linux access truth.
 - Identity includes guided access profiles such as Administrator, Deployment Operator, Docker Operator, Log Viewer, Read Only, and Service Account. These profiles configure shell, sudo behavior, recommended groups, and defaults while preserving advanced Linux controls.
 - Identity resolves administrator access through a distro-aware abstraction, using `sudo` on Debian/Ubuntu style hosts and `wheel` on RHEL/CentOS/Fedora style hosts during replicated execution.
 - Identity user/group discovery can adopt discovered objects into managed records, show host-origin context, pass selected password/SSH-password credentials into sudo-backed replication, and keep local create/adopt separate from remote sync target selection.

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { DragEvent } from 'react';
-import { ArrowDown, ArrowUp, Package, Play, Plus, Trash2, Terminal } from 'lucide-react';
+import { ArrowDown, ArrowUp, Package, Play, Plus, ShieldCheck, Trash2, UsersRound, Terminal } from 'lucide-react';
 
 import { ContextDrawer } from '../../components/ContextDrawer';
 import { PageHeader } from '../../components/layout/PageHeader';
@@ -15,6 +15,8 @@ import { listCredentials } from '../credentials/api/credentialsApi';
 import type { Credential } from '../credentials/types/credential';
 import { listDeployments } from '../deployments/api/deploymentsApi';
 import type { Deployment } from '../deployments/types/deployment';
+import { listLinuxGroups, listLinuxUsers, listPermissionTemplates } from '../identity/api/identityApi';
+import type { LinuxGroup, LinuxUser, PermissionTemplate } from '../identity/types/identity';
 import { listServers } from '../inventory/api/serversApi';
 import { TargetSelector } from '../inventory/components/TargetSelector';
 import { useTargetSelection } from '../inventory/hooks/useTargetSelection';
@@ -84,6 +86,9 @@ export function ProfilesPage() {
   const [actions, setActions] = useState<OperationalAction[]>([]);
   const [credentials, setCredentials] = useState<Credential[]>([]);
   const [deployments, setDeployments] = useState<Deployment[]>([]);
+  const [identityUsers, setIdentityUsers] = useState<LinuxUser[]>([]);
+  const [identityGroups, setIdentityGroups] = useState<LinuxGroup[]>([]);
+  const [identityPermissions, setIdentityPermissions] = useState<PermissionTemplate[]>([]);
   const [selectedProfileId, setSelectedProfileId] = useState('');
   const [selectedServerId, setSelectedServerId] = useState('');
   const [selectedServerIds, setSelectedServerIds] = useState<string[]>([]);
@@ -117,6 +122,9 @@ export function ProfilesPage() {
         nextActions,
         nextCredentials,
         nextDeployments,
+        nextIdentityUsers,
+        nextIdentityGroups,
+        nextIdentityPermissions,
       ] = await Promise.all([
         listProfiles(),
         listServers(),
@@ -124,6 +132,9 @@ export function ProfilesPage() {
         listOperationalActions(),
         listCredentials(),
         listDeployments(),
+        listLinuxUsers(),
+        listLinuxGroups(),
+        listPermissionTemplates(),
       ]);
       setProfiles(nextProfiles);
       setServers(nextServers);
@@ -131,6 +142,9 @@ export function ProfilesPage() {
       setActions(nextActions);
       setCredentials(nextCredentials);
       setDeployments(nextDeployments);
+      setIdentityUsers(nextIdentityUsers);
+      setIdentityGroups(nextIdentityGroups);
+      setIdentityPermissions(nextIdentityPermissions);
       setSelectedProfileId((current) => current || nextProfiles[0]?.id || '');
       setSelectedServerId((current) => current || nextServers[0]?.id || '');
     } catch (caughtError) {
@@ -424,6 +438,9 @@ export function ProfilesPage() {
               credentials={credentials}
               deployments={deployments}
               editingProfileId={editingProfileId}
+              identityGroups={identityGroups}
+              identityPermissions={identityPermissions}
+              identityUsers={identityUsers}
               isCreating={isCreating}
               packages={packages}
               onCreate={handleCreateProfile}
@@ -639,6 +656,9 @@ function ProfileBuilder({
   deployments,
   formState,
   editingProfileId,
+  identityGroups,
+  identityPermissions,
+  identityUsers,
   isCreating,
   packages,
   onCreate,
@@ -652,6 +672,9 @@ function ProfileBuilder({
   deployments: Deployment[];
   formState: ProfileFormState;
   editingProfileId: string | null;
+  identityGroups: LinuxGroup[];
+  identityPermissions: PermissionTemplate[];
+  identityUsers: LinuxUser[];
   isCreating: boolean;
   packages: PackageDefinition[];
   onCreate: () => void;
@@ -769,6 +792,9 @@ function ProfileBuilder({
                 actions={actions}
                 credentials={credentials}
                 deployments={deployments}
+                identityGroups={identityGroups}
+                identityPermissions={identityPermissions}
+                identityUsers={identityUsers}
                 index={index}
                 packages={packages}
                 step={step}
@@ -791,6 +817,12 @@ function ProfileBuilder({
         <ReferenceList
           label="Deployment refs"
           values={deployments.map((deployment) => deployment.id)}
+        />
+        <ReferenceList label="Identity users" values={identityUsers.map((user) => user.username)} />
+        <ReferenceList label="Identity groups" values={identityGroups.map((group) => group.name)} />
+        <ReferenceList
+          label="Identity permissions"
+          values={identityPermissions.map((permission) => permission.path)}
         />
       </div>
       <div className="mt-4 flex justify-end gap-2">
@@ -831,10 +863,41 @@ function ReferenceList({ label, values }: { label: string; values: string[] }) {
   );
 }
 
+type StepOption = { id: string; name: string };
+
+function stepOptions(
+  stepType: string,
+  {
+    actions,
+    deployments,
+    identityGroups,
+    identityPermissions,
+    identityUsers,
+    packages,
+  }: {
+    actions: OperationalAction[];
+    deployments: Deployment[];
+    identityGroups: LinuxGroup[];
+    identityPermissions: PermissionTemplate[];
+    identityUsers: LinuxUser[];
+    packages: PackageDefinition[];
+  },
+): StepOption[] {
+  if (stepType === 'action') return actions.map((action) => ({ id: action.id, name: action.name }));
+  if (stepType === 'deployment') return deployments.map((deployment) => ({ id: deployment.id, name: deployment.name }));
+  if (stepType === 'identity_user') return identityUsers.map((user) => ({ id: user.id, name: user.username }));
+  if (stepType === 'identity_group') return identityGroups.map((group) => ({ id: group.id, name: group.name }));
+  if (stepType === 'identity_permission') return identityPermissions.map((permission) => ({ id: permission.id, name: permission.path }));
+  return packages.map((packageDefinition) => ({ id: packageDefinition.id, name: packageDefinition.name }));
+}
+
 function ProfileStepCard({
   actions,
   credentials,
   deployments,
+  identityGroups,
+  identityPermissions,
+  identityUsers,
   index,
   packages,
   step,
@@ -846,6 +909,9 @@ function ProfileStepCard({
   actions: OperationalAction[];
   credentials: Credential[];
   deployments: Deployment[];
+  identityGroups: LinuxGroup[];
+  identityPermissions: PermissionTemplate[];
+  identityUsers: LinuxUser[];
   index: number;
   packages: PackageDefinition[];
   step: ProfileStep;
@@ -855,14 +921,34 @@ function ProfileStepCard({
   onUpdate: (patch: Partial<ProfileStep>) => void;
 }) {
   const stepType = step.kind === 'command' ? 'script' : step.kind;
-  const options =
-    stepType === 'action' ? actions : stepType === 'deployment' ? deployments : packages;
-  const Icon = stepType === 'package' ? Package : stepType === 'action' ? Play : Terminal;
+  const options = stepOptions(stepType, {
+    actions,
+    deployments,
+    identityGroups,
+    identityPermissions,
+    identityUsers,
+    packages,
+  });
+  const Icon = stepType === 'package'
+    ? Package
+    : stepType === 'action'
+      ? Play
+      : stepType.startsWith('identity_')
+        ? stepType === 'identity_permission'
+          ? ShieldCheck
+          : UsersRound
+        : Terminal;
 
   function handleTypeChange(value: string) {
     const nextKind = value === 'script' ? 'command' : (value as ProfileStep['kind']);
-    const nextOptions =
-      value === 'action' ? actions : value === 'deployment' ? deployments : packages;
+    const nextOptions = stepOptions(value, {
+      actions,
+      deployments,
+      identityGroups,
+      identityPermissions,
+      identityUsers,
+      packages,
+    });
     const first = nextOptions[0];
     onUpdate({
       kind: nextKind,
@@ -914,6 +1000,9 @@ function ProfileStepCard({
               <option value="package">Package</option>
               <option value="action">Action</option>
               <option value="deployment">Deployment</option>
+              <option value="identity_user">Identity user</option>
+              <option value="identity_group">Identity group</option>
+              <option value="identity_permission">Identity permission</option>
               <option value="script">Script</option>
             </select>
           </label>

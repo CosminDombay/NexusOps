@@ -1,5 +1,21 @@
 # Development Notes
 
+## Workspace Path
+
+This checkout is expected to live in WSL at:
+
+```bash
+/home/cerberus/Projects/NexusOps
+```
+
+From PowerShell or other Windows tooling, prefer WSL-aware commands such as:
+
+```powershell
+wsl.exe sh -lc 'cd /home/cerberus/Projects/NexusOps && ./scripts/start-dev.sh'
+```
+
+Do not assume the equivalent Windows path is `C:\home\cerberus\Projects\NexusOps`; that path may not exist because the repository is inside the WSL filesystem.
+
 ## Local Services
 
 - Frontend dev server: `cd frontend && npm run dev`
@@ -67,6 +83,17 @@ Latest documentation/code audit from the project root:
 
 - compared durable docs against `backend/app/api/v1/router.py`, module route decorators, runtime snapshot models, and `frontend/src/app/router.tsx`
 - updated API route documentation, frontend route authorization notes, backend routing notes, runtime snapshot notes, and project review logs
+- no application code changed in this pass
+
+Because this pass changed Markdown documentation only, frontend/backend runtime tests were not rerun. Run the validation commands above before merging this with application-code changes.
+
+### 2026-06-13 Documentation Refresh Status
+
+Latest documentation refresh from the WSL checkout:
+
+- confirmed the active workspace path is `/home/cerberus/Projects/NexusOps`
+- checked durable docs against the versioned backend router and frontend route map
+- refreshed README setup notes, the API overview timestamp/context, and development workspace-path guidance
 - no application code changed in this pass
 
 Because this pass changed Markdown documentation only, frontend/backend runtime tests were not rerun. Run the validation commands above before merging this with application-code changes.

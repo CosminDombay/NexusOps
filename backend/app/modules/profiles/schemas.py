@@ -11,10 +11,10 @@ from backend.app.modules.packages.schemas import VariableDefinitionRead
 class ProfileStepRead(BaseModel):
     id: str
     name: str
-    kind: Literal["action", "package", "command", "deployment", "script"]
+    kind: Literal["action", "package", "command", "deployment", "script", "identity_user", "identity_group", "identity_permission"]
     reference_id: str
     command: str | None = None
-    type: Literal["action", "package", "deployment", "script"] | None = None
+    type: Literal["action", "package", "deployment", "script", "identity_user", "identity_group", "identity_permission"] | None = None
     target: str | None = None
     enabled: bool = True
     credential_ref: str | None = None
@@ -40,8 +40,8 @@ class InfrastructureProfileRead(BaseModel):
 class ProfileStepWrite(BaseModel):
     id: str | None = Field(default=None, min_length=1, max_length=100)
     name: str | None = Field(default=None, min_length=1, max_length=255)
-    kind: Literal["action", "package", "command", "deployment", "script"] | None = None
-    type: Literal["action", "package", "deployment", "script"] | None = None
+    kind: Literal["action", "package", "command", "deployment", "script", "identity_user", "identity_group", "identity_permission"] | None = None
+    type: Literal["action", "package", "deployment", "script", "identity_user", "identity_group", "identity_permission"] | None = None
     reference_id: str = Field(default="", max_length=100)
     target: str | None = Field(default=None, max_length=100)
     enabled: bool = True
@@ -70,10 +70,10 @@ class ProfileStepWrite(BaseModel):
             self.kind = "command"
             self.type = "script"
             return self
-        if self.kind not in {"action", "package", "deployment"}:
+        if self.kind not in {"action", "package", "deployment", "identity_user", "identity_group", "identity_permission"}:
             raise ValueError("Step type is required")
         if not self.reference_id:
-            raise ValueError("Package, action, and deployment steps require a target")
+            raise ValueError("Package, action, deployment, and identity steps require a target")
         self.id = self.id or f"{self.kind}-{self.reference_id}"
         self.name = self.name or self.reference_id
         self.type = self.kind

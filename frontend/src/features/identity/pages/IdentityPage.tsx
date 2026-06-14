@@ -200,7 +200,7 @@ export function IdentityPage() {
         shell: entity.user.shell,
         sudoMode: entity.user.sudo_enabled ? (entity.user.sudo_nopasswd ? 'nopasswd' : 'password') : 'none',
         groups: current.groups,
-        passwordCredentialId: '',
+        passwordCredentialId: entity.user.password_credential_ref ?? '',
         executionCredentialId: current.executionCredentialId,
       }));
       setUserMembership(null);
