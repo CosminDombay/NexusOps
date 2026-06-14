@@ -175,6 +175,7 @@ For a self-hosted runner deployment job on the LXC host:
 - Runtime refresh runs conservatively in the backend after login and on a scheduler, updating inventory reachability and Docker deployment state so frontend pages can poll normalized state without direct infrastructure checks.
 - Backend logs default to human-readable output such as `INFO - timestamp : message | key=value`, while JSON logging remains available with `LOG_FORMAT=json`.
 - Credential records store reusable secret material encrypted with Fernet using `NEXUSOPS_MASTER_KEY`. API responses expose only masked secret status.
+- Credential deletion uses a recoverable Trash lifecycle. Trashed credentials stop resolving for runtime use, can be restored from the UI, and can only be permanently purged after active references are cleared.
 - Production startup fails if required security settings are unsafe, including default `SECRET_KEY`, missing `NEXUSOPS_MASTER_KEY`, disabled Proxmox TLS verification, `DEBUG=true`, or default-looking bootstrap admin credentials.
 - Inventory records can reference a shared `credential_id` for SSH execution while retaining inline SSH metadata for backward-compatible local MVP use.
 - Operational actions provide predefined workflows such as uptime, disk usage, memory usage, Docker checks, Docker restart, and simple installation actions.

@@ -318,7 +318,7 @@ def test_inventory_read_tolerates_password_auth_without_current_secret() -> None
     assert payload.credential_id is None
 
 
-def test_credential_delete_is_blocked_when_inventory_server_references_it(client) -> None:
+def test_credential_delete_moves_referenced_credential_to_trash(client) -> None:
     credential_response = client.post(
         "/api/v1/credentials",
         json={
@@ -344,8 +344,56 @@ def test_credential_delete_is_blocked_when_inventory_server_references_it(client
 
     delete_response = client.delete(f"/api/v1/credentials/{credential_id}")
 
-    assert delete_response.status_code == 409
-    assert "inventory server" in delete_response.json()["detail"]
+    assert delete_response.status_code == 200
+    deleted_payload = delete_response.json()
+    assert deleted_payload["deleted_at"] is not None
+    assert deleted_payload["reference_count"] == 1
+    assert all(item["id"] != credential_id for item in client.get("/api/v1/credentials").json())
+
+    trash_response = client.get("/api/v1/credentials/trash")
+
+    assert trash_response.status_code == 200
+    assert trash_response.json()[0]["id"] == credential_id
+
+    usage_response = client.get(f"/api/v1/credentials/{credential_id}/usage")
+
+    assert usage_response.status_code == 200
+    assert usage_response.json()["reference_count"] == 1
+    assert usage_response.json()["references"][0]["reference_type"] == "inventory_server"
+
+    purge_response = client.delete(f"/api/v1/credentials/{credential_id}/purge")
+
+    assert purge_response.status_code == 409
+    assert "referenced" in purge_response.json()["detail"]
+
+    restore_response = client.post(f"/api/v1/credentials/{credential_id}/restore")
+
+    assert restore_response.status_code == 200
+    assert restore_response.json()["deleted_at"] is None
+
+
+def test_credential_can_be_permanently_purged_after_trash_when_unreferenced(client) -> None:
+    credential_response = client.post(
+        "/api/v1/credentials",
+        json={
+            "name": "unused-ssh-password",
+            "credential_type": "ssh_password",
+            "username": "ubuntu",
+            "secret": "secret-password",
+        },
+    )
+    assert credential_response.status_code == 201
+    credential_id = credential_response.json()["id"]
+
+    delete_response = client.delete(f"/api/v1/credentials/{credential_id}")
+
+    assert delete_response.status_code == 200
+    assert delete_response.json()["deleted_at"] is not None
+
+    purge_response = client.delete(f"/api/v1/credentials/{credential_id}/purge")
+
+    assert purge_response.status_code == 204
+    assert client.get(f"/api/v1/credentials/{credential_id}/usage").status_code == 404
 
 
 @pytest.mark.asyncio

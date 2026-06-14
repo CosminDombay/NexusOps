@@ -2,7 +2,7 @@ from datetime import datetime
 from typing import Literal, Self
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, computed_field, field_validator, model_validator
 
 CredentialType = Literal["password", "ssh_password", "ssh_key", "api_token", "env_secret"]
 CredentialScope = Literal["global", "project", "environment"]
@@ -110,10 +110,44 @@ class CredentialRead(BaseModel):
     masked_secret: str = "********"
     tags: list[str]
     scope: CredentialScope
+    deleted_at: datetime | None = None
+    deleted_by: str | None = None
+    delete_reason: str | None = None
+    reference_count: int = 0
     created_at: datetime
     updated_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class CredentialDeleteRequest(BaseModel):
+    reason: str | None = Field(default=None, max_length=2000)
+
+    @field_validator("reason")
+    @classmethod
+    def strip_reason(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        stripped = value.strip()
+        return stripped or None
+
+
+class CredentialReferenceRead(BaseModel):
+    reference_type: str
+    reference_id: str
+    name: str
+    field: str
+    detail: str | None = None
+
+
+class CredentialUsageRead(BaseModel):
+    credential_id: UUID
+    references: list[CredentialReferenceRead] = Field(default_factory=list)
+
+    @computed_field
+    @property
+    def reference_count(self) -> int:
+        return len(self.references)
 
 
 class ResolvedCredential(BaseModel):

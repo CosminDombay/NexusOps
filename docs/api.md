@@ -77,6 +77,10 @@ Raw Jobs and operational actions can carry an explicit `credential_ref` for exec
 ## Credentials, Variables, And Integrations
 
 - `GET/POST/PUT/DELETE /api/v1/credentials`
+- `GET /api/v1/credentials/trash`
+- `GET /api/v1/credentials/{credential_id}/usage`
+- `POST /api/v1/credentials/{credential_id}/restore`
+- `DELETE /api/v1/credentials/{credential_id}/purge`
 - `GET/POST /api/v1/variables`
 - `GET/POST/PUT/DELETE /api/v1/integrations`
 - integration test and provider sync endpoints:
@@ -84,7 +88,7 @@ Raw Jobs and operational actions can carry an explicit `credential_ref` for exec
   - `POST /api/v1/integrations/{integration_id}/sync/proxmox-hosts`
   - `POST /api/v1/integrations/{integration_id}/sync/proxmox-guests`
 
-Credential APIs never return decrypted secrets. Runtime services resolve credentials server-side and redact injected values from job/deployment history.
+Credential APIs never return decrypted secrets. Runtime services resolve active credentials server-side and redact injected values from job/deployment history. Deleting a credential moves it to Trash so it can be restored; runtime resolution ignores trashed credentials. Permanent purge is blocked while inventory, deployment, automation, integration, profile, variable, or Identity records still reference the credential.
 
 ## Provisioning
 

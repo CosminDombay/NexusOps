@@ -1,8 +1,13 @@
 import { apiClient } from '../../../lib/api/client';
-import type { CreateCredentialPayload, Credential, UpdateCredentialPayload } from '../types/credential';
+import type { CreateCredentialPayload, Credential, CredentialUsage, UpdateCredentialPayload } from '../types/credential';
 
 export async function listCredentials(): Promise<Credential[]> {
   const response = await apiClient.get<Credential[]>('/credentials');
+  return response.data;
+}
+
+export async function listDeletedCredentials(): Promise<Credential[]> {
+  const response = await apiClient.get<Credential[]>('/credentials/trash');
   return response.data;
 }
 
@@ -16,6 +21,23 @@ export async function updateCredential(credentialId: string, payload: UpdateCred
   return response.data;
 }
 
-export async function deleteCredential(credentialId: string): Promise<void> {
-  await apiClient.delete(`/credentials/${credentialId}`);
+export async function deleteCredential(credentialId: string, reason?: string): Promise<Credential> {
+  const response = await apiClient.delete<Credential>(`/credentials/${credentialId}`, {
+    data: reason ? { reason } : undefined,
+  });
+  return response.data;
+}
+
+export async function restoreCredential(credentialId: string): Promise<Credential> {
+  const response = await apiClient.post<Credential>(`/credentials/${credentialId}/restore`);
+  return response.data;
+}
+
+export async function purgeCredential(credentialId: string): Promise<void> {
+  await apiClient.delete(`/credentials/${credentialId}/purge`);
+}
+
+export async function getCredentialUsage(credentialId: string): Promise<CredentialUsage> {
+  const response = await apiClient.get<CredentialUsage>(`/credentials/${credentialId}/usage`);
+  return response.data;
 }

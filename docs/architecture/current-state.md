@@ -62,6 +62,8 @@ The implemented system is focused on foundations, visibility, narrowly scoped pr
   - masked API responses that never return decrypted values
   - type-aware frontend drawer for credential creation and metadata/secret replacement edits
   - credential selection in Inventory node create/edit flows
+  - soft-delete Trash lifecycle with restore and permanent purge controls
+  - permanent credential purge blocked by active references from Inventory, Deployments, Automations, Integrations, Profiles, Variables, or Identity users
 - Variable Manager foundations:
   - persisted variable records with key, value, category, description, secret flag, and optional credential reference
   - secret variables must use credential references instead of plaintext values

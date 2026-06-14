@@ -1,6 +1,8 @@
 from uuid import UUID
 
-from sqlalchemy import JSON, Enum, ForeignKey, String, Text
+from datetime import datetime
+
+from sqlalchemy import DateTime, JSON, Enum, ForeignKey, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from backend.app.db.base import Base, TimestampMixin, UuidPrimaryKeyMixin
@@ -34,6 +36,9 @@ class Credential(Base, UuidPrimaryKeyMixin, TimestampMixin):
         nullable=False,
         index=True,
     )
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    deleted_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    delete_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
 class CredentialUsage(Base, UuidPrimaryKeyMixin, TimestampMixin):
