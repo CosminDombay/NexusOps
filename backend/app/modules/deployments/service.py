@@ -45,7 +45,7 @@ from backend.app.modules.deployments.runtime import (
     expected_compose_services,
     validate_compose_content,
 )
-from backend.app.modules.credentials.service import CredentialService
+from backend.app.modules.credentials.service import CredentialNotFoundError, CredentialService
 from backend.app.modules.inventory.models import InventoryLifecycleState
 from backend.app.modules.inventory.repository import ServerRepository
 from backend.app.modules.jobs.schemas import JobExecuteRequest, JobRead
@@ -259,6 +259,7 @@ class DockerComposeDeploymentService:
 
     async def create_deployment(self, payload: DeploymentCreate) -> DeploymentRead:
         self._validate_compose_or_raise(payload.compose_content)
+        await self._validate_execution_credential_ref(payload.execution_credential_ref)
         target_ids = payload.target_server_ids or ([payload.target_server_id] if payload.target_server_id else [])
         if not target_ids:
             raise DeploymentValidationError("Select at least one deployment target")
@@ -303,6 +304,7 @@ class DockerComposeDeploymentService:
         if deployment is None:
             raise DeploymentNotFoundError("Deployment not found")
         self._validate_compose_or_raise(payload.compose_content)
+        await self._validate_execution_credential_ref(payload.execution_credential_ref)
 
         target_ids = payload.target_server_ids or ([payload.target_server_id] if payload.target_server_id else [])
         if not target_ids:
@@ -383,6 +385,7 @@ class DockerComposeDeploymentService:
         return await self._to_read(deployment, runtime_states=runtime_states)
 
     async def validate_payload(self, payload: DeploymentCreate, operation: str = "deploy") -> DeploymentDryRunRead:
+        await self._validate_execution_credential_ref(payload.execution_credential_ref)
         target_ids = payload.target_server_ids or ([payload.target_server_id] if payload.target_server_id else [])
         servers = [await self._managed_server(target_id) for target_id in target_ids]
         validation = validate_compose_content(payload.compose_content)
@@ -903,6 +906,16 @@ class DockerComposeDeploymentService:
         validation = validate_compose_content(compose_content)
         if validation.errors:
             raise DeploymentValidationError("; ".join(validation.errors))
+
+    async def _validate_execution_credential_ref(self, credential_ref: str | None) -> None:
+        if not credential_ref or self.credential_service is None:
+            return
+        try:
+            await self.credential_service.resolve_credential(credential_ref)
+        except CredentialNotFoundError as exc:
+            raise DeploymentValidationError(
+                "Execution credential not found. Select an existing password or SSH password credential."
+            ) from exc
 
     @staticmethod
     def _compose_validation_to_read(validation: ComposeValidationResult) -> DeploymentComposeValidationRead:

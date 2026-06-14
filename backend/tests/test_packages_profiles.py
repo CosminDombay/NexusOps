@@ -4,6 +4,7 @@ import pytest
 
 from backend.app.adapters.ssh import SshAdapter, SshExecutionResult
 from backend.app.modules.credentials.schemas import ResolvedCredential
+from backend.app.modules.credentials.service import CredentialNotFoundError
 from backend.app.modules.inventory.repository import ServerRepository
 from backend.app.modules.inventory.schemas import ServerCreate
 from backend.app.modules.inventory.service import InventoryService
@@ -13,7 +14,7 @@ from backend.app.modules.deployments.repository import (
     DeploymentTargetRepository,
 )
 from backend.app.modules.deployments.schemas import DeploymentCreate
-from backend.app.modules.deployments.service import DockerComposeDeploymentService
+from backend.app.modules.deployments.service import DeploymentValidationError, DockerComposeDeploymentService
 from backend.app.modules.deployments.runtime import validate_compose_content
 from backend.app.modules.identity.repository import (
     IdentityExecutionRepository,
@@ -85,6 +86,11 @@ class FakeCredentialService:
             username=None,
             secret="deploy-sudo-secret",
         )
+
+
+class MissingCredentialService:
+    async def resolve_credential(self, credential_id_or_name):
+        raise CredentialNotFoundError("Credential not found")
 
 
 def server_payload(**overrides):
@@ -507,6 +513,58 @@ async def test_deployment_service_updates_record_and_marks_draft(client) -> None
         assert updated.env_content == "APP_ENV=lab"
         assert updated.execution_credential_ref == "deploy-sudo-password"
         assert updated.remote_path == "/home/ubuntu/nexusops/deployments"
+
+
+@pytest.mark.asyncio
+async def test_deployment_update_rejects_missing_execution_credential(client) -> None:
+    session = next(iter(client.app.dependency_overrides.values()))
+    async for db_session in session():
+        server = await InventoryService(ServerRepository(db_session)).create_server(
+            ServerCreate(**server_payload(hostname="missing-credential-01", ip_address="10.2.0.18"))
+        )
+        server_repository = ServerRepository(db_session)
+        service = DockerComposeDeploymentService(
+            repository=DeploymentRepository(db_session),
+            target_repository=DeploymentTargetRepository(db_session),
+            revision_repository=DeploymentRevisionRepository(db_session),
+            server_repository=server_repository,
+            job_service=JobService(
+                job_repository=JobRepository(db_session),
+                server_repository=server_repository,
+                ssh_adapter=FakeSshAdapter(),
+            ),
+        )
+        deployment = await service.create_deployment(
+            DeploymentCreate(
+                name="missing-credential-deployment",
+                target_server_id=server.id,
+                compose_content="services:\n  web:\n    image: nginx:alpine\n",
+                execution_credential_ref="deleted-credential",
+            )
+        )
+        validating_service = DockerComposeDeploymentService(
+            repository=DeploymentRepository(db_session),
+            target_repository=DeploymentTargetRepository(db_session),
+            revision_repository=DeploymentRevisionRepository(db_session),
+            server_repository=server_repository,
+            job_service=JobService(
+                job_repository=JobRepository(db_session),
+                server_repository=server_repository,
+                ssh_adapter=FakeSshAdapter(),
+            ),
+            credential_service=MissingCredentialService(),
+        )
+
+        with pytest.raises(DeploymentValidationError, match="Execution credential not found"):
+            await validating_service.update_deployment(
+                deployment.id,
+                DeploymentCreate(
+                    name="missing-credential-deployment",
+                    target_server_id=server.id,
+                    compose_content="services:\n  web:\n    image: nginx:alpine\n",
+                    execution_credential_ref="deleted-credential",
+                ),
+            )
 
 
 @pytest.mark.asyncio

@@ -825,6 +825,10 @@ function DeploymentDrawer({
   onSave: () => void;
 }) {
   const executionCredentials = credentials.filter((credential) => credential.credential_type === 'password' || credential.credential_type === 'ssh_password');
+  const hasMissingExecutionCredential = Boolean(
+    executionCredentialId &&
+      !executionCredentials.some((credential) => credential.id === executionCredentialId),
+  );
   return (
     <div className="fixed inset-0 z-40 overflow-hidden bg-zinc-950/40 p-3 sm:p-5">
       <aside className="mx-auto flex h-full w-[min(100%,56rem)] max-w-[calc(100vw-1.5rem)] flex-col overflow-hidden rounded-md bg-white shadow-xl sm:max-w-[calc(100vw-2.5rem)]">
@@ -898,6 +902,11 @@ function DeploymentDrawer({
                 onChange={(event) => onExecutionCredentialChange(event.target.value)}
               >
                 <option value="">Use target saved credential or passwordless access</option>
+                {hasMissingExecutionCredential ? (
+                  <option value={executionCredentialId} disabled>
+                    Missing saved credential ({executionCredentialId.slice(0, 8)})
+                  </option>
+                ) : null}
                 {executionCredentials.map((credential) => (
                   <option key={credential.id} value={credential.id}>
                     {credential.name}
@@ -909,6 +918,12 @@ function DeploymentDrawer({
               Used by deployment Jobs for Docker commands and sudo fallback. This is separate from
               credential-backed environment variables.
             </p>
+            {hasMissingExecutionCredential ? (
+              <p className="mt-2 text-sm font-medium text-amber-700">
+                The saved execution credential no longer exists. Select an existing credential before
+                saving or deploying.
+              </p>
+            ) : null}
           </section>
           <label className="block">
             <span className="text-sm font-medium text-zinc-950">Environment file</span>
