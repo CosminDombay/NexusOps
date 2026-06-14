@@ -72,6 +72,9 @@ class CustomOperationalAction(Base, UuidPrimaryKeyMixin, TimestampMixin):
     description: Mapped[str] = mapped_column(Text, default="")
     command: Mapped[str] = mapped_column(Text)
     destructive: Mapped[bool] = mapped_column(default=False, nullable=False)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    deleted_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    delete_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
 class JobExecutionEvent(Base, UuidPrimaryKeyMixin):

@@ -15,22 +15,31 @@ class IntegrationRepository(BaseRepository[Integration]):
         await self.session.refresh(integration)
         return integration
 
-    async def get_by_id(self, integration_id: UUID) -> Integration | None:
-        result = await self.session.execute(select(Integration).where(Integration.id == integration_id))
+    async def get_by_id(self, integration_id: UUID, *, include_deleted: bool = False) -> Integration | None:
+        query = select(Integration).where(Integration.id == integration_id)
+        if not include_deleted:
+            query = query.where(Integration.deleted_at.is_(None))
+        result = await self.session.execute(query)
         return result.scalar_one_or_none()
 
     async def delete(self, integration: Integration) -> None:
         await self.session.delete(integration)
         await self.session.flush()
 
-    async def list(self) -> list[Integration]:
-        result = await self.session.execute(select(Integration).order_by(Integration.name.asc()))
+    async def list(self, *, include_deleted: bool = False, only_deleted: bool = False) -> list[Integration]:
+        query = select(Integration)
+        if only_deleted:
+            query = query.where(Integration.deleted_at.is_not(None))
+        elif not include_deleted:
+            query = query.where(Integration.deleted_at.is_(None))
+        result = await self.session.execute(query.order_by(Integration.name.asc()))
         return list(result.scalars().all())
 
     async def list_enabled_by_type(self, integration_type: IntegrationType) -> list[Integration]:
         result = await self.session.execute(
             select(Integration)
             .where(Integration.enabled.is_(True), Integration.type == integration_type)
+            .where(Integration.deleted_at.is_(None))
             .order_by(Integration.name.asc())
         )
         return list(result.scalars().all())
@@ -39,6 +48,7 @@ class IntegrationRepository(BaseRepository[Integration]):
         result = await self.session.execute(
             select(Integration)
             .where(Integration.type == integration_type)
+            .where(Integration.deleted_at.is_(None))
             .order_by(Integration.name.asc())
         )
         return list(result.scalars().all())
@@ -47,6 +57,7 @@ class IntegrationRepository(BaseRepository[Integration]):
         result = await self.session.execute(
             select(Integration)
             .where(Integration.enabled.is_(True), Integration.provider_type == provider_type)
+            .where(Integration.deleted_at.is_(None))
             .order_by(Integration.name.asc())
         )
         return list(result.scalars().all())
@@ -55,6 +66,7 @@ class IntegrationRepository(BaseRepository[Integration]):
         result = await self.session.execute(
             select(Integration)
             .where(Integration.provider_type == provider_type)
+            .where(Integration.deleted_at.is_(None))
             .order_by(Integration.name.asc())
         )
         return list(result.scalars().all())

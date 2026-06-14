@@ -49,3 +49,6 @@ class PackageDefinitionRecord(Base, UuidPrimaryKeyMixin, TimestampMixin):
     base_version: Mapped[str | None] = mapped_column(String(50), nullable=True)
     source_template_id: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
     modified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    deleted_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    delete_reason: Mapped[str | None] = mapped_column(Text, nullable=True)

@@ -83,7 +83,9 @@ class IntegrationService:
         integration = await self.repository.get_by_id(integration_id)
         if integration is None:
             raise IntegrationNotFoundError("Integration not found")
-        await self.repository.delete(integration)
+        integration.deleted_at = datetime.now(UTC)
+        integration.enabled = False
+        integration.state = IntegrationState.DISABLED
         await self.repository.session.commit()
 
     async def test_integration(self, integration_id: UUID) -> IntegrationTestRead:

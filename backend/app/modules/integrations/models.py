@@ -70,3 +70,6 @@ class Integration(Base, UuidPrimaryKeyMixin, TimestampMixin):
     credential_refs: Mapped[dict[str, str]] = mapped_column(JSON, default=dict, nullable=False)
     last_successful_sync: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    deleted_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    delete_reason: Mapped[str | None] = mapped_column(Text, nullable=True)

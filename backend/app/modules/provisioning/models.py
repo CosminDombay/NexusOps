@@ -1,7 +1,9 @@
 from enum import StrEnum
 from uuid import UUID
 
-from sqlalchemy import Boolean, Enum, ForeignKey, Integer, JSON, String, Text, UniqueConstraint
+from datetime import datetime
+
+from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, Integer, JSON, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from backend.app.db.base import Base, TimestampMixin, UuidPrimaryKeyMixin
@@ -98,6 +100,9 @@ class ProvisioningRequest(Base, UuidPrimaryKeyMixin, TimestampMixin):
         index=True,
     )
     batch_index: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    deleted_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    delete_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
 class ProvisioningBlueprint(Base, UuidPrimaryKeyMixin, TimestampMixin):
@@ -122,6 +127,9 @@ class ProvisioningBlueprint(Base, UuidPrimaryKeyMixin, TimestampMixin):
     dns_servers: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
     bootstrap_profile_ids: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
     bootstrap_package_ids: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    deleted_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    delete_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
 class ProvisioningBatch(Base, UuidPrimaryKeyMixin, TimestampMixin):

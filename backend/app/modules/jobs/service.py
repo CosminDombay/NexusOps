@@ -124,7 +124,7 @@ class JobService:
     async def create_action(self, payload: OperationalActionCreate) -> OperationalActionRead:
         if self.action_repository is None:
             raise RuntimeError("Action repository is required")
-        if get_action(payload.id) or await self.action_repository.get_by_slug(payload.id):
+        if get_action(payload.id) or await self.action_repository.get_by_slug(payload.id, include_deleted=True):
             raise OperationalActionConflictError("Operational action already exists")
         action = await self.action_repository.create(
             CustomOperationalAction(
@@ -164,7 +164,7 @@ class JobService:
         action = await self.action_repository.get_by_slug(action_id)
         if action is None:
             raise OperationalActionNotFoundError("Operational action not found")
-        await self.action_repository.delete(action)
+        action.deleted_at = datetime.now(UTC)
         await self.action_repository.session.commit()
 
     async def execute_action(self, payload: JobActionExecuteRequest) -> JobRead:

@@ -39,14 +39,20 @@ class CustomOperationalActionRepository(BaseRepository[CustomOperationalAction])
         await self.session.refresh(action)
         return action
 
-    async def get_by_slug(self, slug: str) -> CustomOperationalAction | None:
-        result = await self.session.execute(select(CustomOperationalAction).where(CustomOperationalAction.slug == slug))
+    async def get_by_slug(self, slug: str, *, include_deleted: bool = False) -> CustomOperationalAction | None:
+        query = select(CustomOperationalAction).where(CustomOperationalAction.slug == slug)
+        if not include_deleted:
+            query = query.where(CustomOperationalAction.deleted_at.is_(None))
+        result = await self.session.execute(query)
         return result.scalar_one_or_none()
 
-    async def list(self) -> list[CustomOperationalAction]:
-        result = await self.session.execute(
-            select(CustomOperationalAction).order_by(CustomOperationalAction.category, CustomOperationalAction.name)
-        )
+    async def list(self, *, include_deleted: bool = False, only_deleted: bool = False) -> list[CustomOperationalAction]:
+        query = select(CustomOperationalAction)
+        if only_deleted:
+            query = query.where(CustomOperationalAction.deleted_at.is_not(None))
+        elif not include_deleted:
+            query = query.where(CustomOperationalAction.deleted_at.is_(None))
+        result = await self.session.execute(query.order_by(CustomOperationalAction.category, CustomOperationalAction.name))
         return list(result.scalars().all())
 
     async def delete(self, action: CustomOperationalAction) -> None:

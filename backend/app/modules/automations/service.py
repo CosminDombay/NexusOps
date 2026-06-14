@@ -116,7 +116,8 @@ class AutomationService:
 
     async def delete_automation(self, automation_id: UUID) -> None:
         automation = await self._automation(automation_id)
-        await self.repository.delete(automation)
+        automation.deleted_at = datetime.now(UTC)
+        automation.enabled = False
         await self.repository.session.commit()
 
     async def enable_automation(self, automation_id: UUID) -> AutomationRead:

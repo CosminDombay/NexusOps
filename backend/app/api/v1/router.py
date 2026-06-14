@@ -18,6 +18,7 @@ from backend.app.modules.profiles.router import router as profiles_router
 from backend.app.modules.provisioning.router import router as provisioning_router
 from backend.app.modules.remote_access.router import router as remote_access_router
 from backend.app.modules.runtime_state.router import router as runtime_state_router
+from backend.app.modules.trash.router import router as trash_router
 from backend.app.modules.variables.router import router as variables_router
 from backend.app.modules.workflows.router import router as workflows_router
 
@@ -112,6 +113,12 @@ api_v1_router.include_router(
     prefix="/runtime-state",
     tags=["runtime-state"],
     dependencies=[Depends(require_viewer)],
+)
+api_v1_router.include_router(
+    trash_router,
+    prefix="/trash",
+    tags=["trash"],
+    dependencies=[Depends(require_admin)],
 )
 api_v1_router.include_router(
     variables_router,

@@ -79,7 +79,7 @@ class PackageAutomationService:
         if self.repository is None:
             raise RuntimeError("Package definition repository is required")
 
-        if get_package_definition(payload.id) or await self.repository.get_by_slug(payload.id):
+        if get_package_definition(payload.id) or await self.repository.get_by_slug(payload.id, include_deleted=True):
             raise PackageDefinitionConflictError("Package definition already exists")
 
         record = PackageDefinitionRecord(
@@ -140,13 +140,13 @@ class PackageAutomationService:
         if record is None:
             raise PackageDefinitionNotFoundError("Package definition not found")
 
-        await self.repository.delete(record)
+        record.deleted_at = datetime.now(UTC)
         await self.repository.session.commit()
 
     async def clone_definition(self, package_id: str, payload: PackageCloneRequest) -> PackageDefinitionRead:
         if self.repository is None:
             raise RuntimeError("Package definition repository is required")
-        if get_package_definition(payload.id) or await self.repository.get_by_slug(payload.id):
+        if get_package_definition(payload.id) or await self.repository.get_by_slug(payload.id, include_deleted=True):
             raise PackageDefinitionConflictError("Package definition already exists")
 
         source = await self.get_definition(package_id)

@@ -21,12 +21,20 @@ class DeploymentRepository(BaseRepository[Deployment]):
         await self.session.refresh(deployment)
         return deployment
 
-    async def get_by_id(self, deployment_id: UUID) -> Deployment | None:
-        result = await self.session.execute(select(Deployment).where(Deployment.id == deployment_id))
+    async def get_by_id(self, deployment_id: UUID, *, include_deleted: bool = False) -> Deployment | None:
+        query = select(Deployment).where(Deployment.id == deployment_id)
+        if not include_deleted:
+            query = query.where(Deployment.deleted_at.is_(None))
+        result = await self.session.execute(query)
         return result.scalar_one_or_none()
 
-    async def list(self) -> list[Deployment]:
-        result = await self.session.execute(select(Deployment).order_by(Deployment.created_at.desc()))
+    async def list(self, *, include_deleted: bool = False, only_deleted: bool = False) -> list[Deployment]:
+        query = select(Deployment)
+        if only_deleted:
+            query = query.where(Deployment.deleted_at.is_not(None))
+        elif not include_deleted:
+            query = query.where(Deployment.deleted_at.is_(None))
+        result = await self.session.execute(query.order_by(Deployment.created_at.desc()))
         return list(result.scalars().all())
 
     async def list_for_server(self, server_id: UUID) -> list[Deployment]:
@@ -34,6 +42,7 @@ class DeploymentRepository(BaseRepository[Deployment]):
             select(Deployment)
             .join(DeploymentTarget, DeploymentTarget.deployment_id == Deployment.id)
             .where(DeploymentTarget.server_id == server_id)
+            .where(Deployment.deleted_at.is_(None))
             .order_by(Deployment.created_at.desc())
         )
         return list(result.scalars().unique().all())

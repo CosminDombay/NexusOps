@@ -32,6 +32,7 @@ const navGroups = [
       { to: '/identity', label: 'Identity', minimumRole: 'admin' },
       { to: '/monitoring', label: 'Monitoring', minimumRole: 'viewer' },
       { to: '/settings/integrations', label: 'Integrations', minimumRole: 'admin' },
+      { to: '/settings/trash', label: 'Trash', minimumRole: 'admin' },
       { to: '/settings/users', label: 'Users & RBAC', minimumRole: 'admin' },
     ],
   },

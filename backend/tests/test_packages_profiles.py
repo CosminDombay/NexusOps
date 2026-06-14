@@ -425,7 +425,7 @@ async def test_profile_apply_runs_identity_steps_from_managed_records(client) ->
 
 
 @pytest.mark.asyncio
-async def test_deployment_service_deletes_record_with_history(client) -> None:
+async def test_deployment_service_moves_record_with_history_to_trash(client) -> None:
     session = next(iter(client.app.dependency_overrides.values()))
     async for db_session in session():
         server = await InventoryService(ServerRepository(db_session)).create_server(
@@ -456,8 +456,11 @@ async def test_deployment_service_deletes_record_with_history(client) -> None:
         await service.delete_deployment(deployment.id)
 
         assert await service.repository.get_by_id(deployment.id) is None
-        assert await service.target_repository.get_for_deployment(deployment.id) is None
-        assert await service.revision_repository.list_for_deployment(deployment.id) == []
+        trashed = await service.repository.get_by_id(deployment.id, include_deleted=True)
+        assert trashed is not None
+        assert trashed.deleted_at is not None
+        assert await service.target_repository.get_for_deployment(deployment.id) is not None
+        assert await service.revision_repository.list_for_deployment(deployment.id) != []
 
 
 @pytest.mark.asyncio

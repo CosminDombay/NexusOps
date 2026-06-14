@@ -1,4 +1,5 @@
 import asyncio
+from datetime import UTC, datetime
 from ipaddress import ip_address, ip_interface
 from uuid import UUID
 
@@ -121,7 +122,7 @@ class ProvisioningService:
         request = await self.repository.get_by_id(request_id)
         if request is None:
             raise ProvisioningNotFoundError("Provisioning request not found")
-        await self.repository.delete(request)
+        request.deleted_at = datetime.now(UTC)
         await self.repository.session.commit()
 
     async def list_batches(self) -> list[ProvisioningBatchRead]:
@@ -194,7 +195,7 @@ class ProvisioningService:
         blueprint = await self.blueprint_repository.get_by_id(blueprint_id)
         if blueprint is None:
             raise ProvisioningBlueprintNotFoundError("Provisioning blueprint not found")
-        await self.blueprint_repository.delete(blueprint)
+        blueprint.deleted_at = datetime.now(UTC)
         await self.blueprint_repository.session.commit()
 
     async def provision(

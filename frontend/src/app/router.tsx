@@ -22,6 +22,7 @@ const MonitoringPage = lazy(() => import('../features/monitoring/MonitoringPage'
 const PackagesPage = lazy(() => import('../features/packages/PackagesPage').then((module) => ({ default: module.PackagesPage })));
 const ProfilesPage = lazy(() => import('../features/profiles/ProfilesPage').then((module) => ({ default: module.ProfilesPage })));
 const ProvisioningPage = lazy(() => import('../features/provisioning/ProvisioningPage').then((module) => ({ default: module.ProvisioningPage })));
+const TrashPage = lazy(() => import('../features/trash/pages/TrashPage').then((module) => ({ default: module.TrashPage })));
 const UserManagementPage = lazy(() => import('../features/auth/pages/UserManagementPage').then((module) => ({ default: module.UserManagementPage })));
 const WorkflowsPage = lazy(() => import('../features/workflows/pages/WorkflowsPage').then((module) => ({ default: module.WorkflowsPage })));
 
@@ -68,6 +69,7 @@ export const router = createBrowserRouter([
               { path: 'infrastructure/credentials', element: <LazyPage><CredentialsPage /></LazyPage> },
               { path: 'identity', element: <LazyPage><IdentityPage /></LazyPage> },
               { path: 'settings/integrations', element: <LazyPage><IntegrationsPage /></LazyPage> },
+              { path: 'settings/trash', element: <LazyPage><TrashPage /></LazyPage> },
               { path: 'settings/users', element: <LazyPage><UserManagementPage /></LazyPage> },
             ],
           },

@@ -170,7 +170,7 @@ class ProfileService:
         if self.repository is None:
             raise RuntimeError("Profile repository is required")
 
-        if get_profile(payload.id) or await self.repository.get_by_slug(payload.id):
+        if get_profile(payload.id) or await self.repository.get_by_slug(payload.id, include_deleted=True):
             raise ProfileConflictError("Profile already exists")
 
         record = InfrastructureProfileRecord(
@@ -238,13 +238,13 @@ class ProfileService:
         if record is None:
             raise ProfileNotFoundError("Profile not found")
 
-        await self.repository.delete(record)
+        record.deleted_at = datetime.now(UTC)
         await self.repository.session.commit()
 
     async def clone_profile(self, profile_id: str, payload: ProfileCloneRequest) -> InfrastructureProfileRead:
         if self.repository is None:
             raise RuntimeError("Profile repository is required")
-        if get_profile(payload.id) or await self.repository.get_by_slug(payload.id):
+        if get_profile(payload.id) or await self.repository.get_by_slug(payload.id, include_deleted=True):
             raise ProfileConflictError("Profile already exists")
         source = await self.get_profile(profile_id)
         record = InfrastructureProfileRecord(

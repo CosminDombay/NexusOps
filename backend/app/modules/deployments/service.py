@@ -292,11 +292,7 @@ class DockerComposeDeploymentService:
         if deployment is None:
             raise DeploymentNotFoundError("Deployment not found")
 
-        await self.target_execution_repository.delete_for_deployment(deployment.id)
-        await self.execution_repository.delete_for_deployment(deployment.id)
-        await self.revision_repository.delete_for_deployment(deployment.id)
-        await self.target_repository.delete_for_deployment(deployment.id)
-        await self.repository.delete(deployment)
+        deployment.deleted_at = datetime.now(UTC)
         await self.repository.session.commit()
 
     async def update_deployment(self, deployment_id: UUID, payload: DeploymentUpdate) -> DeploymentRead:
