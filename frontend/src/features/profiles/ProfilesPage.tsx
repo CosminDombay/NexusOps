@@ -5,12 +5,14 @@ import { ArrowDown, ArrowUp, Package, Play, Plus, ShieldCheck, Trash2, UsersRoun
 import { ContextDrawer } from '../../components/ContextDrawer';
 import { PageHeader } from '../../components/layout/PageHeader';
 import { PageActionButton } from '../../components/operations/OperationalComponents';
+import { SearchField } from '../../components/search/SearchField';
 import {
   ExecutionVariablesModal,
   type ExecutionVariableValues,
 } from '../../components/ExecutionVariablesModal';
 import { VariableDefinitionEditor } from '../../components/VariableDefinitionEditor';
 import { getApiErrorMessage } from '../../lib/api/client';
+import { matchesSearch } from '../../lib/search/match';
 import { listCredentials } from '../credentials/api/credentialsApi';
 import type { Credential } from '../credentials/types/credential';
 import { listDeployments } from '../deployments/api/deploymentsApi';
@@ -103,11 +105,27 @@ export function ProfilesPage() {
   const [success, setSuccess] = useState<string | null>(null);
   const [editingProfileId, setEditingProfileId] = useState<string | null>(null);
   const [isBuilderOpen, setIsBuilderOpen] = useState(false);
+  const [search, setSearch] = useState('');
   const targetSelector = useTargetSelection('single');
 
   const selectedProfile = useMemo(
     () => profiles.find((profile) => profile.id === selectedProfileId) ?? profiles[0] ?? null,
     [profiles, selectedProfileId],
+  );
+  const filteredProfiles = useMemo(
+    () =>
+      profiles.filter((profile) =>
+        matchesSearch(search, [
+          profile.id,
+          profile.name,
+          profile.category,
+          profile.description,
+          profile.tags,
+          profile.steps,
+          profile.variables,
+        ]),
+      ),
+    [profiles, search],
   );
 
   const load = useCallback(async () => {
@@ -455,7 +473,12 @@ export function ProfilesPage() {
 
           <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(360px,0.8fr)]">
             <div className="grid gap-4">
-              {profiles.map((profile) => (
+              <SearchField
+                placeholder="Search profiles, steps, variables..."
+                value={search}
+                onChange={setSearch}
+              />
+              {filteredProfiles.map((profile) => (
                 <ProfileCard
                   key={profile.id}
                   isSelected={selectedProfile?.id === profile.id}
@@ -467,6 +490,11 @@ export function ProfilesPage() {
                   onSelect={() => setSelectedProfileId(profile.id)}
                 />
               ))}
+              {!filteredProfiles.length ? (
+                <p className="rounded-md border border-dashed border-zinc-300 bg-white p-6 text-sm text-zinc-500">
+                  No profiles match this search.
+                </p>
+              ) : null}
             </div>
             <div className="space-y-4">
               <ProfileResult result={result} />

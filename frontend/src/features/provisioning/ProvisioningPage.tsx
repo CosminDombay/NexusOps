@@ -3,7 +3,9 @@ import { useEffect, useMemo, useState } from 'react';
 import { ContextDrawer } from '../../components/ContextDrawer';
 import { PageHeader } from '../../components/layout/PageHeader';
 import { CollapsibleSection, PageActionButton } from '../../components/operations/OperationalComponents';
+import { SearchField } from '../../components/search/SearchField';
 import { getApiErrorMessage } from '../../lib/api/client';
+import { matchesSearch } from '../../lib/search/match';
 import { listPackageDefinitions } from '../packages/api/packagesApi';
 import type { PackageDefinition } from '../packages/types/package';
 import { listProfiles } from '../profiles/api/profilesApi';
@@ -126,6 +128,8 @@ export function ProvisioningPage() {
   } | null>(null);
   const [isBlueprintOpen, setIsBlueprintOpen] = useState(false);
   const [isBatchOpen, setIsBatchOpen] = useState(false);
+  const [requestSearch, setRequestSearch] = useState('');
+  const [batchSearch, setBatchSearch] = useState('');
 
   const filteredTemplates = useMemo(
     () => templates.filter((template) => (provisioningKind === 'lxc' ? template.type === 'lxc' : template.type !== 'lxc')),
@@ -148,6 +152,43 @@ export function ProvisioningPage() {
           storage.storage !== 'unknown',
       ),
     [formState.target_node, storageOptions],
+  );
+  const filteredRequests = useMemo(
+    () =>
+      requests.filter((request) =>
+        matchesSearch(requestSearch, [
+          request.vm_name,
+          request.provisioning_type,
+          request.target_node,
+          request.template_id,
+          request.new_vm_id,
+          request.static_ip_cidr,
+          request.environment,
+          request.status,
+          request.error_message,
+          request.tags,
+          request.bootstrap_profile_ids,
+          request.bootstrap_package_ids,
+        ]),
+      ),
+    [requestSearch, requests],
+  );
+  const filteredBatches = useMemo(
+    () =>
+      batches.filter((batch) =>
+        matchesSearch(batchSearch, [
+          batch.name,
+          batch.status,
+          batch.count,
+          batch.vm_name_pattern,
+          batch.hostname_pattern,
+          batch.starting_vm_id,
+          batch.starting_ip_cidr,
+          batch.error_message,
+          batch.requests,
+        ]),
+      ),
+    [batchSearch, batches],
   );
 
   useEffect(() => {
@@ -1102,8 +1143,19 @@ export function ProvisioningPage() {
         </>
       </CollapsibleSection>
 
-      <ProvisioningBatchHistory batches={batches} />
-      <ProvisioningHistory requests={requests} onDelete={handleDeleteRequest} />
+      <ProvisioningBatchHistory
+        batches={filteredBatches}
+        search={batchSearch}
+        totalCount={batches.length}
+        onSearchChange={setBatchSearch}
+      />
+      <ProvisioningHistory
+        requests={filteredRequests}
+        search={requestSearch}
+        totalCount={requests.length}
+        onDelete={handleDeleteRequest}
+        onSearchChange={setRequestSearch}
+      />
     </div>
   );
 }
@@ -1303,16 +1355,28 @@ function Notice({ tone, message }: { tone: 'success' | 'danger' | 'warning'; mes
 
 function ProvisioningHistory({
   requests,
+  search,
+  totalCount,
   onDelete,
+  onSearchChange,
 }: {
   requests: ProvisioningRequest[];
+  search: string;
+  totalCount: number;
   onDelete: (request: ProvisioningRequest) => void;
+  onSearchChange: (value: string) => void;
 }) {
   return (
     <section className="rounded-lg border border-zinc-200 bg-white shadow-sm">
       <div className="border-b border-zinc-200 px-5 py-4">
         <h3 className="text-base font-semibold text-zinc-950">Provisioning history</h3>
-        <p className="mt-1 text-sm text-zinc-500">{requests.length} requests tracked.</p>
+        <p className="mt-1 text-sm text-zinc-500">{totalCount} requests tracked.</p>
+        <SearchField
+          className="mt-3"
+          placeholder="Search provisioning requests, VMIDs, IPs..."
+          value={search}
+          onChange={onSearchChange}
+        />
       </div>
       <div className="grid gap-3 p-4">
         {requests.map((request) => (
@@ -1346,7 +1410,9 @@ function ProvisioningHistory({
           </article>
         ))}
         {requests.length === 0 ? (
-          <p className="text-sm text-zinc-500">No provisioning requests yet.</p>
+          <p className="text-sm text-zinc-500">
+            {search ? 'No provisioning requests match this search.' : 'No provisioning requests yet.'}
+          </p>
         ) : null}
       </div>
     </section>
@@ -1375,12 +1441,28 @@ function StatusPill({
   );
 }
 
-function ProvisioningBatchHistory({ batches }: { batches: ProvisioningBatch[] }) {
+function ProvisioningBatchHistory({
+  batches,
+  search,
+  totalCount,
+  onSearchChange,
+}: {
+  batches: ProvisioningBatch[];
+  search: string;
+  totalCount: number;
+  onSearchChange: (value: string) => void;
+}) {
   return (
     <section className="rounded-lg border border-zinc-200 bg-white shadow-sm">
       <div className="border-b border-zinc-200 px-5 py-4">
         <h3 className="text-base font-semibold text-zinc-950">Batch history</h3>
-        <p className="mt-1 text-sm text-zinc-500">{batches.length} batch requests tracked.</p>
+        <p className="mt-1 text-sm text-zinc-500">{totalCount} batch requests tracked.</p>
+        <SearchField
+          className="mt-3"
+          placeholder="Search batches, VMIDs, patterns..."
+          value={search}
+          onChange={onSearchChange}
+        />
       </div>
       <div className="grid gap-3 p-4">
         {batches.map((batch) => (
@@ -1408,7 +1490,9 @@ function ProvisioningBatchHistory({ batches }: { batches: ProvisioningBatch[] })
           </article>
         ))}
         {batches.length === 0 ? (
-          <p className="text-sm text-zinc-500">No batch requests yet.</p>
+          <p className="text-sm text-zinc-500">
+            {search ? 'No batch requests match this search.' : 'No batch requests yet.'}
+          </p>
         ) : null}
       </div>
     </section>

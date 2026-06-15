@@ -4,7 +4,9 @@ import { PageHeader } from '../../../components/layout/PageHeader';
 import { RuntimeBadge } from '../../../components/operations/OperationalComponents';
 import { OperationalTimeline } from '../../../components/operations/OperationalTimeline';
 import { formatDurationSeconds, formatOperationalLabel } from '../../../components/operations/runtimeFormat';
+import { SearchField } from '../../../components/search/SearchField';
 import { getApiErrorMessage } from '../../../lib/api/client';
+import { matchesSearch } from '../../../lib/search/match';
 import { listWorkflows } from '../api/workflowsApi';
 import type { WorkflowRun, WorkflowStatus } from '../types/workflow';
 
@@ -13,10 +15,29 @@ export function WorkflowsPage() {
   const [selectedId, setSelectedId] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [search, setSearch] = useState('');
 
   const selectedWorkflow = useMemo(
     () => workflows.find((workflow) => workflow.id === selectedId) ?? workflows[0] ?? null,
     [selectedId, workflows],
+  );
+  const filteredWorkflows = useMemo(
+    () =>
+      workflows.filter((workflow) =>
+        matchesSearch(search, [
+          workflow.workflow_type,
+          workflow.status,
+          workflow.trigger_source,
+          workflow.current_step,
+          workflow.error_message,
+          workflow.target_hostname,
+          workflow.target_nodes,
+          workflow.linked_job_ids,
+          workflow.steps,
+          workflow.activity_timeline,
+        ]),
+      ),
+    [search, workflows],
   );
 
   async function refresh() {
@@ -52,6 +73,13 @@ export function WorkflowsPage() {
             Refresh
           </button>
         </div>
+        <div className="border-b border-zinc-200 px-5 py-4">
+          <SearchField
+            placeholder="Search workflows, hosts, steps, jobs..."
+            value={search}
+            onChange={setSearch}
+          />
+        </div>
         {isLoading ? <div className="m-5 h-28 animate-pulse rounded-md bg-zinc-100" /> : null}
         {!isLoading ? (
           <div className="overflow-x-auto">
@@ -69,7 +97,7 @@ export function WorkflowsPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-zinc-100">
-                {workflows.map((workflow) => (
+                {filteredWorkflows.map((workflow) => (
                   <tr key={workflow.id} className="cursor-pointer hover:bg-zinc-50" onClick={() => setSelectedId(workflow.id)}>
                     <td className="px-5 py-3 font-medium text-zinc-950">{formatLabel(workflow.workflow_type)}</td>
                     <td className="px-5 py-3 text-zinc-600">{workflowTargetLabel(workflow)}</td>
@@ -83,7 +111,11 @@ export function WorkflowsPage() {
                 ))}
               </tbody>
             </table>
-            {workflows.length === 0 ? <p className="p-5 text-sm text-zinc-500">No workflows have run yet.</p> : null}
+            {filteredWorkflows.length === 0 ? (
+              <p className="p-5 text-sm text-zinc-500">
+                {search ? 'No workflows match this search.' : 'No workflows have run yet.'}
+              </p>
+            ) : null}
           </div>
         ) : null}
       </section>

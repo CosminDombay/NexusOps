@@ -1,9 +1,11 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Activity, ExternalLink, RefreshCw, Server, ShieldCheck, Signal, TriangleAlert } from 'lucide-react';
 
 import { PageHeader } from '../../components/layout/PageHeader';
 import { PageActionButton, RuntimeBadge, StatusPill } from '../../components/operations/OperationalComponents';
+import { SearchField } from '../../components/search/SearchField';
 import { getApiErrorMessage } from '../../lib/api/client';
+import { matchesSearch } from '../../lib/search/match';
 import { getMonitoringOverview, validateMonitoring } from './api/monitoringApi';
 import type { MonitoringOverview, MonitoringProviderStatus, ServerMetrics } from './types/monitoring';
 
@@ -12,6 +14,25 @@ export function MonitoringPage() {
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isValidating, setIsValidating] = useState(false);
+  const [search, setSearch] = useState('');
+  const filteredServers = useMemo(
+    () =>
+      (overview?.servers ?? []).filter((server) =>
+        matchesSearch(search, [
+          server.hostname,
+          server.ip_address,
+          server.monitoring_state,
+          server.monitoring_status,
+          server.monitoring_targets,
+          server.node_exporter_status,
+          server.promtail_status,
+          server.cadvisor_status,
+          server.readiness_reasons,
+          server.component_failure_reasons,
+        ]),
+      ),
+    [overview?.servers, search],
+  );
 
   async function refresh() {
     setIsLoading(true);
@@ -81,13 +102,23 @@ export function MonitoringPage() {
           <p className="mt-1 text-sm text-zinc-500">
             Snapshot-only view of node_exporter, promtail, and cAdvisor validation.
           </p>
+          <SearchField
+            className="mt-3"
+            placeholder="Search nodes, targets, readiness..."
+            value={search}
+            onChange={setSearch}
+          />
         </div>
         <div className="divide-y divide-zinc-100">
-          {(overview?.servers ?? []).map((server) => (
+          {filteredServers.map((server) => (
             <MonitoringRow key={server.server_id} server={server} />
           ))}
           {isLoading ? <p className="p-5 text-sm text-zinc-500">Loading monitoring snapshots...</p> : null}
-          {!isLoading && overview?.servers.length === 0 ? <p className="p-5 text-sm text-zinc-500">No managed nodes available.</p> : null}
+          {!isLoading && filteredServers.length === 0 ? (
+            <p className="p-5 text-sm text-zinc-500">
+              {search ? 'No monitoring nodes match this search.' : 'No managed nodes available.'}
+            </p>
+          ) : null}
         </div>
       </section>
     </div>

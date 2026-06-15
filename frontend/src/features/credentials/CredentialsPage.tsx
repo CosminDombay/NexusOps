@@ -1,10 +1,12 @@
 import { Eye, KeyRound, Loader2, Plus, RotateCcw, Trash2 } from 'lucide-react';
-import { FormEvent, useCallback, useEffect, useState } from 'react';
+import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
 
 import { ContextDrawer } from '../../components/ContextDrawer';
 import { PageHeader } from '../../components/layout/PageHeader';
 import { PageActionButton } from '../../components/operations/OperationalComponents';
+import { SearchField } from '../../components/search/SearchField';
 import { getApiErrorMessage } from '../../lib/api/client';
+import { matchesSearch } from '../../lib/search/match';
 import {
   createCredential,
   deleteCredential,
@@ -57,10 +59,27 @@ export function CredentialsPage() {
   const [editingCredentialId, setEditingCredentialId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [search, setSearch] = useState('');
   const usesUsername =
     formState.credential_type === 'ssh_password' ||
     formState.credential_type === 'ssh_key' ||
     formState.credential_type === 'password';
+  const visibleCredentials = useMemo(
+    () =>
+      (view === 'active' ? credentials : deletedCredentials).filter((credential) =>
+        matchesSearch(search, [
+          credential.name,
+          credential.description,
+          credential.credential_type,
+          credential.username,
+          credential.scope,
+          credential.tags,
+          credential.deleted_by,
+          credential.delete_reason,
+        ]),
+      ),
+    [credentials, deletedCredentials, search, view],
+  );
 
   const load = useCallback(async () => {
     setIsLoading(true);
@@ -366,14 +385,21 @@ export function CredentialsPage() {
             </button>
           </div>
         </div>
+        <div className="border-b border-zinc-200 px-5 py-4">
+          <SearchField
+            placeholder="Search credentials, types, tags..."
+            value={search}
+            onChange={setSearch}
+          />
+        </div>
         {isLoading ? <p className="p-5 text-sm text-zinc-500">Loading credentials...</p> : null}
-        {!isLoading && (view === 'active' ? credentials : deletedCredentials).length === 0 ? (
+        {!isLoading && visibleCredentials.length === 0 ? (
           <p className="p-5 text-sm text-zinc-500">
-            {view === 'active' ? 'No credentials yet.' : 'Trash is empty.'}
+            {search ? 'No credentials match this search.' : view === 'active' ? 'No credentials yet.' : 'Trash is empty.'}
           </p>
         ) : null}
         <div className="divide-y divide-zinc-100">
-          {(view === 'active' ? credentials : deletedCredentials).map((credential) => (
+          {visibleCredentials.map((credential) => (
             <div
               key={credential.id}
               className="flex flex-col gap-3 px-5 py-4 transition hover:bg-zinc-50 md:flex-row md:items-center md:justify-between"

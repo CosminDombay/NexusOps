@@ -3,7 +3,9 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ContextDrawer } from '../../components/ContextDrawer';
 import { PageHeader } from '../../components/layout/PageHeader';
 import { CollapsibleSection, PageActionButton } from '../../components/operations/OperationalComponents';
+import { SearchField } from '../../components/search/SearchField';
 import { getApiErrorMessage } from '../../lib/api/client';
+import { matchesSearch } from '../../lib/search/match';
 import { listCredentials } from '../credentials/api/credentialsApi';
 import type { Credential } from '../credentials/types/credential';
 import { listServers } from '../inventory/api/serversApi';
@@ -58,10 +60,42 @@ export function JobsPage() {
   const [editingActionId, setEditingActionId] = useState<string | null>(null);
   const [isSavingAction, setIsSavingAction] = useState(false);
   const [isActionBuilderOpen, setIsActionBuilderOpen] = useState(false);
+  const [actionSearch, setActionSearch] = useState('');
+  const [jobSearch, setJobSearch] = useState('');
 
   const selectedJob = useMemo(
     () => jobs.find((job) => job.id === selectedJobId) ?? jobs[0] ?? null,
     [jobs, selectedJobId],
+  );
+  const filteredActions = useMemo(
+    () =>
+      actions.filter((action) =>
+        matchesSearch(actionSearch, [
+          action.id,
+          action.name,
+          action.category,
+          action.description,
+          action.command,
+          action.is_builtin ? 'built in' : 'custom',
+        ]),
+      ),
+    [actionSearch, actions],
+  );
+  const filteredJobs = useMemo(
+    () =>
+      jobs.filter((job) =>
+        matchesSearch(jobSearch, [
+          job.target_hostname,
+          job.operation_type,
+          job.status,
+          job.command,
+          job.stderr,
+          job.stdout,
+          job.exit_code,
+          job.execution_origin,
+        ]),
+      ),
+    [jobSearch, jobs],
   );
 
   const refresh = useCallback(async () => {
@@ -263,8 +297,14 @@ export function JobsPage() {
         description="Run a saved action against an inventory-managed node."
         defaultOpen
       >
+        <SearchField
+          className="mb-4"
+          placeholder="Search actions, categories, scripts..."
+          value={actionSearch}
+          onChange={setActionSearch}
+        />
         <OperationalActionsPanel
-          actions={actions}
+          actions={filteredActions}
           credentials={credentials}
           error={actionError}
           executionCredentialRef={executionCredentialRef}
@@ -325,14 +365,21 @@ export function JobsPage() {
       ) : null}
 
       <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(480px,1fr)]">
+        <div className="space-y-3">
+          <SearchField
+            placeholder="Search jobs, hosts, commands, output..."
+            value={jobSearch}
+            onChange={setJobSearch}
+          />
         <JobsTable
           error={loadError}
           isLoading={isLoading}
-          jobs={jobs}
+          jobs={filteredJobs}
           selectedJobId={selectedJob?.id ?? null}
           onRefresh={refresh}
           onSelectJob={(job) => setSelectedJobId(job.id)}
         />
+        </div>
         <JobResultViewer job={selectedJob} />
       </div>
     </div>

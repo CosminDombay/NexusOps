@@ -3,7 +3,9 @@ import { CheckCircle2, Plug, Plus, RefreshCw, ServerIcon, TestTube2, Trash2, XCi
 
 import { ContextDrawer } from '../../components/ContextDrawer';
 import { PageHeader } from '../../components/layout/PageHeader';
+import { SearchField } from '../../components/search/SearchField';
 import { getApiErrorMessage } from '../../lib/api/client';
+import { matchesSearch } from '../../lib/search/match';
 import { listCredentials } from '../credentials/api/credentialsApi';
 import type { Credential } from '../credentials/types/credential';
 import {
@@ -150,8 +152,25 @@ export function IntegrationsPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [editingIntegrationId, setEditingIntegrationId] = useState<string | null>(null);
+  const [search, setSearch] = useState('');
 
   const configPreview = useMemo(() => buildConfig(form), [form]);
+  const filteredIntegrations = useMemo(
+    () =>
+      integrations.filter((integration) =>
+        matchesSearch(search, [
+          integration.name,
+          integration.type,
+          integration.provider_type,
+          integration.state,
+          integration.enabled ? 'enabled' : 'disabled',
+          integration.config,
+          integration.credential_refs,
+          integration.last_error,
+        ]),
+      ),
+    [integrations, search],
+  );
 
   const refresh = useCallback(async () => {
     setIsLoading(true);
@@ -366,10 +385,17 @@ export function IntegrationsPage() {
             Refresh
           </button>
         </div>
+        <div className="border-b border-zinc-200 px-5 py-4">
+          <SearchField
+            placeholder="Search integrations, providers, URLs..."
+            value={search}
+            onChange={setSearch}
+          />
+        </div>
         {isLoading ? <div className="m-5 h-24 animate-pulse rounded-md bg-zinc-100" /> : null}
         {!isLoading ? (
           <div className="grid gap-4 p-4 lg:grid-cols-3">
-            {integrations.map((integration) => (
+            {filteredIntegrations.map((integration) => (
               <article key={integration.id} className="rounded-lg border border-zinc-200 p-4">
                 <div className="flex items-start justify-between gap-3">
                   <div>
@@ -479,8 +505,10 @@ export function IntegrationsPage() {
                 </div>
               </article>
             ))}
-            {!integrationLoadError && integrations.length === 0 ? (
-              <p className="p-5 text-sm text-zinc-500">No integrations configured yet.</p>
+            {!integrationLoadError && filteredIntegrations.length === 0 ? (
+              <p className="p-5 text-sm text-zinc-500 lg:col-span-3">
+                {search ? 'No integrations match this search.' : 'No integrations configured yet.'}
+              </p>
             ) : null}
           </div>
         ) : null}

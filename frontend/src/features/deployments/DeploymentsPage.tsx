@@ -21,7 +21,9 @@ import { PageHeader } from '../../components/layout/PageHeader';
 import { PageActionButton, RuntimeBadge, CollapsibleSection } from '../../components/operations/OperationalComponents';
 import { OperationalTimeline } from '../../components/operations/OperationalTimeline';
 import { formatDurationSeconds, formatOperationalLabel } from '../../components/operations/runtimeFormat';
+import { SearchField } from '../../components/search/SearchField';
 import { getApiErrorMessage } from '../../lib/api/client';
+import { matchesSearch } from '../../lib/search/match';
 import { listCredentials } from '../credentials/api/credentialsApi';
 import type { Credential } from '../credentials/types/credential';
 import { listServers } from '../inventory/api/serversApi';
@@ -91,6 +93,7 @@ export function DeploymentsPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isWorking, setIsWorking] = useState(false);
   const [editingDeploymentId, setEditingDeploymentId] = useState<string | null>(null);
+  const [search, setSearch] = useState('');
 
   const selectedDeployment =
     deployments.find((deployment) => deployment.id === selectedDeploymentId) ??
@@ -100,9 +103,25 @@ export function DeploymentsPage() {
     () =>
       deployments.filter(
         (deployment) =>
-          statusFilter === 'all' || normalizeStatus(deployment.status) === statusFilter,
+          (statusFilter === 'all' || normalizeStatus(deployment.status) === statusFilter) &&
+          matchesSearch(search, [
+            deployment.name,
+            deployment.description,
+            deployment.status,
+            deployment.runtime_state,
+            deployment.health_state,
+            deployment.sync_status,
+            deployment.runtime_error,
+            deployment.runtime_failure_reason,
+            deployment.target_hostname,
+            deployment.target_server_id,
+            deployment.target_server_ids,
+            deployment.targets,
+            deployment.compose_content,
+            deployment.remote_path,
+          ]),
       ),
-    [deployments, statusFilter],
+    [deployments, search, statusFilter],
   );
 
   const refreshDeploymentList = useCallback(async () => {
@@ -406,6 +425,12 @@ export function DeploymentsPage() {
       </section>
 
       <section className="flex flex-wrap gap-2">
+        <SearchField
+          className="min-w-72 flex-1"
+          placeholder="Search deployments, hosts, services..."
+          value={search}
+          onChange={setSearch}
+        />
         {statusFilters.map((status) => (
           <button
             key={status}

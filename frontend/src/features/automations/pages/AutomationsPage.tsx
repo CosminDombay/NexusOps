@@ -5,7 +5,9 @@ import type { LucideIcon } from 'lucide-react';
 import { ContextDrawer } from '../../../components/ContextDrawer';
 import { PageHeader } from '../../../components/layout/PageHeader';
 import { PageActionButton, RuntimeBadge, OperationalToolbar } from '../../../components/operations/OperationalComponents';
+import { SearchField } from '../../../components/search/SearchField';
 import { getApiErrorMessage } from '../../../lib/api/client';
+import { matchesSearch } from '../../../lib/search/match';
 import { listCredentials } from '../../credentials/api/credentialsApi';
 import type { Credential } from '../../credentials/types/credential';
 import { listServers } from '../../inventory/api/serversApi';
@@ -65,6 +67,7 @@ export function AutomationsPage() {
   const [isWorking, setIsWorking] = useState(false);
   const [editingAutomationId, setEditingAutomationId] = useState<string | null>(null);
   const [isFormOpen, setIsFormOpen] = useState(false);
+  const [search, setSearch] = useState('');
   const targetSelector = useTargetSelection('bulk');
 
   const operationOptions = useMemo(() => {
@@ -74,6 +77,25 @@ export function AutomationsPage() {
       return packages.map((pkg) => ({ value: pkg.id, label: pkg.name }));
     return actions.map((action) => ({ value: action.id, label: action.name }));
   }, [actions, form.operation_type, packages, profiles]);
+  const filteredAutomations = useMemo(
+    () =>
+      automations.filter((automation) =>
+        matchesSearch(search, [
+          automation.name,
+          automation.description,
+          automation.schedule_type,
+          automation.cron_expression,
+          automation.interval_seconds,
+          automation.operation_type,
+          automation.reference_id,
+          automation.target_server_ids,
+          automation.runtime_state,
+          automation.last_status,
+          automation.recent_executions,
+        ]),
+      ),
+    [automations, search],
+  );
 
   async function refresh() {
     setIsLoading(true);
@@ -376,11 +398,17 @@ export function AutomationsPage() {
         <div className="border-b border-zinc-200 px-5 py-4">
           <h3 className="text-base font-semibold text-zinc-950">Scheduled automations</h3>
           <p className="mt-1 text-sm text-zinc-500">{automations.length} configured.</p>
+          <SearchField
+            className="mt-3"
+            placeholder="Search automations, schedules, operations..."
+            value={search}
+            onChange={setSearch}
+          />
         </div>
         {isLoading ? <div className="m-5 h-24 animate-pulse rounded-md bg-zinc-100" /> : null}
         {!isLoading ? (
           <div className="divide-y divide-zinc-100">
-            {automations.map((automation) => (
+            {filteredAutomations.map((automation) => (
               <article key={automation.id} className="grid gap-4 p-5 xl:grid-cols-[minmax(0,1fr)_auto]">
                 <div className="space-y-4">
                   <div className="flex flex-wrap items-start justify-between gap-3">
@@ -463,8 +491,10 @@ export function AutomationsPage() {
                 </OperationalToolbar>
               </article>
             ))}
-            {automations.length === 0 ? (
-              <p className="p-5 text-sm text-zinc-500">No scheduled automations yet.</p>
+            {filteredAutomations.length === 0 ? (
+              <p className="p-5 text-sm text-zinc-500">
+                {search ? 'No automations match this search.' : 'No scheduled automations yet.'}
+              </p>
             ) : null}
           </div>
         ) : null}

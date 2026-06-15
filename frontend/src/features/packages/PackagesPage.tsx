@@ -1,14 +1,16 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 import { ContextDrawer } from '../../components/ContextDrawer';
 import { PageHeader } from '../../components/layout/PageHeader';
 import { PageActionButton } from '../../components/operations/OperationalComponents';
+import { SearchField } from '../../components/search/SearchField';
 import {
   ExecutionVariablesModal,
   type ExecutionVariableValues,
 } from '../../components/ExecutionVariablesModal';
 import { VariableDefinitionEditor } from '../../components/VariableDefinitionEditor';
 import { getApiErrorMessage } from '../../lib/api/client';
+import { matchesSearch } from '../../lib/search/match';
 import { listCredentials } from '../credentials/api/credentialsApi';
 import type { Credential } from '../credentials/types/credential';
 import { listServers } from '../inventory/api/serversApi';
@@ -64,7 +66,24 @@ export function PackagesPage() {
   const [bulkResult, setBulkResult] = useState<BulkExecutionResponse | null>(null);
   const [editingPackageId, setEditingPackageId] = useState<string | null>(null);
   const [isBuilderOpen, setIsBuilderOpen] = useState(false);
+  const [search, setSearch] = useState('');
   const targetSelector = useTargetSelection('single');
+  const filteredPackages = useMemo(
+    () =>
+      packages.filter((packageDefinition) =>
+        matchesSearch(search, [
+          packageDefinition.id,
+          packageDefinition.name,
+          packageDefinition.category,
+          packageDefinition.description,
+          packageDefinition.tags,
+          packageDefinition.supported_os,
+          packageDefinition.install_command,
+          packageDefinition.validation_command,
+        ]),
+      ),
+    [packages, search],
+  );
 
   useEffect(() => {
     async function loadPackages() {
@@ -335,20 +354,32 @@ export function PackagesPage() {
       {bulkResult ? <BulkResultPanel result={bulkResult} /> : null}
       {isLoading ? <LoadingGrid /> : null}
       {!isLoading && !error ? (
-        <div className="grid gap-4 xl:grid-cols-2">
-          {packages.map((packageDefinition) => (
-            <PackageCard
-              key={packageDefinition.id}
-              isExecuting={executingPackageId === packageDefinition.id}
-              packageDefinition={packageDefinition}
-              onDelete={handleDeletePackage}
-              onClone={handleClonePackage}
-              onEdit={startEdit}
-              onExecute={handleExecutePackage}
-              onReset={handleResetPackage}
-            />
-          ))}
-        </div>
+        <>
+          <SearchField
+            placeholder="Search packages, tags, commands..."
+            value={search}
+            onChange={setSearch}
+          />
+          <div className="grid gap-4 xl:grid-cols-2">
+            {filteredPackages.map((packageDefinition) => (
+              <PackageCard
+                key={packageDefinition.id}
+                isExecuting={executingPackageId === packageDefinition.id}
+                packageDefinition={packageDefinition}
+                onDelete={handleDeletePackage}
+                onClone={handleClonePackage}
+                onEdit={startEdit}
+                onExecute={handleExecutePackage}
+                onReset={handleResetPackage}
+              />
+            ))}
+          </div>
+          {!filteredPackages.length ? (
+            <p className="rounded-md border border-dashed border-zinc-300 bg-white p-6 text-sm text-zinc-500">
+              No packages match this search.
+            </p>
+          ) : null}
+        </>
       ) : null}
       <ExecutionVariablesModal
         credentials={credentials}

@@ -3,6 +3,8 @@ import { Database, Network, Plus, ServerIcon } from 'lucide-react';
 
 import { ContextDrawer } from '../../../components/ContextDrawer';
 import { PageHeader } from '../../../components/layout/PageHeader';
+import { SearchField } from '../../../components/search/SearchField';
+import { matchesSearch } from '../../../lib/search/match';
 import { CreateServerForm } from '../components/CreateServerForm';
 import { ServerList } from '../components/ServerList';
 import { useServers } from '../hooks/useServers';
@@ -12,6 +14,7 @@ import type { Integration } from '../../settings/types/integration';
 export function InventoryDashboardPage() {
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [integrations, setIntegrations] = useState<Integration[]>([]);
+  const [search, setSearch] = useState('');
   const {
     servers,
     isLoading,
@@ -64,6 +67,25 @@ export function InventoryDashboardPage() {
       ).sort(),
     [servers],
   );
+  const filteredServers = useMemo(
+    () =>
+      servers.filter((server) =>
+        matchesSearch(search, [
+          server.hostname,
+          server.ip_address,
+          server.operating_system,
+          server.environment,
+          server.provider,
+          server.provider_node,
+          server.node_type,
+          server.lifecycle_state,
+          server.management_state,
+          server.sync_state,
+          server.tags,
+        ]),
+      ),
+    [search, servers],
+  );
 
   return (
     <div className="space-y-6">
@@ -79,7 +101,13 @@ export function InventoryDashboardPage() {
       </div>
 
       <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-1 flex-wrap gap-2">
+          <SearchField
+            className="min-w-64 flex-1"
+            placeholder="Search hosts, IPs, providers..."
+            value={search}
+            onChange={setSearch}
+          />
           <select
             className="rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm font-semibold text-zinc-700 shadow-sm"
             value={integrationFilter}
@@ -150,7 +178,7 @@ export function InventoryDashboardPage() {
         error={error}
         isLoading={isLoading}
         mutationError={mutationError}
-        servers={servers}
+        servers={filteredServers}
         onArchive={archiveInventoryServer}
         onDecommission={decommissionInventoryServer}
         onRestore={restoreInventoryServer}

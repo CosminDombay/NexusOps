@@ -1,8 +1,10 @@
 import { Link2, Loader2, RefreshCcw, RotateCcw, Trash2 } from 'lucide-react';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { PageHeader } from '../../../components/layout/PageHeader';
+import { SearchField } from '../../../components/search/SearchField';
 import { getApiErrorMessage } from '../../../lib/api/client';
+import { matchesSearch } from '../../../lib/search/match';
 import { getTrashReferences, listTrash, purgeTrashItem, restoreTrashItem } from '../api/trashApi';
 import type { TrashGroup, TrashItem, TrashReference } from '../types/trash';
 
@@ -13,6 +15,7 @@ export function TrashPage() {
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [search, setSearch] = useState('');
 
   const load = useCallback(async () => {
     setIsLoading(true);
@@ -88,6 +91,25 @@ export function TrashPage() {
   }
 
   const totalItems = groups.reduce((count, group) => count + group.items.length, 0);
+  const filteredGroups = useMemo(
+    () =>
+      groups
+        .map((group) => ({
+          ...group,
+          items: group.items.filter((item) =>
+            matchesSearch(search, [
+              group.title,
+              item.name,
+              item.item_type,
+              item.deleted_by,
+              item.delete_reason,
+              item.metadata,
+            ]),
+          ),
+        }))
+        .filter((group) => group.items.length > 0),
+    [groups, search],
+  );
 
   return (
     <div className="space-y-6">
@@ -122,8 +144,17 @@ export function TrashPage() {
         <div className="flex items-center justify-between border-b border-slate-800 px-4 py-3">
           <div>
             <p className="text-sm font-semibold text-slate-100">Deleted records</p>
-            <p className="text-xs text-slate-400">{totalItems} item{totalItems === 1 ? '' : 's'} in Trash</p>
+            <p className="text-xs text-slate-400">
+              {totalItems} item{totalItems === 1 ? '' : 's'} in Trash
+            </p>
           </div>
+        </div>
+        <div className="border-b border-slate-800 px-4 py-3">
+          <SearchField
+            placeholder="Search Trash, item types, metadata..."
+            value={search}
+            onChange={setSearch}
+          />
         </div>
 
         {isLoading ? (
@@ -131,11 +162,13 @@ export function TrashPage() {
             <Loader2 className="h-4 w-4 animate-spin" />
             Loading Trash...
           </div>
-        ) : groups.length === 0 ? (
-          <div className="px-4 py-8 text-sm text-slate-400">Trash is empty.</div>
+        ) : filteredGroups.length === 0 ? (
+          <div className="px-4 py-8 text-sm text-slate-400">
+            {search ? 'No Trash items match this search.' : 'Trash is empty.'}
+          </div>
         ) : (
           <div className="divide-y divide-slate-800">
-            {groups.map((group) => (
+            {filteredGroups.map((group) => (
               <section key={group.item_type}>
                 <div className="border-b border-slate-800 bg-slate-900/80 px-4 py-2">
                   <div className="flex items-center justify-between gap-3">
