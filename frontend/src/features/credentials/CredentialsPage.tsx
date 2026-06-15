@@ -1,4 +1,4 @@
-import { Eye, KeyRound, Loader2, Plus, RotateCcw, Trash2 } from 'lucide-react';
+import { Eye, KeyRound, Link2, Loader2, Plus, RotateCcw, Trash2, X } from 'lucide-react';
 import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
 
 import { ContextDrawer } from '../../components/ContextDrawer';
@@ -17,7 +17,7 @@ import {
   restoreCredential,
   updateCredential,
 } from './api/credentialsApi';
-import type { Credential, CredentialScope, CredentialType } from './types/credential';
+import type { Credential, CredentialReference, CredentialScope, CredentialType } from './types/credential';
 
 type FormState = {
   name: string;
@@ -60,6 +60,10 @@ export function CredentialsPage() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [search, setSearch] = useState('');
+  const [referencePanel, setReferencePanel] = useState<{
+    credentialName: string;
+    references: CredentialReference[];
+  } | null>(null);
   const usesUsername =
     formState.credential_type === 'ssh_password' ||
     formState.credential_type === 'ssh_key' ||
@@ -91,6 +95,7 @@ export function CredentialsPage() {
       ]);
       setCredentials(nextCredentials);
       setDeletedCredentials(nextDeletedCredentials);
+      setReferencePanel(null);
     } catch (caughtError) {
       setError(getApiErrorMessage(caughtError));
     } finally {
@@ -162,6 +167,7 @@ export function CredentialsPage() {
       const deleted = await deleteCredential(credential.id, 'Deleted from Credential Manager UI');
       setCredentials((current) => current.filter((item) => item.id !== credential.id));
       setDeletedCredentials((current) => [deleted, ...current]);
+      setReferencePanel(null);
       setSuccess(`Moved credential ${credential.name} to Trash.`);
     } catch (caughtError) {
       setError(getApiErrorMessage(caughtError));
@@ -173,6 +179,7 @@ export function CredentialsPage() {
       const restored = await restoreCredential(credential.id);
       setDeletedCredentials((current) => current.filter((item) => item.id !== credential.id));
       setCredentials((current) => [restored, ...current]);
+      setReferencePanel(null);
       setSuccess(`Restored credential ${credential.name}.`);
     } catch (caughtError) {
       setError(getApiErrorMessage(caughtError));
@@ -190,6 +197,7 @@ export function CredentialsPage() {
     try {
       await purgeCredential(credential.id);
       setDeletedCredentials((current) => current.filter((item) => item.id !== credential.id));
+      setReferencePanel(null);
       setSuccess(`Permanently deleted credential ${credential.name}.`);
     } catch (caughtError) {
       setError(getApiErrorMessage(caughtError));
@@ -199,15 +207,12 @@ export function CredentialsPage() {
   async function handleShowUsage(credential: Credential) {
     try {
       const usage = await getCredentialUsage(credential.id);
-      if (!usage.references.length) {
-        setSuccess(`Credential ${credential.name} has no active references.`);
-        return;
-      }
-      setError(
-        usage.references
-          .map((reference) => `${reference.reference_type}: ${reference.name} (${reference.field})`)
-          .join('\n'),
-      );
+      setReferencePanel({
+        credentialName: credential.name,
+        references: usage.references,
+      });
+      setError(null);
+      setSuccess(null);
     } catch (caughtError) {
       setError(getApiErrorMessage(caughtError));
     }
@@ -219,6 +224,7 @@ export function CredentialsPage() {
     setIsCreateOpen(true);
     setError(null);
     setSuccess(null);
+    setReferencePanel(null);
   }
 
   function openEditDrawer(credential: Credential) {
@@ -235,6 +241,7 @@ export function CredentialsPage() {
     setIsCreateOpen(true);
     setError(null);
     setSuccess(null);
+    setReferencePanel(null);
   }
 
   function closeDrawer() {
@@ -264,6 +271,13 @@ export function CredentialsPage() {
         <p className="rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-700">
           {success}
         </p>
+      ) : null}
+      {referencePanel ? (
+        <ReferencePanel
+          credentialName={referencePanel.credentialName}
+          references={referencePanel.references}
+          onClose={() => setReferencePanel(null)}
+        />
       ) : null}
 
       <ContextDrawer
@@ -515,6 +529,69 @@ function Badge({ label }: { label: string }) {
       {label}
     </span>
   );
+}
+
+function ReferencePanel({
+  credentialName,
+  references,
+  onClose,
+}: {
+  credentialName: string;
+  references: CredentialReference[];
+  onClose: () => void;
+}) {
+  return (
+    <section className="rounded-lg border border-cyan-400/30 bg-cyan-950/20 p-4 text-sm text-cyan-50">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="flex gap-3">
+          <Link2 className="mt-0.5 h-4 w-4 shrink-0 text-cyan-300" aria-hidden="true" />
+          <div>
+            <h3 className="font-semibold text-cyan-100">References for {credentialName}</h3>
+            <p className="mt-1 text-cyan-200/80">
+              {references.length
+                ? `${references.length} active record${references.length === 1 ? '' : 's'} use this credential.`
+                : 'No active records use this credential.'}
+            </p>
+          </div>
+        </div>
+        <button
+          type="button"
+          className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-cyan-400/30 text-cyan-100 hover:bg-cyan-900/40"
+          onClick={onClose}
+        >
+          <span className="sr-only">Close references</span>
+          <X className="h-4 w-4" aria-hidden="true" />
+        </button>
+      </div>
+      {references.length ? (
+        <div className="mt-4 divide-y divide-cyan-300/10 rounded-md border border-cyan-300/20 bg-slate-950/40">
+          {references.map((reference) => (
+            <div
+              key={`${reference.reference_type}:${reference.reference_id}:${reference.field}`}
+              className="grid gap-2 px-3 py-2 sm:grid-cols-[minmax(0,1fr)_minmax(12rem,0.5fr)]"
+            >
+              <div>
+                <p className="font-semibold text-cyan-50">{reference.name}</p>
+                <p className="mt-0.5 text-xs text-cyan-200/70">
+                  {formatReferenceType(reference.reference_type)}
+                  {reference.detail ? ` - ${reference.detail}` : ''}
+                </p>
+              </div>
+              <div className="font-mono text-xs text-cyan-100/80 sm:text-right">{reference.field}</div>
+            </div>
+          ))}
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+function formatReferenceType(value: string) {
+  return value
+    .split('_')
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
 }
 
 function splitCsv(value: string): string[] {
