@@ -137,7 +137,7 @@ export type Deployment = {
 export type CreateDeploymentPayload = {
   name: string;
   description?: string | null;
-  target_server_id: string;
+  target_server_id?: string | null;
   target_server_ids?: string[];
   compose_content: string;
   env_content?: string | null;

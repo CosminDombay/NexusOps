@@ -194,11 +194,12 @@ class PackageAutomationService:
             definition,
             payload.variables,
             payload.credential_refs,
+            operation=payload.operation,
         )
         return await self.job_service.execute(
             JobExecuteRequest(
                 target_server_id=payload.target_server_id,
-                operation_type=f"package:{definition.id}",
+                operation_type=f"package:{payload.operation}:{definition.id}",
                 command=command,
                 redacted_command=redacted_command,
                 credential_ref=payload.execution_credential_ref,
@@ -214,11 +215,12 @@ class PackageAutomationService:
             definition,
             payload.variables,
             payload.credential_refs,
+            operation=payload.operation,
         )
         return await self.job_service.execute_bulk(
             JobBulkExecuteRequest(
                 target_server_ids=payload.target_server_ids,
-                operation_type=f"package:{definition.id}",
+                operation_type=f"package:{payload.operation}:{definition.id}",
                 command=command,
                 redacted_command=redacted_command,
                 credential_ref=payload.execution_credential_ref,
@@ -305,6 +307,8 @@ class PackageAutomationService:
         definition: PackageDefinitionRead,
         variables: dict[str, str],
         credential_refs: dict[str, str],
+        *,
+        operation: str = "install",
     ) -> tuple[str, str]:
         definitions = [variable.model_dump() for variable in definition.variables]
         secret_values = await self._resolve_secret_variables(definitions, credential_refs)
@@ -312,23 +316,30 @@ class PackageAutomationService:
         runtime_variables = {**safe_variables, **secret_values}
         redacted_variables = {**safe_variables, **{name: "********" for name in secret_values}}
 
-        install = self.command_builder.resolve_template(
-            definition.install_command,
+        command_template = definition.install_command if operation == "install" else definition.uninstall_command
+        if operation == "uninstall" and not command_template.strip():
+            raise VariableResolutionError(f"Package {definition.id} has no uninstall command configured")
+
+        command = self.command_builder.resolve_template(
+            command_template,
             definitions=definitions,
             variables=runtime_variables,
-            source=f"package:{definition.id}:install",
+            source=f"package:{definition.id}:{operation}",
         )
+        redacted_command = self.command_builder.resolve_template(
+            command_template,
+            definitions=definitions,
+            variables=redacted_variables,
+            source=f"package:{definition.id}:{operation}:redacted",
+        )
+        if operation == "uninstall":
+            return command, redacted_command
+
         validation = self.command_builder.resolve_template(
             definition.validation_command,
             definitions=definitions,
             variables=runtime_variables,
             source=f"package:{definition.id}:validation",
-        )
-        redacted_install = self.command_builder.resolve_template(
-            definition.install_command,
-            definitions=definitions,
-            variables=redacted_variables,
-            source=f"package:{definition.id}:install:redacted",
         )
         redacted_validation = self.command_builder.resolve_template(
             definition.validation_command,
@@ -336,7 +347,7 @@ class PackageAutomationService:
             variables=redacted_variables,
             source=f"package:{definition.id}:validation:redacted",
         )
-        return f"{install} && {validation}", f"{redacted_install} && {redacted_validation}"
+        return f"{command} && {validation}", f"{redacted_command} && {redacted_validation}"
 
     async def _resolve_secret_variables(
         self,

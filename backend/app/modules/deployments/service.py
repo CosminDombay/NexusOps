@@ -261,8 +261,6 @@ class DockerComposeDeploymentService:
         self._validate_compose_or_raise(payload.compose_content)
         await self._validate_execution_credential_ref(payload.execution_credential_ref)
         target_ids = payload.target_server_ids or ([payload.target_server_id] if payload.target_server_id else [])
-        if not target_ids:
-            raise DeploymentValidationError("Select at least one deployment target")
         servers = [await self._managed_server(target_id) for target_id in target_ids]
         deployment = await self.repository.create(
             Deployment(
@@ -303,8 +301,6 @@ class DockerComposeDeploymentService:
         await self._validate_execution_credential_ref(payload.execution_credential_ref)
 
         target_ids = payload.target_server_ids or ([payload.target_server_id] if payload.target_server_id else [])
-        if not target_ids:
-            raise DeploymentValidationError("Select at least one deployment target")
         servers = [await self._managed_server(target_id) for target_id in target_ids]
 
         deployment.name = payload.name
@@ -324,7 +320,10 @@ class DockerComposeDeploymentService:
         return await self._run_operation(deployment_id, "deploy")
 
     async def dry_run(self, deployment_id: UUID, operation: str = "deploy") -> DeploymentDryRunRead:
-        deployment, targets = await self._deployment_and_targets(deployment_id)
+        deployment = await self.repository.get_by_id(deployment_id)
+        if deployment is None:
+            raise DeploymentNotFoundError("Deployment not found")
+        targets = await self.target_repository.list_for_deployment(deployment.id)
         return await self._dry_run_for(deployment, targets, operation)
 
     async def deploy_for_target(self, deployment_id: UUID, target_server_id: UUID) -> DeploymentOperationRead:

@@ -42,12 +42,14 @@ export async function deletePackageDefinition(packageId: string): Promise<void> 
 export async function executePackageDefinition(
   packageId: string,
   targetServerId: string,
+  operation: 'install' | 'uninstall' = 'install',
   variables: Record<string, string> = {},
   credentialRefs: Record<string, string> = {},
   executionCredentialRef: string | null = null,
 ): Promise<Job> {
   const response = await apiClient.post<Job>(`/packages/${packageId}/execute`, {
     target_server_id: targetServerId,
+    operation,
     variables,
     credential_refs: credentialRefs,
     execution_credential_ref: executionCredentialRef,
@@ -58,6 +60,7 @@ export async function executePackageDefinition(
 export async function executePackageDefinitionBulk(
   packageId: string,
   targetServerIds: string[],
+  operation: 'install' | 'uninstall' = 'install',
   variables: Record<string, string> = {},
   credentialRefs: Record<string, string> = {},
   executionCredentialRef: string | null = null,
@@ -65,6 +68,7 @@ export async function executePackageDefinitionBulk(
   const response = await apiClient.post<BulkExecutionResponse>('/packages/apply/bulk', {
     package_id: packageId,
     target_server_ids: targetServerIds,
+    operation,
     variables,
     credential_refs: credentialRefs,
     execution_credential_ref: executionCredentialRef,

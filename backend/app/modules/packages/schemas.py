@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Self
+from typing import Literal, Self
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -111,6 +111,7 @@ class PackageDefinitionUpdate(BaseModel):
 
 class PackageExecuteRequest(BaseModel):
     target_server_id: UUID
+    operation: Literal["install", "uninstall"] = "install"
     variables: dict[str, str] = Field(default_factory=dict)
     credential_refs: dict[str, str] = Field(default_factory=dict)
     execution_credential_ref: str | None = Field(default=None, max_length=255)
@@ -134,6 +135,7 @@ class PackageCloneRequest(BaseModel):
 class PackageBulkApplyRequest(BaseModel):
     package_id: str = Field(min_length=1, max_length=100)
     target_server_ids: list[UUID] = Field(min_length=1)
+    operation: Literal["install", "uninstall"] = "install"
     variables: dict[str, str] = Field(default_factory=dict)
     credential_refs: dict[str, str] = Field(default_factory=dict)
     execution_credential_ref: str | None = Field(default=None, max_length=255)

@@ -30,6 +30,8 @@ import {
 import type { CreatePackageDefinitionPayload, PackageDefinition } from './types/package';
 import type { BulkExecutionResponse } from '../jobs/types/job';
 
+type PackageRunMode = 'install' | 'uninstall';
+
 type FormState = CreatePackageDefinitionPayload & {
   supported_os_text: string;
   tags_text: string;
@@ -62,7 +64,7 @@ export function PackagesPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isCreating, setIsCreating] = useState(false);
   const [executingPackageId, setExecutingPackageId] = useState<string | null>(null);
-  const [pendingPackage, setPendingPackage] = useState<PackageDefinition | null>(null);
+  const [pendingPackage, setPendingPackage] = useState<{ packageDefinition: PackageDefinition; mode: PackageRunMode } | null>(null);
   const [bulkResult, setBulkResult] = useState<BulkExecutionResponse | null>(null);
   const [editingPackageId, setEditingPackageId] = useState<string | null>(null);
   const [isBuilderOpen, setIsBuilderOpen] = useState(false);
@@ -242,18 +244,23 @@ export function PackagesPage() {
     }
   }
 
-  function handleExecutePackage(packageDefinition: PackageDefinition) {
+  function handleExecutePackage(packageDefinition: PackageDefinition, mode: PackageRunMode = 'install') {
     if (!selectedServerId && selectedServerIds.length === 0) {
       setError('Select one or more target hosts before running a package.');
       return;
     }
-    setPendingPackage(packageDefinition);
+    if (mode === 'uninstall' && !packageDefinition.uninstall_command.trim()) {
+      setError(`Package ${packageDefinition.name} has no uninstall command configured.`);
+      return;
+    }
+    setPendingPackage({ packageDefinition, mode });
     setError(null);
     setSuccess(null);
   }
 
   async function runPackage(
     packageDefinition: PackageDefinition,
+    mode: PackageRunMode,
     executionVariables: ExecutionVariableValues,
   ) {
     setExecutingPackageId(packageDefinition.id);
@@ -266,6 +273,7 @@ export function PackagesPage() {
         const result = await executePackageDefinitionBulk(
           packageDefinition.id,
           selectedServerIds,
+          mode,
           executionVariables.variables,
           executionVariables.credential_refs,
           executionVariables.execution_credential_ref,
@@ -278,11 +286,12 @@ export function PackagesPage() {
         const job = await executePackageDefinition(
           packageDefinition.id,
           selectedServerId,
+          mode,
           executionVariables.variables,
           executionVariables.credential_refs,
           executionVariables.execution_credential_ref,
         );
-        setSuccess(`Started package ${packageDefinition.name}. Job status: ${job.status}.`);
+        setSuccess(`Started package ${mode} for ${packageDefinition.name}. Job status: ${job.status}.`);
       }
       setPendingPackage(null);
     } catch (caughtError) {
@@ -383,19 +392,21 @@ export function PackagesPage() {
       ) : null}
       <ExecutionVariablesModal
         credentials={credentials}
-        isLoading={executingPackageId === pendingPackage?.id}
+        isLoading={executingPackageId === pendingPackage?.packageDefinition.id}
         isOpen={pendingPackage !== null}
         previewItems={
           pendingPackage
-            ? [`Install ${pendingPackage.name}`, `Validate ${pendingPackage.name}`]
+            ? pendingPackage.mode === 'install'
+              ? [`Install ${pendingPackage.packageDefinition.name}`, `Validate ${pendingPackage.packageDefinition.name}`]
+              : [`Uninstall ${pendingPackage.packageDefinition.name}`]
             : []
         }
         targetLabel={`${selectedServerIds.length || 1} host(s) selected`}
-        title={pendingPackage ? `Run ${pendingPackage.name}` : 'Run package'}
-        variables={pendingPackage?.variables ?? []}
+        title={pendingPackage ? `${pendingPackage.mode === 'install' ? 'Install' : 'Uninstall'} ${pendingPackage.packageDefinition.name}` : 'Run package'}
+        variables={pendingPackage?.packageDefinition.variables ?? []}
         showExecutionCredential
         onCancel={() => setPendingPackage(null)}
-        onConfirm={(values) => (pendingPackage ? runPackage(pendingPackage, values) : undefined)}
+        onConfirm={(values) => (pendingPackage ? runPackage(pendingPackage.packageDefinition, pendingPackage.mode, values) : undefined)}
       />
     </div>
   );
@@ -553,7 +564,7 @@ function PackageCard({
   onDelete: (packageId: string) => void;
   onClone: (packageDefinition: PackageDefinition) => void;
   onEdit: (packageDefinition: PackageDefinition) => void;
-  onExecute: (packageDefinition: PackageDefinition) => void;
+  onExecute: (packageDefinition: PackageDefinition, mode?: PackageRunMode) => void;
   onReset: (packageDefinition: PackageDefinition) => void;
 }) {
   return (
@@ -653,12 +664,20 @@ function PackageCard({
           </button>
         ) : null}
         <button
+          className="rounded-md border border-zinc-300 px-3 py-2 text-sm font-semibold text-zinc-700 transition hover:bg-zinc-50 disabled:bg-zinc-100 disabled:text-zinc-400"
+          disabled={isExecuting || !packageDefinition.uninstall_command.trim()}
+          type="button"
+          onClick={() => onExecute(packageDefinition, 'uninstall')}
+        >
+          Uninstall
+        </button>
+        <button
           className="rounded-md bg-zinc-950 px-3 py-2 text-sm font-semibold text-white transition hover:bg-zinc-800 disabled:bg-zinc-300"
           disabled={isExecuting}
           type="button"
-          onClick={() => onExecute(packageDefinition)}
+          onClick={() => onExecute(packageDefinition, 'install')}
         >
-          {isExecuting ? 'Running' : 'Run package'}
+          {isExecuting ? 'Running' : 'Install'}
         </button>
       </div>
     </article>

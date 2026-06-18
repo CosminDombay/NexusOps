@@ -77,7 +77,6 @@ export function DeploymentsPage() {
   const [drawerMode, setDrawerMode] = useState<DrawerMode>(null);
   const [statusFilter, setStatusFilter] = useState<DeploymentStatus | 'all'>('all');
   const [name, setName] = useState('nginx-demo');
-  const [targetServerId, setTargetServerId] = useState('');
   const targetSelector = useTargetSelection('single');
   const [composeContent, setComposeContent] = useState(defaultCompose);
   const [envContent, setEnvContent] = useState('');
@@ -146,7 +145,6 @@ export function DeploymentsPage() {
       setDeployments(nextDeployments);
       setServers(nextServers);
       setCredentials(nextCredentials);
-      setTargetServerId((current) => current || nextServers[0]?.id || '');
       setSelectedDeploymentId((current) => current || nextDeployments[0]?.id || '');
     } catch (caughtError) {
       setError(getApiErrorMessage(caughtError));
@@ -158,7 +156,7 @@ export function DeploymentsPage() {
   function deploymentPayload(targets: string[]): CreateDeploymentPayload {
     return {
       name: name.trim(),
-      target_server_id: targets[0],
+      target_server_id: targets[0] ?? null,
       target_server_ids: targets,
       compose_content: composeContent,
       env_content: envContent || null,
@@ -182,7 +180,7 @@ export function DeploymentsPage() {
     setCredentialRefs([]);
     setDryRunPreview(null);
     targetSelector.setMode('single');
-    targetSelector.setSelectedId(targetServerId);
+    targetSelector.setSelectedId('');
     targetSelector.setSelectedIds([]);
   }
 
@@ -208,7 +206,6 @@ export function DeploymentsPage() {
     targetSelector.setMode((deployment.target_server_ids?.length ?? 0) > 1 ? 'bulk' : 'single');
     targetSelector.setSelectedId(deployment.target_server_id ?? '');
     targetSelector.setSelectedIds(deployment.target_server_ids ?? []);
-    setTargetServerId(deployment.target_server_id ?? '');
     setDrawerMode('edit');
     setError(null);
     setDryRunPreview(null);
@@ -217,10 +214,10 @@ export function DeploymentsPage() {
   async function handleSave() {
     const targets = selectedTargetIds({
       ...targetSelector.selection,
-      selectedId: targetSelector.selection.selectedId || targetServerId,
+      selectedId: targetSelector.selection.selectedId,
     });
-    if (!name.trim() || targets.length === 0 || !composeContent.trim() || !remotePath.trim()) {
-      setError('Deployment name, target, compose YAML, and remote path are required.');
+    if (!name.trim() || !composeContent.trim() || !remotePath.trim()) {
+      setError('Deployment name, compose YAML, and remote path are required.');
       return;
     }
     setIsWorking(true);
@@ -251,10 +248,10 @@ export function DeploymentsPage() {
   async function previewCurrentDeployment() {
     const targets = selectedTargetIds({
       ...targetSelector.selection,
-      selectedId: targetSelector.selection.selectedId || targetServerId,
+      selectedId: targetSelector.selection.selectedId,
     });
-    if (!name.trim() || targets.length === 0 || !composeContent.trim() || !remotePath.trim()) {
-      setError('Deployment name, target, compose YAML, and remote path are required.');
+    if (!name.trim() || !composeContent.trim() || !remotePath.trim()) {
+      setError('Deployment name, compose YAML, and remote path are required.');
       return;
     }
     setIsWorking(true);
@@ -506,7 +503,6 @@ export function DeploymentsPage() {
           onRemotePathChange={setRemotePath}
           onExecutionCredentialChange={setExecutionCredentialId}
           onCredentialRefsChange={setCredentialRefs}
-          onTargetServerIdChange={setTargetServerId}
           onPreview={() => void previewCurrentDeployment()}
           onClose={() => {
             setDrawerMode(null);
@@ -565,7 +561,7 @@ function DeploymentCard({
                   {deployment.target_hostname ?? 'Open host'}
                 </Link>
               ) : (
-                'No target'
+                <span className="font-semibold text-amber-700">Planning</span>
               )}
             </p>
           </div>
@@ -703,7 +699,11 @@ function DeploymentTargets({ deployment }: { deployment: Deployment }) {
       : [];
 
   if (!targets.length) {
-    return <p className="mt-3 text-sm text-zinc-500">No deployment targets configured.</p>;
+    return (
+      <p className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-800">
+        Planning only. Add one or more deployment targets before deploy, runtime checks, logs, or status.
+      </p>
+    );
   }
 
   return (
@@ -821,7 +821,6 @@ function DeploymentDrawer({
   onRemotePathChange,
   onExecutionCredentialChange,
   onCredentialRefsChange,
-  onTargetServerIdChange,
   onPreview,
   onClose,
   onSave,
@@ -844,7 +843,6 @@ function DeploymentDrawer({
   onRemotePathChange: (value: string) => void;
   onExecutionCredentialChange: (value: string) => void;
   onCredentialRefsChange: (value: Array<{ key: string; credentialId: string }>) => void;
-  onTargetServerIdChange: (value: string) => void;
   onPreview: () => void;
   onClose: () => void;
   onSave: () => void;
@@ -897,7 +895,6 @@ function DeploymentDrawer({
                 targetSelector.setMode(selection.mode);
                 targetSelector.setSelectedId(selection.selectedId);
                 targetSelector.setSelectedIds(selection.selectedIds);
-                onTargetServerIdChange(selection.selectedId);
               }}
             />
           </div>
@@ -1121,6 +1118,11 @@ function DryRunPreviewPanel({ preview }: { preview: DeploymentDryRun }) {
           </pre>
         </div>
       ))}
+      {!preview.targets.length ? (
+        <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-800">
+          No targets selected. This deployment can be saved as a planned draft.
+        </p>
+      ) : null}
     </div>
   );
 }

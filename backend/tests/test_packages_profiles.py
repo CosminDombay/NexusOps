@@ -163,6 +163,39 @@ async def test_package_service_uses_execution_credential_for_sudo_jobs(client) -
 
 
 @pytest.mark.asyncio
+async def test_package_service_can_execute_uninstall_command(client) -> None:
+    session = next(iter(client.app.dependency_overrides.values()))
+    async for db_session in session():
+        server = await InventoryService(ServerRepository(db_session)).create_server(
+            ServerCreate(**server_payload(hostname="package-uninstall-01", ip_address="10.2.0.17"))
+        )
+        adapter = FakeSshAdapter()
+        server_repository = ServerRepository(db_session)
+        service = PackageAutomationService(
+            job_service=JobService(
+                job_repository=JobRepository(db_session),
+                server_repository=server_repository,
+                ssh_adapter=adapter,
+            )
+        )
+
+        job = await service.execute_definition(
+            "docker-engine",
+            PackageExecuteRequest(
+                target_server_id=server.id,
+                operation="uninstall",
+            ),
+        )
+
+        assert job.operation_type == "package:uninstall:docker-engine"
+        assert "apt-get remove" in job.command
+        assert "docker-ce" in job.command
+        assert "apt-get update" not in job.command
+        assert adapter.calls
+        assert "apt-get remove" in adapter.calls[-1]["command"]
+
+
+@pytest.mark.asyncio
 async def test_profile_service_lists_templates(client) -> None:
     session = next(iter(client.app.dependency_overrides.values()))
     async for db_session in session():
@@ -516,6 +549,42 @@ async def test_deployment_service_updates_record_and_marks_draft(client) -> None
         assert updated.env_content == "APP_ENV=lab"
         assert updated.execution_credential_ref == "deploy-sudo-password"
         assert updated.remote_path == "/home/ubuntu/nexusops/deployments"
+
+
+@pytest.mark.asyncio
+async def test_deployment_service_allows_planned_draft_without_targets(client) -> None:
+    session = next(iter(client.app.dependency_overrides.values()))
+    async for db_session in session():
+        server_repository = ServerRepository(db_session)
+        service = DockerComposeDeploymentService(
+            repository=DeploymentRepository(db_session),
+            target_repository=DeploymentTargetRepository(db_session),
+            revision_repository=DeploymentRevisionRepository(db_session),
+            server_repository=server_repository,
+            job_service=JobService(
+                job_repository=JobRepository(db_session),
+                server_repository=server_repository,
+                ssh_adapter=FakeSshAdapter(),
+            ),
+        )
+
+        deployment = await service.create_deployment(
+            DeploymentCreate(
+                name="planned-compose",
+                target_server_ids=[],
+                compose_content="services:\n  web:\n    image: nginx:alpine\n",
+            )
+        )
+        preview = await service.dry_run(deployment.id)
+
+        assert deployment.status == "draft"
+        assert deployment.target_server_id is None
+        assert deployment.target_server_ids == []
+        assert deployment.targets == []
+        assert preview.validation.valid is True
+        assert preview.targets == []
+        with pytest.raises(DeploymentValidationError):
+            await service.deploy(deployment.id)
 
 
 @pytest.mark.asyncio
