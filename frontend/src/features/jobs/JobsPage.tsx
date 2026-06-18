@@ -56,7 +56,8 @@ export function JobsPage() {
   const [executeError, setExecuteError] = useState<string | null>(null);
   const [bulkResult, setBulkResult] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
-  const [actionForm, setActionForm] = useState<ActionFormState>(initialActionForm);
+  const [actionBuilderInitialForm, setActionBuilderInitialForm] =
+    useState<ActionFormState>(initialActionForm);
   const [editingActionId, setEditingActionId] = useState<string | null>(null);
   const [isSavingAction, setIsSavingAction] = useState(false);
   const [isActionBuilderOpen, setIsActionBuilderOpen] = useState(false);
@@ -191,18 +192,13 @@ export function JobsPage() {
     }
   }
 
-  function updateActionField<K extends keyof ActionFormState>(field: K, value: ActionFormState[K]) {
-    setActionForm((current) => ({ ...current, [field]: value }));
-    setActionError(null);
-  }
-
   function startEditAction(action: OperationalAction) {
     if (action.is_builtin) {
       return;
     }
     setIsActionBuilderOpen(true);
     setEditingActionId(action.id);
-    setActionForm({
+    setActionBuilderInitialForm({
       id: action.id,
       name: action.name,
       category: action.category,
@@ -215,12 +211,12 @@ export function JobsPage() {
 
   function resetActionForm() {
     setEditingActionId(null);
-    setActionForm(initialActionForm);
+    setActionBuilderInitialForm(initialActionForm);
     setIsActionBuilderOpen(false);
   }
 
-  async function saveAction() {
-    if (!actionForm.id.trim() || !actionForm.name.trim() || !actionForm.command.trim()) {
+  async function saveAction(form: ActionFormState) {
+    if (!form.id.trim() || !form.name.trim() || !form.command.trim()) {
       setActionError('Action id, name, and command are required.');
       return;
     }
@@ -229,18 +225,18 @@ export function JobsPage() {
     try {
       if (editingActionId) {
         const updated = await updateOperationalAction(editingActionId, {
-          name: actionForm.name,
-          category: actionForm.category,
-          description: actionForm.description,
-          command: actionForm.command,
-          destructive: actionForm.destructive,
+          name: form.name,
+          category: form.category,
+          description: form.description,
+          command: form.command,
+          destructive: form.destructive,
         });
         setActions((current) =>
           current.map((action) => (action.id === updated.id ? updated : action)),
         );
         setSelectedActionId(updated.id);
       } else {
-        const created = await createOperationalAction(actionForm);
+        const created = await createOperationalAction(form);
         setActions((current) => [...current, created]);
         setSelectedActionId(created.id);
       }
@@ -330,10 +326,10 @@ export function JobsPage() {
       >
         <CustomActionBuilder
           editingActionId={editingActionId}
-          form={actionForm}
+          initialForm={actionBuilderInitialForm}
           isSaving={isSavingAction}
           onCancel={resetActionForm}
-          onFieldChange={updateActionField}
+          onChange={() => setActionError(null)}
           onSave={saveAction}
         />
       </ContextDrawer>
@@ -388,19 +384,30 @@ export function JobsPage() {
 
 function CustomActionBuilder({
   editingActionId,
-  form,
+  initialForm,
   isSaving,
   onCancel,
-  onFieldChange,
+  onChange,
   onSave,
 }: {
   editingActionId: string | null;
-  form: ActionFormState;
+  initialForm: ActionFormState;
   isSaving: boolean;
   onCancel: () => void;
-  onFieldChange: <K extends keyof ActionFormState>(field: K, value: ActionFormState[K]) => void;
-  onSave: () => void;
+  onChange: () => void;
+  onSave: (form: ActionFormState) => void;
 }) {
+  const [form, setForm] = useState<ActionFormState>(initialForm);
+
+  useEffect(() => {
+    setForm(initialForm);
+  }, [initialForm]);
+
+  function updateField<K extends keyof ActionFormState>(field: K, value: ActionFormState[K]) {
+    setForm((current) => ({ ...current, [field]: value }));
+    onChange();
+  }
+
   return (
     <section className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -430,7 +437,7 @@ function CustomActionBuilder({
             disabled={Boolean(editingActionId)}
             placeholder="enable-docker-user"
             value={form.id}
-            onChange={(event) => onFieldChange('id', event.target.value)}
+            onChange={(event) => updateField('id', event.target.value)}
           />
         </label>
         <label className="block text-sm font-medium text-zinc-700">
@@ -438,7 +445,7 @@ function CustomActionBuilder({
           <input
             className="mt-1 h-10 w-full rounded-md border border-zinc-300 px-3 text-sm"
             value={form.name}
-            onChange={(event) => onFieldChange('name', event.target.value)}
+            onChange={(event) => updateField('name', event.target.value)}
           />
         </label>
         <label className="block text-sm font-medium text-zinc-700">
@@ -446,14 +453,14 @@ function CustomActionBuilder({
           <input
             className="mt-1 h-10 w-full rounded-md border border-zinc-300 px-3 text-sm"
             value={form.category}
-            onChange={(event) => onFieldChange('category', event.target.value)}
+            onChange={(event) => updateField('category', event.target.value)}
           />
         </label>
         <label className="flex items-end gap-2 pb-2 text-sm font-medium text-zinc-700">
           <input
             checked={form.destructive}
             type="checkbox"
-            onChange={(event) => onFieldChange('destructive', event.target.checked)}
+            onChange={(event) => updateField('destructive', event.target.checked)}
           />
           Changes host
         </label>
@@ -462,7 +469,7 @@ function CustomActionBuilder({
           <input
             className="mt-1 h-10 w-full rounded-md border border-zinc-300 px-3 text-sm"
             value={form.description}
-            onChange={(event) => onFieldChange('description', event.target.value)}
+            onChange={(event) => updateField('description', event.target.value)}
           />
         </label>
         <label className="block text-sm font-medium text-zinc-700 md:col-span-2 xl:col-span-4">
@@ -471,7 +478,7 @@ function CustomActionBuilder({
             className="mt-1 min-h-36 w-full rounded-md border border-zinc-300 p-3 font-mono text-sm"
             placeholder={'set -e\nsudo usermod -aG docker $USER\nid'}
             value={form.command}
-            onChange={(event) => onFieldChange('command', event.target.value)}
+            onChange={(event) => updateField('command', event.target.value)}
           />
         </label>
       </div>
@@ -480,7 +487,7 @@ function CustomActionBuilder({
           className="rounded-md bg-zinc-950 px-4 py-2 text-sm font-semibold text-white disabled:bg-zinc-300"
           disabled={isSaving}
           type="button"
-          onClick={onSave}
+          onClick={() => onSave(form)}
         >
           {isSaving ? 'Saving' : editingActionId ? 'Save action' : 'Create action'}
         </button>
