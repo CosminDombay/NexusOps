@@ -118,6 +118,9 @@ class FakeProxmoxAdapter(ProxmoxAdapter):
 
 
 class FakeSshAdapter(SshAdapter):
+    def __init__(self) -> None:
+        self.calls: list[dict[str, Any]] = []
+
     @property
     def name(self) -> str:
         return "fake-ssh"
@@ -135,6 +138,16 @@ class FakeSshAdapter(SshAdapter):
         passphrase: str | None = None,
         input_data: str | None = None,
     ) -> SshExecutionResult:
+        self.calls.append(
+            {
+                "host": host,
+                "port": port,
+                "command": command,
+                "user": user,
+                "password": password,
+                "input_data": input_data,
+            }
+        )
         return SshExecutionResult(exit_code=0, stdout="ok\n", stderr="")
 
     async def upload_file(self, host: str, local_path: str, remote_path: str, user: str) -> None:
@@ -164,7 +177,11 @@ def payload(**overrides):
     return data
 
 
-def service(db_session, proxmox: FakeProxmoxAdapter | None = None) -> ProvisioningService:
+def service(
+    db_session,
+    proxmox: FakeProxmoxAdapter | None = None,
+    ssh: FakeSshAdapter | None = None,
+) -> ProvisioningService:
     return ProvisioningService(
         repository=ProvisioningRequestRepository(db_session),
         blueprint_repository=ProvisioningBlueprintRepository(db_session),
@@ -174,7 +191,7 @@ def service(db_session, proxmox: FakeProxmoxAdapter | None = None) -> Provisioni
         package_repository=PackageDefinitionRepository(db_session),
         profile_repository=InfrastructureProfileRepository(db_session),
         proxmox_adapter=proxmox or FakeProxmoxAdapter(),
-        ssh_adapter=FakeSshAdapter(),
+        ssh_adapter=ssh or FakeSshAdapter(),
     )
 
 
@@ -216,6 +233,47 @@ async def test_provisioning_creates_vm_and_inventory_record(client) -> None:
         assert servers[0].source_type == "proxmox"
         assert servers[0].sync_status == InventorySyncStatus.SYNCED
         assert servers[0].sync_state == InventorySyncStatus.SYNCED
+
+
+@pytest.mark.asyncio
+async def test_provisioning_runs_bootstrap_profile_after_inventory_registration(client) -> None:
+    session = next(iter(client.app.dependency_overrides.values()))
+    async for db_session in session():
+        proxmox = FakeProxmoxAdapter()
+        ssh = FakeSshAdapter()
+        result = await service(db_session, proxmox, ssh).provision(
+            ProvisioningCreate(
+                **payload(
+                    vm_name="profile-bootstrap-vm",
+                    cloud_init_hostname="profile-bootstrap-vm",
+                    new_vm_id=151,
+                    static_ip_cidr="10.3.0.51/24",
+                    bootstrap_profile_ids=["docker-host"],
+                )
+            )
+        )
+
+        assert result.status == "completed"
+        assert result.server_id is not None
+        assert len(result.bootstrap_job_ids) == 3
+
+        servers = await ServerRepository(db_session).list(search="10.3.0.51")
+        assert len(servers) == 1
+        assert servers[0].id == result.server_id
+        assert servers[0].lifecycle_state == InventoryLifecycleState.PROVISIONED
+
+        jobs = await JobRepository(db_session).list_for_target(result.server_id)
+        assert [job.operation_type for job in reversed(jobs)] == [
+            "profile:docker-host:install-docker",
+            "profile:docker-host:docker-status",
+            "profile:docker-host:check-docker-containers",
+        ]
+        assert all(str(job.id) in result.bootstrap_job_ids for job in jobs)
+
+        commands = "\n".join(call["command"] for call in ssh.calls)
+        assert "get.docker.com" in commands
+        assert "systemctl status docker --no-pager" in commands
+        assert "docker ps" in commands
 
 
 @pytest.mark.asyncio

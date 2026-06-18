@@ -55,8 +55,8 @@ export function AppLayout() {
 
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-950">
-      <aside className="border-b border-cyan-400/15 bg-zinc-950 text-zinc-100 lg:fixed lg:inset-y-0 lg:left-0 lg:w-64 lg:border-b-0 lg:border-r">
-        <div className="border-b border-cyan-400/15 px-5 py-4">
+      <aside className="border-b border-cyan-400/15 bg-zinc-950 text-zinc-100 lg:fixed lg:inset-y-0 lg:left-0 lg:flex lg:w-64 lg:flex-col lg:border-b-0 lg:border-r">
+        <div className="border-b border-cyan-400/15 px-5 py-4 lg:shrink-0">
           <div
             aria-label="NexusOps"
             className="h-14 w-44 bg-center bg-no-repeat"
@@ -68,7 +68,7 @@ export function AppLayout() {
           />
           <p className="mt-2 text-sm text-zinc-400">Infrastructure orchestration</p>
         </div>
-        <nav className="flex gap-3 overflow-x-auto p-3 lg:flex-col lg:overflow-visible">
+        <nav className="flex gap-3 overflow-x-auto p-3 lg:flex-1 lg:flex-col lg:overflow-x-visible lg:overflow-y-auto lg:pb-5">
           {visibleNavGroups.map((group) => (
             <div key={group.label} className="flex shrink-0 gap-1 lg:flex-col">
               <div className="hidden px-3 pb-1 pt-2 text-xs font-semibold uppercase tracking-normal text-cyan-300/60 lg:block">
