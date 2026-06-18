@@ -42,6 +42,7 @@ class SSHKey(Base, UuidPrimaryKeyMixin, TimestampMixin):
 
     name: Mapped[str] = mapped_column(String(255), index=True, nullable=False)
     public_key: Mapped[str] = mapped_column(Text, nullable=False)
+    assigned_username: Mapped[str | None] = mapped_column(String(64), nullable=True)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 

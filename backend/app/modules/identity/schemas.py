@@ -281,6 +281,7 @@ class GroupMembersRequest(BaseModel):
 class SSHKeyCreate(BaseModel):
     name: str = Field(min_length=1, max_length=255)
     public_key: str = Field(min_length=32, max_length=2000)
+    assigned_username: str | None = Field(default=None, max_length=32)
     description: str | None = Field(default=None, max_length=2000)
 
     @field_validator("name")
@@ -299,11 +300,21 @@ class SSHKeyCreate(BaseModel):
             raise ValueError("Invalid SSH public key")
         return stripped
 
+    @field_validator("assigned_username")
+    @classmethod
+    def validate_assigned_username(cls, value: str | None) -> str | None:
+        return normalize_optional_username(value)
+
+
+class SSHKeyUpdate(SSHKeyCreate):
+    pass
+
 
 class SSHKeyRead(BaseModel):
     id: UUID
     name: str
     public_key: str
+    assigned_username: str | None
     description: str | None
     created_at: datetime
     updated_at: datetime
@@ -312,15 +323,12 @@ class SSHKeyRead(BaseModel):
 
 
 class SSHKeyDeployRequest(ReplicationRequest):
-    username: str = Field(min_length=1, max_length=32)
+    username: str | None = Field(default=None, max_length=32)
 
     @field_validator("username")
     @classmethod
-    def validate_username(cls, value: str) -> str:
-        stripped = value.strip()
-        if not USERNAME_PATTERN.match(stripped):
-            raise ValueError("Invalid Linux username")
-        return stripped
+    def validate_username(cls, value: str | None) -> str | None:
+        return normalize_optional_username(value)
 
 
 class PermissionTemplateCreate(BaseModel):
@@ -361,6 +369,10 @@ class PermissionTemplateCreate(BaseModel):
         if not self.owner and not self.group and not self.mode:
             raise ValueError("At least one of owner, group, or mode is required")
         return self
+
+
+class PermissionTemplateUpdate(PermissionTemplateCreate):
+    pass
 
 
 class PermissionTemplateRead(BaseModel):
@@ -517,3 +529,16 @@ def normalize_member_names(value: list[str]) -> list[str]:
         normalized.append(stripped)
         seen.add(stripped)
     return normalized
+
+
+def normalize_optional_username(value: str | None) -> str | None:
+    if value is None:
+        return None
+    stripped = value.strip()
+    if not stripped:
+        return None
+    if not USERNAME_PATTERN.match(stripped):
+        raise ValueError("Invalid Linux username")
+    if stripped == "root":
+        raise ValueError("NexusOps cannot manage the root account")
+    return stripped

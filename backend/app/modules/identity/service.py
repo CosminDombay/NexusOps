@@ -42,10 +42,12 @@ from backend.app.modules.identity.schemas import (
     PermissionReplicateRequest,
     PermissionTemplateCreate,
     PermissionTemplateRead,
+    PermissionTemplateUpdate,
     ReplicationRequest,
     SSHKeyCreate,
     SSHKeyDeployRequest,
     SSHKeyRead,
+    SSHKeyUpdate,
     UserDiscoveryRead,
     UserGroupMembershipHostRead,
     UserGroupMembershipRead,
@@ -886,20 +888,38 @@ class LinuxSSHKeyService:
 
     async def create_key(self, payload: SSHKeyCreate) -> SSHKeyRead:
         key = await self.repository.create(
-            SSHKey(name=payload.name, public_key=payload.public_key, description=payload.description)
+            SSHKey(
+                name=payload.name,
+                public_key=payload.public_key,
+                assigned_username=payload.assigned_username,
+                description=payload.description,
+            )
         )
         await self.repository.session.commit()
         return SSHKeyRead.model_validate(key)
 
+    async def update_key(self, key_id: UUID, payload: SSHKeyUpdate) -> SSHKeyRead:
+        key = await self._key(key_id)
+        key.name = payload.name
+        key.public_key = payload.public_key
+        key.assigned_username = payload.assigned_username
+        key.description = payload.description
+        await self.repository.session.commit()
+        await self.repository.session.refresh(key)
+        return SSHKeyRead.model_validate(key)
+
     async def deploy_key(self, key_id: UUID, payload: SSHKeyDeployRequest) -> IdentityReplicationRead:
         key = await self._key(key_id)
-        home = f"/home/{payload.username}"
+        username = payload.username or key.assigned_username
+        if not username:
+            raise IdentityValidationError("SSH key deployment requires an assigned user")
+        home = f"/home/{username}"
         key_line = quote(key.public_key)
         command = (
-            f"sudo install -d -m 700 -o {quote(payload.username)} -g {quote(payload.username)} {quote(home + '/.ssh')} "
+            f"sudo install -d -m 700 -o {quote(username)} -g {quote(username)} {quote(home + '/.ssh')} "
             f"&& sudo touch {quote(home + '/.ssh/authorized_keys')} "
             f"&& grep -qxF {key_line} {quote(home + '/.ssh/authorized_keys')} || echo {key_line} | sudo tee -a {quote(home + '/.ssh/authorized_keys')} >/dev/null; "
-            f"sudo chown {quote(payload.username)}:{quote(payload.username)} {quote(home + '/.ssh/authorized_keys')} "
+            f"sudo chown {quote(username)}:{quote(username)} {quote(home + '/.ssh/authorized_keys')} "
             f"&& sudo chmod 600 {quote(home + '/.ssh/authorized_keys')}"
         )
         return await self.replication_service.replicate(
@@ -910,7 +930,10 @@ class LinuxSSHKeyService:
 
     async def revoke_key(self, key_id: UUID, payload: SSHKeyDeployRequest) -> IdentityReplicationRead:
         key = await self._key(key_id)
-        auth_keys = f"/home/{payload.username}/.ssh/authorized_keys"
+        username = payload.username or key.assigned_username
+        if not username:
+            raise IdentityValidationError("SSH key revocation requires an assigned user")
+        auth_keys = f"/home/{username}/.ssh/authorized_keys"
         command = (
             f"if test -f {quote(auth_keys)}; then "
             f"sudo sed -i {quote('/' + key.public_key.replace('/', r'\\/') + '/d')} {quote(auth_keys)}; "
@@ -945,6 +968,20 @@ class LinuxPermissionService:
     async def create_template(self, payload: PermissionTemplateCreate) -> PermissionTemplateRead:
         template = await self.repository.create(PermissionTemplate(**payload.model_dump()))
         await self.repository.session.commit()
+        return PermissionTemplateRead.model_validate(template)
+
+    async def update_template(self, template_id: UUID, payload: PermissionTemplateUpdate) -> PermissionTemplateRead:
+        template = await self.repository.get_by_id(template_id)
+        if template is None:
+            raise IdentityNotFoundError("Permission template not found")
+        template.path = payload.path
+        template.owner = payload.owner
+        template.group = payload.group
+        template.mode = payload.mode
+        template.recursive = payload.recursive
+        template.description = payload.description
+        await self.repository.session.commit()
+        await self.repository.session.refresh(template)
         return PermissionTemplateRead.model_validate(template)
 
     async def apply(self, payload: PermissionApplyRequest) -> IdentityReplicationRead:

@@ -230,8 +230,8 @@ The implemented system is focused on foundations, visibility, narrowly scoped pr
   - reusable Linux user and group records
   - planned group member lists on managed Linux groups for future replication/profile application
   - optional stored account password credential references on managed Linux users
-  - SSH public key records
-  - filesystem permission templates
+  - SSH public key records with optional planned assigned users
+  - filesystem permission templates saved as planned desired state before host replication
   - user/group/key/permission replication across selected inventory hosts
   - existing Linux user and group discovery through Jobs
   - discovered user/group adoption into managed records

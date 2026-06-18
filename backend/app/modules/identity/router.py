@@ -36,10 +36,12 @@ from backend.app.modules.identity.schemas import (
     PermissionReplicateRequest,
     PermissionTemplateCreate,
     PermissionTemplateRead,
+    PermissionTemplateUpdate,
     ReplicationRequest,
     SSHKeyCreate,
     SSHKeyDeployRequest,
     SSHKeyRead,
+    SSHKeyUpdate,
     UserDiscoveryRead,
     UserGroupMembershipRead,
 )
@@ -362,6 +364,15 @@ async def create_ssh_key(
     return await service.create_key(payload)
 
 
+@router.put("/ssh-keys/{key_id}", response_model=SSHKeyRead)
+async def update_ssh_key(
+    key_id: UUID,
+    payload: SSHKeyUpdate,
+    service: Annotated[LinuxSSHKeyService, Depends(get_key_service)],
+) -> SSHKeyRead:
+    return await service.update_key(key_id, payload)
+
+
 @router.post("/ssh-keys/{key_id}/deploy", response_model=IdentityReplicationRead)
 async def deploy_ssh_key(
     key_id: UUID,
@@ -400,6 +411,15 @@ async def create_permission_template(
     service: Annotated[LinuxPermissionService, Depends(get_permission_service)],
 ) -> PermissionTemplateRead:
     return await service.create_template(payload)
+
+
+@router.put("/permissions/{template_id}", response_model=PermissionTemplateRead)
+async def update_permission_template(
+    template_id: UUID,
+    payload: PermissionTemplateUpdate,
+    service: Annotated[LinuxPermissionService, Depends(get_permission_service)],
+) -> PermissionTemplateRead:
+    return await service.update_template(template_id, payload)
 
 
 @router.post("/permissions/apply", response_model=IdentityReplicationRead)

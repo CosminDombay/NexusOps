@@ -54,6 +54,7 @@ export type SSHKey = {
   id: string;
   name: string;
   public_key: string;
+  assigned_username: string | null;
   description: string | null;
   created_at: string;
   updated_at: string;
@@ -153,8 +154,11 @@ export type UpdateLinuxGroupPayload = CreateLinuxGroupPayload;
 export type CreateSSHKeyPayload = {
   name: string;
   public_key: string;
+  assigned_username?: string | null;
   description?: string | null;
 };
+
+export type UpdateSSHKeyPayload = CreateSSHKeyPayload;
 
 export type ApplyPermissionPayload = {
   path: string;
@@ -165,3 +169,5 @@ export type ApplyPermissionPayload = {
   description?: string | null;
   target_server_ids: string[];
 };
+
+export type PermissionTemplatePayload = Omit<ApplyPermissionPayload, 'target_server_ids'>;

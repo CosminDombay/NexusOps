@@ -33,6 +33,7 @@ import {
   adoptLinuxGroup,
   adoptLinuxUser,
   applyPermission,
+  createPermissionTemplate,
   createLinuxGroup,
   createLinuxUser,
   createSSHKey,
@@ -54,10 +55,13 @@ import {
   removeGroupMembers,
   replicateLinuxGroup,
   replicateLinuxUser,
+  replicatePermissionTemplate,
   revokeSSHKey,
   unlockLinuxUser,
   updateLinuxGroup,
   updateLinuxUser,
+  updatePermissionTemplate,
+  updateSSHKey,
 } from '../api/identityApi';
 import type { IdentityActionForm, IdentityActionMode } from '../components/actions/IdentityActionsDrawer';
 import { IconButton, MetricTile, PermissionChip, SectionCard, SelectInput, TextInput } from '../components/common/IdentityPrimitives';
@@ -218,7 +222,12 @@ export function IdentityPage() {
       setGroupMembership(null);
     }
     if (entity.kind === 'ssh-key') {
-      setForm((current) => ({ ...current, keyName: entity.keyRecord.name, publicKey: entity.keyRecord.public_key }));
+      setForm((current) => ({
+        ...current,
+        keyName: entity.keyRecord.name,
+        keyUsername: entity.keyRecord.assigned_username ?? '',
+        publicKey: entity.keyRecord.public_key,
+      }));
     }
     if (entity.kind === 'permission') {
       setForm((current) => ({
@@ -383,7 +392,7 @@ export function IdentityPage() {
     if (mode === 'user') await work(createOrUpdateOrAdoptUser);
     if (mode === 'group') await work(createOrUpdateOrAdoptGroup);
     if (mode === 'ssh-key') await work(saveOrDeployKey);
-    if (mode === 'permission') await work(applyPermissionNow);
+    if (mode === 'permission') await work(saveOrApplyPermission);
   }
 
   async function createOrUpdateOrAdoptUser() {
@@ -475,21 +484,52 @@ export function IdentityPage() {
   }
 
   async function saveOrDeployKey() {
+    const payload = {
+      name: form.keyName,
+      public_key: form.publicKey,
+      assigned_username: form.keyUsername || null,
+    };
     if (modalIntent === 'create' || !selectedKey) {
-      await createSSHKey({ name: form.keyName, public_key: form.publicKey });
-      return null;
+      const created = await createSSHKey(payload);
+      setSelectedEntityId(`ssh-key:${created.id}`);
+      if (!targetsReady) return null;
+      return deploySSHKey(created.id, form.keyUsername, selectedTargetIds);
     }
+    await updateSSHKey(selectedKey.id, payload);
     if (!targetsReady) return null;
     return deploySSHKey(selectedKey.id, form.keyUsername, selectedTargetIds);
   }
 
-  async function applyPermissionNow() {
-    return applyPermission({
+  function permissionPayload() {
+    return {
       path: form.permissionPath,
       owner: form.permissionOwner || null,
       group: form.permissionGroup || null,
       mode: form.permissionMode || null,
       recursive: form.permissionRecursive,
+      description: null,
+    };
+  }
+
+  async function saveOrApplyPermission() {
+    const payload = permissionPayload();
+    if (modalIntent === 'create' || !selectedPermission) {
+      const created = await createPermissionTemplate(payload);
+      setSelectedEntityId(`permission:${created.id}`);
+      if (!targetsReady) return null;
+      return replicatePermissionTemplate(created.id, selectedTargetIds);
+    }
+    await updatePermissionTemplate(selectedPermission.id, payload);
+    if (!targetsReady) return null;
+    return replicatePermissionTemplate(selectedPermission.id, selectedTargetIds);
+  }
+
+  async function applyPermissionNow() {
+    if (selectedPermission) {
+      return replicatePermissionTemplate(selectedPermission.id, selectedTargetIds);
+    }
+    return applyPermission({
+      ...permissionPayload(),
       target_server_ids: selectedTargetIds,
     });
   }
@@ -706,10 +746,14 @@ function SshKeyDetails({ keyRecord }: { keyRecord?: SSHKey }) {
         </div>
       </section>
       <SectionCard title="Key Information">
+        <div className="mb-3 grid gap-3 md:grid-cols-2">
+          <MetricTile label="Assigned user" value={keyRecord?.assigned_username ?? 'Unassigned'} detail="planned target account" />
+          <MetricTile label="State" value={keyRecord ? 'Managed' : 'None'} />
+        </div>
         <pre className="max-h-44 overflow-auto whitespace-pre-wrap rounded-md bg-slate-950 p-3 text-xs text-slate-300">{keyRecord?.public_key || 'No public key available.'}</pre>
       </SectionCard>
       <SectionCard title="Deployment Status">
-        <p className="text-sm text-slate-400">Use Deploy or Revoke from context actions to apply this key to selected hosts.</p>
+        <p className="text-sm text-slate-400">Saved SSH key assignments are planned configuration. Selected hosts receive deployment or revocation jobs.</p>
       </SectionCard>
     </div>
   );
@@ -733,7 +777,7 @@ function PermissionDetails({ permission }: { permission?: PermissionTemplate }) 
         <MetricTile label="Owner" value={permission?.owner ?? 'Unknown'} />
         <MetricTile label="Group" value={permission?.group ?? 'Unknown'} />
         <MetricTile label="Mode" value={permission?.mode ?? 'Unknown'} />
-        <MetricTile label="Applied hosts" value="Unknown" detail="last operation shows remote results" />
+        <MetricTile label="State" value={permission ? 'Managed' : 'None'} detail="planned template" />
       </section>
     </div>
   );
@@ -955,6 +999,8 @@ function ActionModal({
         <div className="rounded-md border border-slate-700 bg-slate-950/50 p-3 text-xs text-slate-400">
           Remote execution uses selected hosts from Replicate To Hosts or Discovery. Current target state: {targetsReady ? 'ready' : 'no hosts selected'}.
           {mode === 'group' ? ' Member changes are saved as planned group configuration; selected hosts also receive replication jobs.' : null}
+          {mode === 'ssh-key' ? ' SSH key assignments are saved as planned configuration; selected hosts also receive deploy jobs.' : null}
+          {mode === 'permission' ? ' Permission templates are saved as planned configuration; selected hosts also receive apply jobs.' : null}
           {users.length || groups.length ? null : null}
         </div>
         <div className="flex justify-end gap-2">

@@ -400,7 +400,7 @@ Frontend Identity page
 
 Identity is operational Linux infrastructure orchestration. It stores reusable Linux users, groups, public SSH keys, and permission templates, then applies them to selected Inventory-managed hosts. It does not implement LDAP, Kerberos, FreeIPA, Active Directory, SSSD, PAM rewriting, or login federation.
 
-Identity discovery reads live Linux state through Jobs and can adopt discovered users/groups into managed records. Managed user/group actions distinguish local record creation/adoption from remote replication/synchronization. Managed groups can store planned member lists before any target host exists; later replication or Profile Identity steps create the group and apply those desired memberships through the Jobs runtime. Replication requests can carry an explicit execution `credential_ref`, allowing a selected password or SSH-password credential to feed sudo through the Jobs runtime on key-auth targets.
+Identity discovery reads live Linux state through Jobs and can adopt discovered users/groups into managed records. Managed user/group actions distinguish local record creation/adoption from remote replication/synchronization. Managed groups can store planned member lists before any target host exists; later replication or Profile Identity steps create the group and apply those desired memberships through the Jobs runtime. SSH key records can store a planned assigned Linux user, and permission templates can be saved before any host is selected, then replicated later. Replication requests can carry an explicit execution `credential_ref`, allowing a selected password or SSH-password credential to feed sudo through the Jobs runtime on key-auth targets.
 
 Identity also exposes a guided preset layer:
 

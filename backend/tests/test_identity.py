@@ -6,9 +6,34 @@ from pydantic import ValidationError
 from backend.app.adapters.ssh import SshAdapter, SshExecutionResult
 from backend.app.modules.credentials.schemas import ResolvedCredential
 from backend.app.modules.identity.models import LinuxUser
-from backend.app.modules.identity.repository import IdentityExecutionRepository, LinuxGroupRepository, LinuxUserRepository
-from backend.app.modules.identity.schemas import LinuxGroupCreate, LinuxGroupUpdate, LinuxUserCreate, LinuxUserUpdate, ReplicationRequest
-from backend.app.modules.identity.service import IdentityReplicationService, IdentityValidationError, LinuxGroupService, LinuxUserService
+from backend.app.modules.identity.repository import (
+    IdentityExecutionRepository,
+    LinuxGroupRepository,
+    LinuxUserRepository,
+    PermissionTemplateRepository,
+    SSHKeyRepository,
+)
+from backend.app.modules.identity.schemas import (
+    LinuxGroupCreate,
+    LinuxGroupUpdate,
+    LinuxUserCreate,
+    LinuxUserUpdate,
+    PermissionReplicateRequest,
+    PermissionTemplateCreate,
+    PermissionTemplateUpdate,
+    ReplicationRequest,
+    SSHKeyCreate,
+    SSHKeyDeployRequest,
+    SSHKeyUpdate,
+)
+from backend.app.modules.identity.service import (
+    IdentityReplicationService,
+    IdentityValidationError,
+    LinuxGroupService,
+    LinuxPermissionService,
+    LinuxSSHKeyService,
+    LinuxUserService,
+)
 from backend.app.modules.inventory.repository import ServerRepository
 from backend.app.modules.inventory.schemas import ServerCreate
 from backend.app.modules.inventory.service import InventoryService
@@ -400,6 +425,117 @@ async def test_linux_group_replication_applies_planned_members(client) -> None:
         assert "groupadd infra" in adapter.calls[0]["command"]
         assert "usermod -aG infra monitoring" in adapter.calls[0]["command"]
         assert "usermod -aG infra cerberus" in adapter.calls[0]["command"]
+
+
+@pytest.mark.asyncio
+async def test_ssh_key_can_store_planned_assignment_without_targets(client) -> None:
+    session = next(iter(client.app.dependency_overrides.values()))
+    async for db_session in session():
+        service = LinuxSSHKeyService(
+            repository=SSHKeyRepository(db_session),
+            replication_service=IdentityReplicationService(
+                job_service=JobService(
+                    job_repository=JobRepository(db_session),
+                    server_repository=ServerRepository(db_session),
+                    ssh_adapter=FakeSshAdapter(),
+                ),
+                execution_repository=IdentityExecutionRepository(db_session),
+            ),
+        )
+
+        created = await service.create_key(
+            SSHKeyCreate(
+                name="deploy-key",
+                assigned_username="deploy",
+                public_key="ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAICiqpLws4k0uTLP4GdDXhUIIcb3HP0H4VgTV3tFzvX8M deploy",
+            )
+        )
+        updated = await service.update_key(
+            created.id,
+            SSHKeyUpdate(
+                name="deploy-key",
+                assigned_username="automation",
+                public_key="ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAICiqpLws4k0uTLP4GdDXhUIIcb3HP0H4VgTV3tFzvX8M deploy",
+            ),
+        )
+
+        assert created.assigned_username == "deploy"
+        assert updated.assigned_username == "automation"
+
+
+@pytest.mark.asyncio
+async def test_ssh_key_deploy_uses_planned_assignment(client) -> None:
+    session = next(iter(client.app.dependency_overrides.values()))
+    async for db_session in session():
+        server = await InventoryService(ServerRepository(db_session)).create_server(
+            ServerCreate(**server_payload(hostname="ssh-key-identity-01", ip_address="10.4.0.20"))
+        )
+        adapter = FakeSshAdapter()
+        service = LinuxSSHKeyService(
+            repository=SSHKeyRepository(db_session),
+            replication_service=IdentityReplicationService(
+                job_service=JobService(
+                    job_repository=JobRepository(db_session),
+                    server_repository=ServerRepository(db_session),
+                    ssh_adapter=adapter,
+                ),
+                execution_repository=IdentityExecutionRepository(db_session),
+            ),
+        )
+        created = await service.create_key(
+            SSHKeyCreate(
+                name="deploy-key",
+                assigned_username="deploy",
+                public_key="ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAICiqpLws4k0uTLP4GdDXhUIIcb3HP0H4VgTV3tFzvX8M deploy",
+            )
+        )
+
+        replication = await service.deploy_key(
+            created.id,
+            SSHKeyDeployRequest(target_server_ids=[server.id]),
+        )
+
+        assert replication.success_count == 1
+        assert "install -d -m 700 -o deploy -g deploy /home/deploy/.ssh" in adapter.calls[0]["command"]
+
+
+@pytest.mark.asyncio
+async def test_permission_template_can_be_saved_without_targets_and_replicated_later(client) -> None:
+    session = next(iter(client.app.dependency_overrides.values()))
+    async for db_session in session():
+        server = await InventoryService(ServerRepository(db_session)).create_server(
+            ServerCreate(**server_payload(hostname="permission-identity-01", ip_address="10.4.0.21"))
+        )
+        adapter = FakeSshAdapter()
+        service = LinuxPermissionService(
+            repository=PermissionTemplateRepository(db_session),
+            replication_service=IdentityReplicationService(
+                job_service=JobService(
+                    job_repository=JobRepository(db_session),
+                    server_repository=ServerRepository(db_session),
+                    ssh_adapter=adapter,
+                ),
+                execution_repository=IdentityExecutionRepository(db_session),
+            ),
+        )
+
+        created = await service.create_template(
+            PermissionTemplateCreate(path="/opt/hds-tool", owner="deploy", group="infra", mode="0750")
+        )
+        updated = await service.update_template(
+            created.id,
+            PermissionTemplateUpdate(path="/opt/hds-tool", owner="automation", group="infra", mode="0755"),
+        )
+        replication = await service.replicate(
+            updated.id,
+            PermissionReplicateRequest(target_server_ids=[server.id]),
+        )
+
+        assert created.path == "/opt/hds-tool"
+        assert updated.owner == "automation"
+        assert replication.success_count == 1
+        assert "chown automation:infra /opt/hds-tool" in adapter.calls[0]["command"]
+        assert "chmod 0755 /opt/hds-tool" in adapter.calls[0]["command"]
 
 
 @pytest.mark.asyncio

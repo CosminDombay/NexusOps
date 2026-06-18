@@ -14,8 +14,10 @@ import type {
   LinuxGroup,
   LinuxUser,
   PermissionTemplate,
+  PermissionTemplatePayload,
   PermissionPreset,
   SSHKey,
+  UpdateSSHKeyPayload,
   UpdateLinuxUserPayload,
   UpdateLinuxGroupPayload,
   UserGroupMembership,
@@ -197,9 +199,14 @@ export async function createSSHKey(payload: CreateSSHKeyPayload): Promise<SSHKey
   return response.data;
 }
 
+export async function updateSSHKey(keyId: string, payload: UpdateSSHKeyPayload): Promise<SSHKey> {
+  const response = await apiClient.put<SSHKey>(`/identity/ssh-keys/${keyId}`, payload);
+  return response.data;
+}
+
 export async function deploySSHKey(keyId: string, username: string, targetServerIds: string[]): Promise<BulkExecutionResponse> {
   const response = await apiClient.post<BulkExecutionResponse>(`/identity/ssh-keys/${keyId}/deploy`, {
-    username,
+    username: username || null,
     target_server_ids: targetServerIds,
   });
   return response.data;
@@ -225,5 +232,22 @@ export async function listPermissionPresets(): Promise<PermissionPreset[]> {
 
 export async function applyPermission(payload: ApplyPermissionPayload): Promise<BulkExecutionResponse> {
   const response = await apiClient.post<BulkExecutionResponse>('/identity/permissions/apply', payload);
+  return response.data;
+}
+
+export async function createPermissionTemplate(payload: PermissionTemplatePayload): Promise<PermissionTemplate> {
+  const response = await apiClient.post<PermissionTemplate>('/identity/permissions', payload);
+  return response.data;
+}
+
+export async function updatePermissionTemplate(templateId: string, payload: PermissionTemplatePayload): Promise<PermissionTemplate> {
+  const response = await apiClient.put<PermissionTemplate>(`/identity/permissions/${templateId}`, payload);
+  return response.data;
+}
+
+export async function replicatePermissionTemplate(templateId: string, targetServerIds: string[]): Promise<BulkExecutionResponse> {
+  const response = await apiClient.post<BulkExecutionResponse>(`/identity/permissions/${templateId}/replicate`, {
+    target_server_ids: targetServerIds,
+  });
   return response.data;
 }
