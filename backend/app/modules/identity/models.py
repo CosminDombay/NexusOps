@@ -2,7 +2,7 @@ from datetime import datetime
 from enum import StrEnum
 from uuid import UUID
 
-from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, String, Text
+from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, JSON, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from backend.app.db.base import Base, TimestampMixin, UuidPrimaryKeyMixin
@@ -33,6 +33,7 @@ class LinuxGroup(Base, UuidPrimaryKeyMixin, TimestampMixin):
 
     name: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    members: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
     managed: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False, index=True)
 
 

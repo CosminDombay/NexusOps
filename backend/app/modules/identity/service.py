@@ -724,7 +724,12 @@ class LinuxGroupService:
         return [LinuxGroupRead.model_validate(group) for group in await self.repository.list()]
 
     async def create_group(self, payload: LinuxGroupCreate) -> IdentityMutationRead:
-        group = LinuxGroup(name=payload.name, description=payload.description, managed=payload.managed)
+        group = LinuxGroup(
+            name=payload.name,
+            description=payload.description,
+            members=payload.members,
+            managed=payload.managed,
+        )
         try:
             group = await self.repository.create(group)
             await self.repository.session.commit()
@@ -742,8 +747,18 @@ class LinuxGroupService:
     async def adopt_group(self, payload: LinuxGroupCreate) -> IdentityMutationRead:
         existing = await self.repository.get_by_name(payload.name)
         if existing is not None:
+            existing.description = payload.description or existing.description
+            existing.members = sorted({*(existing.members or []), *payload.members})
+            existing.managed = payload.managed
+            await self.repository.session.commit()
+            await self.repository.session.refresh(existing)
             return IdentityMutationRead(item=LinuxGroupRead.model_validate(existing), replication=None)
-        group = LinuxGroup(name=payload.name, description=payload.description, managed=payload.managed)
+        group = LinuxGroup(
+            name=payload.name,
+            description=payload.description,
+            members=payload.members,
+            managed=payload.managed,
+        )
         try:
             group = await self.repository.create(group)
             await self.repository.session.commit()
@@ -761,13 +776,18 @@ class LinuxGroupService:
                 raise IdentityConflictError("Linux group already exists")
         group.name = payload.name
         group.description = payload.description
+        group.members = payload.members
         group.managed = payload.managed
         await self.repository.session.commit()
         await self.repository.session.refresh(group)
 
         replication = None
         if payload.target_server_ids:
-            command = self._update_group_command(previous_name=previous_name, next_name=group.name)
+            command = self._with_member_sync(
+                self._update_group_command(previous_name=previous_name, next_name=group.name),
+                group.name,
+                group.members,
+            )
             replication = await self.replication_service.replicate(
                 target_server_ids=payload.target_server_ids,
                 operation_type=f"identity:group:{group.name}:update",
@@ -789,6 +809,9 @@ class LinuxGroupService:
 
     async def add_members(self, group_id: UUID, payload: GroupMembersRequest) -> IdentityReplicationRead:
         group = await self._group(group_id)
+        group.members = sorted({*(group.members or []), *payload.usernames})
+        await self.repository.session.commit()
+        await self.repository.session.refresh(group)
         command = " && ".join(
             f"sudo usermod -aG {quote(group.name)} {quote(username)}" for username in payload.usernames
         )
@@ -801,6 +824,10 @@ class LinuxGroupService:
 
     async def remove_members(self, group_id: UUID, payload: GroupMembersRequest) -> IdentityReplicationRead:
         group = await self._group(group_id)
+        removals = set(payload.usernames)
+        group.members = [member for member in group.members or [] if member not in removals]
+        await self.repository.session.commit()
+        await self.repository.session.refresh(group)
         command = " && ".join(
             f"sudo gpasswd -d {quote(username)} {quote(group.name)}" for username in payload.usernames
         )
@@ -816,7 +843,11 @@ class LinuxGroupService:
         return await self.replication_service.replicate(
             target_server_ids=payload.target_server_ids,
             operation_type=f"identity:group:{group.name}:replicate",
-            command=f"if ! getent group {quote(group.name)} >/dev/null; then sudo groupadd {quote(group.name)}; fi",
+            command=self._with_member_sync(
+                f"if ! getent group {quote(group.name)} >/dev/null; then sudo groupadd {quote(group.name)}; fi",
+                group.name,
+                group.members,
+            ),
             credential_ref=payload.credential_ref,
         )
 
@@ -835,6 +866,14 @@ class LinuxGroupService:
             f"sudo groupmod -n {quote(next_name)} {quote(previous_name)}; "
             f"elif ! getent group {quote(next_name)} >/dev/null; then sudo groupadd {quote(next_name)}; fi"
         )
+
+    @staticmethod
+    def _with_member_sync(command: str, group_name: str, members: list[str] | None) -> str:
+        member_commands = [
+            f"if id -u {quote(username)} >/dev/null 2>&1; then sudo usermod -aG {quote(group_name)} {quote(username)}; fi"
+            for username in members or []
+        ]
+        return " && ".join([command, *member_commands])
 
 
 class LinuxSSHKeyService:

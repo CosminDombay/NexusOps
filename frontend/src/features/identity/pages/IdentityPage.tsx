@@ -210,7 +210,7 @@ export function IdentityPage() {
       setUserMembership(null);
     }
     if (entity.kind === 'group') {
-      setForm((current) => ({ ...current, groupName: entity.group.name, groupDescription: entity.group.description ?? '', memberNames: '' }));
+      setForm((current) => ({ ...current, groupName: entity.group.name, groupDescription: entity.group.description ?? '', memberNames: entity.group.members.join(',') }));
       setGroupMembership(null);
     }
     if (entity.kind === 'discovered-group') {
@@ -437,9 +437,15 @@ export function IdentityPage() {
   }
 
   async function createOrUpdateOrAdoptGroup() {
+    const requestedMembers = splitCsv(form.memberNames);
+    const existingMembers = selectedGroup?.members ?? [];
+    const plannedMembers = groupMemberOperation === 'remove'
+      ? existingMembers.filter((member) => !requestedMembers.includes(member))
+      : [...new Set([...existingMembers, ...requestedMembers])];
     const payload = {
       name: form.groupName,
       description: form.groupDescription || null,
+      members: plannedMembers,
       managed: true,
       target_server_ids: selectedTargetIds,
       credential_ref: executionCredentialRef(),
@@ -461,7 +467,7 @@ export function IdentityPage() {
 
   async function addMembersIfRequested(groupId: string, fallback: BulkExecutionResponse | null) {
     const members = splitCsv(form.memberNames);
-    if (!members.length || !targetsReady) return fallback;
+    if (!members.length || !targetsReady || groupMemberOperation === 'add') return fallback;
     if (groupMemberOperation === 'remove') {
       return removeGroupMembers(groupId, members, selectedTargetIds, executionCredentialRef());
     }
@@ -948,7 +954,7 @@ function ActionModal({
         ) : null}
         <div className="rounded-md border border-slate-700 bg-slate-950/50 p-3 text-xs text-slate-400">
           Remote execution uses selected hosts from Replicate To Hosts or Discovery. Current target state: {targetsReady ? 'ready' : 'no hosts selected'}.
-          {mode === 'group' ? ' Empty member lists only save the group record; member add/remove requires selected hosts.' : null}
+          {mode === 'group' ? ' Member changes are saved as planned group configuration; selected hosts also receive replication jobs.' : null}
           {users.length || groups.length ? null : null}
         </div>
         <div className="flex justify-end gap-2">

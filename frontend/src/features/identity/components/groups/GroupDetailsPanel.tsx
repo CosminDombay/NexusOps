@@ -17,7 +17,9 @@ export function GroupDetailsPanel({
   userMembership: UserGroupMembership | null;
 }) {
   const name = group?.name ?? discoveredGroup?.name ?? 'No group selected';
-  const allMembers = [...new Set(membership?.hosts.flatMap((host) => host.members) ?? discoveredGroup?.members ?? [])].sort();
+  const allMembers = [
+    ...new Set(membership?.hosts.flatMap((host) => host.members) ?? discoveredGroup?.members ?? group?.members ?? []),
+  ].sort();
   const memberCards = allMembers.map((username) => {
     const managedUser = users.find((user) => user.username === username);
     const inspectedGroups = userMembership?.username === username ? [...new Set(userMembership.hosts.flatMap((host) => host.groups))] : [];
@@ -43,7 +45,7 @@ export function GroupDetailsPanel({
           </div>
         </div>
         <div className="mt-5 grid gap-3 md:grid-cols-4">
-          <MetricTile label="Members" value={allMembers.length} detail="effective users" />
+          <MetricTile label="Members" value={allMembers.length} detail={membership ? 'effective users' : 'planned users'} />
           <MetricTile label="Hosts" value={membership?.hosts.length ?? discoveredGroup?.hosts.length ?? 0} detail="observed targets" />
           <MetricTile label="GID" value={discoveredGroup?.gid ?? 'Unknown'} />
           <MetricTile label="State" value={group ? 'Managed' : 'Discovered'} />
@@ -76,7 +78,9 @@ export function GroupDetailsPanel({
             ))}
           </div>
         ) : (
-          <p className="text-sm text-slate-400">Run Inspect members or Discover groups to load effective group membership.</p>
+          <p className="text-sm text-slate-400">
+            {group?.members.length ? 'Planned members will be applied during replication.' : 'Run Inspect members or Discover groups to load effective group membership.'}
+          </p>
         )}
       </SectionCard>
 

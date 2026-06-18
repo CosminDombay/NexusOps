@@ -330,6 +330,79 @@ async def test_linux_group_update_can_rename_and_replicate(client) -> None:
 
 
 @pytest.mark.asyncio
+async def test_linux_group_can_store_planned_members_without_targets(client) -> None:
+    session = next(iter(client.app.dependency_overrides.values()))
+    async for db_session in session():
+        service = LinuxGroupService(
+            repository=LinuxGroupRepository(db_session),
+            replication_service=IdentityReplicationService(
+                job_service=JobService(
+                    job_repository=JobRepository(db_session),
+                    server_repository=ServerRepository(db_session),
+                    ssh_adapter=FakeSshAdapter(),
+                ),
+                execution_repository=IdentityExecutionRepository(db_session),
+            ),
+        )
+
+        created = await service.create_group(
+            LinuxGroupCreate(
+                name="infra",
+                description="Infrastructure operators",
+                members=["monitoring", "cerberus", "automation", "cerberus"],
+                target_server_ids=[],
+            )
+        )
+        updated = await service.update_group(
+            created.item.id,
+            LinuxGroupUpdate(
+                name="infra",
+                description="Infrastructure operators",
+                members=["monitoring", "cerberus", "automation", "test"],
+                target_server_ids=[],
+            ),
+        )
+
+        assert created.item.members == ["monitoring", "cerberus", "automation"]
+        assert updated.item.members == ["monitoring", "cerberus", "automation", "test"]
+        assert updated.replication is None
+
+
+@pytest.mark.asyncio
+async def test_linux_group_replication_applies_planned_members(client) -> None:
+    session = next(iter(client.app.dependency_overrides.values()))
+    async for db_session in session():
+        server = await InventoryService(ServerRepository(db_session)).create_server(
+            ServerCreate(**server_payload(hostname="planned-members-identity-01", ip_address="10.4.0.19"))
+        )
+        adapter = FakeSshAdapter()
+        service = LinuxGroupService(
+            repository=LinuxGroupRepository(db_session),
+            replication_service=IdentityReplicationService(
+                job_service=JobService(
+                    job_repository=JobRepository(db_session),
+                    server_repository=ServerRepository(db_session),
+                    ssh_adapter=adapter,
+                ),
+                execution_repository=IdentityExecutionRepository(db_session),
+            ),
+        )
+
+        created = await service.create_group(
+            LinuxGroupCreate(name="infra", members=["monitoring", "cerberus"], target_server_ids=[])
+        )
+        replication = await service.replicate_group(
+            created.item.id,
+            ReplicationRequest(target_server_ids=[server.id]),
+        )
+
+        assert replication.success_count == 1
+        assert "groupadd infra" in adapter.calls[0]["command"]
+        assert "usermod -aG infra monitoring" in adapter.calls[0]["command"]
+        assert "usermod -aG infra cerberus" in adapter.calls[0]["command"]
+
+
+@pytest.mark.asyncio
 async def test_linux_user_group_update_only_runs_group_changes(client) -> None:
     session = next(iter(client.app.dependency_overrides.values()))
     async for db_session in session():

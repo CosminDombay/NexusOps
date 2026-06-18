@@ -228,6 +228,7 @@ The implemented system is focused on foundations, visibility, narrowly scoped pr
   - NexusOps treats Prometheus and Grafana as external observability tools, not dashboard lifecycle systems
 - Linux identity orchestration:
   - reusable Linux user and group records
+  - planned group member lists on managed Linux groups for future replication/profile application
   - optional stored account password credential references on managed Linux users
   - SSH public key records
   - filesystem permission templates

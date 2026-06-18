@@ -184,6 +184,7 @@ class LinuxUserUpdate(BaseModel):
 class LinuxGroupCreate(BaseModel):
     name: str = Field(min_length=1, max_length=32)
     description: str | None = Field(default=None, max_length=2000)
+    members: list[str] = Field(default_factory=list)
     managed: bool = True
     target_server_ids: list[UUID] = Field(default_factory=list)
     credential_ref: str | None = Field(default=None, max_length=255)
@@ -195,6 +196,11 @@ class LinuxGroupCreate(BaseModel):
         if not GROUP_PATTERN.match(stripped):
             raise ValueError("Invalid Linux group name")
         return stripped
+
+    @field_validator("members")
+    @classmethod
+    def validate_members(cls, value: list[str]) -> list[str]:
+        return normalize_member_names(value)
 
     @field_validator("credential_ref")
     @classmethod
@@ -209,6 +215,7 @@ class LinuxGroupRead(BaseModel):
     id: UUID
     name: str
     description: str | None
+    members: list[str]
     managed: bool
     created_at: datetime
     updated_at: datetime
@@ -219,6 +226,7 @@ class LinuxGroupRead(BaseModel):
 class LinuxGroupUpdate(BaseModel):
     name: str = Field(min_length=1, max_length=32)
     description: str | None = Field(default=None, max_length=2000)
+    members: list[str] = Field(default_factory=list)
     managed: bool = True
     target_server_ids: list[UUID] = Field(default_factory=list)
     credential_ref: str | None = Field(default=None, max_length=255)
@@ -230,6 +238,11 @@ class LinuxGroupUpdate(BaseModel):
         if not GROUP_PATTERN.match(stripped):
             raise ValueError("Invalid Linux group name")
         return stripped
+
+    @field_validator("members")
+    @classmethod
+    def validate_members(cls, value: list[str]) -> list[str]:
+        return normalize_member_names(value)
 
     @field_validator("credential_ref")
     @classmethod
@@ -488,3 +501,19 @@ def validate_absolute_path(value: str) -> str:
     if any(token in stripped for token in [";", "&&", "||", "`", "$(", "\n", "\r"]):
         raise ValueError("Path contains unsafe shell metacharacters")
     return stripped
+
+
+def normalize_member_names(value: list[str]) -> list[str]:
+    normalized = []
+    seen = set()
+    for username in value:
+        stripped = username.strip()
+        if not stripped or stripped in seen:
+            continue
+        if not USERNAME_PATTERN.match(stripped):
+            raise ValueError("Invalid Linux username")
+        if stripped == "root":
+            raise ValueError("NexusOps cannot manage the root account")
+        normalized.append(stripped)
+        seen.add(stripped)
+    return normalized

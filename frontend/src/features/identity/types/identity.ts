@@ -18,6 +18,7 @@ export type LinuxGroup = {
   id: string;
   name: string;
   description: string | null;
+  members: string[];
   managed: boolean;
   created_at: string;
   updated_at: string;
@@ -141,6 +142,7 @@ export type UpdateLinuxUserPayload = Omit<CreateLinuxUserPayload, 'username'>;
 export type CreateLinuxGroupPayload = {
   name: string;
   description?: string | null;
+  members: string[];
   managed: boolean;
   target_server_ids: string[];
   credential_ref?: string | null;
