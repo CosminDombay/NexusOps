@@ -32,3 +32,7 @@ Permanent deletion is blocked when active references still exist. Operators shou
 ## Normal Runtime Behavior
 
 Repositories hide soft-deleted rows by default, so normal list, edit, and execution paths do not reuse trashed records. Services that need Trash behavior explicitly opt into `include_deleted` or `only_deleted`.
+
+## Current Manual Test Note
+
+The Trash lifecycle was manually retested on 2026-06-18 and worked generally in the remote test environment. The remaining UI cleanup is navigation/surface duplication: Trash is visible both as a general Trash page and inside Credentials. The intended final shape is one clear Trash entrypoint, with credential Trash behavior represented through the universal Trash flow rather than a second competing destination.

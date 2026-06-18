@@ -64,7 +64,12 @@ Setup checklist:
 - choose a built-in package or create a custom package
 - define variables for values that differ per execution
 - keep template substitution simple with `{{ variable_name }}`
+- use Credential Manager references for sensitive variables instead of plaintext values
 - execute through the package page, profile step, provisioning bootstrap, or automation
+
+Package install runs the install command and then the validation command. Package uninstall runs the package uninstall command through Jobs as a separate operation. If a package has no uninstall command, the UI should not offer uninstall as an available runtime action.
+
+Use `{{ variable_name }}` for NexusOps package/profile variables. Shell syntax such as `${variable}` is only interpreted by the remote shell and should not be used for NexusOps template substitution unless the command itself creates that shell environment variable first.
 
 ## Profiles
 
@@ -77,6 +82,7 @@ Operational notes:
 - profile steps still execute through Jobs internally
 - optional workflow-backed execution can provide workflow and step visibility
 - profile execution should be reviewed through job links, profile summaries, and workflow timeline when present
+- large profiles are currently edited step-by-step; profile import/export and a bulk step editor are deferred until after thesis presentation to avoid destabilizing the app during validation
 
 ## Workflows
 
@@ -109,12 +115,14 @@ Setup checklist:
 - provide Docker Compose content or the expected deployment payload
 - configure deployment variables and secret-backed environment values
 - select an execution/sudo credential separately from application environment secrets when Docker commands need sudo
-- add target inventory hosts
+- add target inventory hosts, or save with no targets as a planned draft
 - preview Compose validation, target paths, env keys, secret refs, and redacted generated commands
 - run deploy or redeploy
 - review deployment execution, per-target history, runtime age, stale state, failure reasons, linked jobs, and timeline
 
 Deployment operations should preserve revision history, target execution records, status aggregation, and Jobs runtime ownership.
+
+Deployment definitions with no targets are planning records only. They can be previewed and edited, but deploy, restart, stop, status, logs, and runtime refresh require one or more managed inventory targets.
 
 Deployment record deletion currently removes the NexusOps control-plane record and history only. Future adoption/removal work should add explicit Compose discovery, adoption of existing projects, and destructive machine-side removal that runs Compose down and optionally removes remote files.
 

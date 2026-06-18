@@ -499,6 +499,21 @@ The 2026-06-04 stabilization update tightened execution credentials, deployment 
 - Proxmox discovered-record self-sanitize supports dry-run preview before deletion.
 - Manual testing is still required before these are moved from `Needs testing` to fixed/tested in the local backlog.
 
+### Stabilization Update on 2026-06-18
+
+The 2026-06-18 stabilization work focused on keeping the app steady for thesis validation while closing manual-test findings:
+
+- Sidebar scrolling now allows small screens to reach lower navigation entries such as RBAC and Trash.
+- Identity planned-state records now support users, groups, group members, SSH key assignment, and permission templates before replication to real target hosts.
+- Custom action creation avoids page-wide rerenders during field editing, improving typing responsiveness in the Jobs custom action drawer.
+- Profile builder layout was widened and step controls were adjusted so target/type/credential controls fit better in dense profiles.
+- Docker deployments can now be saved as planned drafts with no selected target. Deployment create/edit no longer silently falls back to the first inventory host, and cards label no-target records as planning-only.
+- Docker deployment cards expose target lists and per-target runtime state for multi-host deployments.
+- Package uninstall commands are now executable through Jobs as explicit uninstall operations; package install remains install plus validation, while uninstall runs the uninstall command alone.
+- Search, credential references, and the universal Trash workflow were manually retested and worked in the remote test environment.
+- Remaining UI cleanup: Trash is still visible both inside Credentials and as the general Trash surface. Keep one clear Trash entrypoint.
+- Full unattended VM provisioning plus profile/package/deployment application still needs final start-to-end validation before being marked complete.
+
 ## Architecture Status
 
 - Backend remains organized as a modular monolith.
@@ -510,11 +525,11 @@ The 2026-06-04 stabilization update tightened execution credentials, deployment 
 - Package definitions and profiles combine built-in registries with persisted custom definitions and reuse Jobs for execution.
 - Built-in packages and profiles are code-defined system templates with persisted editable overrides.
 - Credential resolution lives in `backend/app/modules/credentials/` and decrypts secret material only inside backend runtime execution paths.
-- Variable resolution lives in `backend/app/common/variables.py` and intentionally supports placeholder substitution only.
+- Variable resolution lives in `backend/app/common/variables.py` and intentionally supports `{{ variable_name }}` placeholder substitution only. Shell-style `${variable}` is not NexusOps template syntax unless the remote shell has already defined that environment variable.
 - Provisioning orchestrates Proxmox, Inventory, and bootstrap Jobs without creating a separate execution path.
 - Provisioning blueprints persist reusable provisioning defaults while keeping Proxmox VM templates as the provider-side base image.
 - Batch provisioning creates a parent batch record and normal child provisioning requests. Each generated VM still goes through the existing Proxmox clone, cloud-init, SSH readiness, Inventory registration, and optional bootstrap flow.
-- Docker Compose deployments reuse Jobs for deploy/redeploy/restart/stop/status/logs, resolve credential-backed env values server-side, and persist definition/execution/target-execution runtime separation. Application/env secrets and execution/sudo credentials are distinct concepts.
+- Docker Compose deployments reuse Jobs for deploy/redeploy/restart/stop/status/logs, resolve credential-backed env values server-side, and persist definition/execution/target-execution runtime separation. Application/env secrets and execution/sudo credentials are distinct concepts. Deployment definitions may exist as planned drafts without targets, but runtime operations require one or more managed inventory targets.
 - Deployment API reads include derived operational metadata, per-target runtime state, runtime age, stale markers, failure reasons, and redacted dry-run previews while execution still flows through the existing Jobs pipeline.
 - Frontend create/edit/configuration workflows should prefer `ContextDrawer` or focused modals over permanent page-level forms.
 - Frontend operational pages should prefer shared page-header actions, operational toolbars, runtime badges, and collapsible action panels over page-local button/form patterns.
