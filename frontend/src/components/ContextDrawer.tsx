@@ -6,7 +6,7 @@ type ContextDrawerProps = {
   title: string;
   description?: string;
   children: ReactNode;
-  width?: 'md' | 'lg' | 'xl';
+  width?: 'md' | 'lg' | 'xl' | '2xl';
   onClose: () => void;
 };
 
@@ -14,6 +14,7 @@ const widthClass = {
   md: 'w-[min(100%,36rem)]',
   lg: 'w-[min(100%,48rem)]',
   xl: 'w-[min(100%,56rem)]',
+  '2xl': 'w-[min(100%,76rem)]',
 };
 
 export function ContextDrawer({

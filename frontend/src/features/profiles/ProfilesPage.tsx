@@ -447,7 +447,7 @@ export function ProfilesPage() {
             description="Profiles are orchestration blueprints: ordered package, deployment, action, and command standards."
             isOpen={isBuilderOpen}
             title={editingProfileId ? 'Edit Profile' : 'Create Profile'}
-            width="xl"
+            width="2xl"
             onClose={resetEditor}
           >
             <ProfileBuilder
@@ -765,8 +765,9 @@ function ProfileBuilder({
       <h3 className="text-base font-semibold text-zinc-950">
         {editingProfileId ? 'Edit profile' : 'Build profile'}
       </h3>
-      <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+      <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <TextInput
+          className="xl:col-span-1"
           label="ID"
           name="id"
           placeholder="custom-profile"
@@ -774,6 +775,7 @@ function ProfileBuilder({
           onChange={onFieldChange}
         />
         <TextInput
+          className="xl:col-span-2"
           label="Name"
           name="name"
           placeholder="Custom Profile"
@@ -781,6 +783,7 @@ function ProfileBuilder({
           onChange={onFieldChange}
         />
         <TextInput
+          className="xl:col-span-1"
           label="Category"
           name="category"
           placeholder="Baseline"
@@ -788,6 +791,7 @@ function ProfileBuilder({
           onChange={onFieldChange}
         />
         <TextInput
+          className="xl:col-span-1"
           label="Tags"
           name="tags_text"
           placeholder="baseline,linux"
@@ -795,13 +799,14 @@ function ProfileBuilder({
           onChange={onFieldChange}
         />
         <TextInput
+          className="md:col-span-2 xl:col-span-3"
           label="Description"
           name="description"
           placeholder="Reusable host standard"
           value={formState.description}
           onChange={onFieldChange}
         />
-        <div className="xl:col-span-3">
+        <div className="xl:col-span-4">
           <div className="flex items-center justify-between gap-3">
             <p className="text-xs font-semibold uppercase text-zinc-500">Execution steps</p>
             <button
@@ -1006,8 +1011,8 @@ function ProfileStepCard({
         onMove(Number(event.dataTransfer.getData('text/plain')), index);
       }}
     >
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-start">
-        <div className="flex items-center gap-3 lg:w-56">
+      <div className="grid gap-4 xl:grid-cols-[minmax(14rem,1.2fr)_minmax(0,4fr)_auto] xl:items-start">
+        <div className="flex min-w-0 items-center gap-3">
           <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-zinc-950 text-white">
             <Icon className="h-4 w-4" aria-hidden="true" />
           </span>
@@ -1017,11 +1022,11 @@ function ProfileStepCard({
           </div>
         </div>
 
-        <div className="grid flex-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
-          <label className="text-xs font-medium text-zinc-700">
+        <div className="grid min-w-0 gap-3 md:grid-cols-2 xl:grid-cols-[minmax(9rem,0.8fr)_minmax(20rem,2.4fr)_minmax(12rem,1fr)]">
+          <label className="min-w-0 text-xs font-medium text-zinc-700">
             Type
             <select
-              className="mt-1 w-full rounded-md border border-zinc-300 bg-white px-2 py-2 text-sm"
+              className="mt-1 w-full min-w-0 truncate rounded-md border border-zinc-300 bg-white px-2 py-2 pr-9 text-sm"
               value={stepType}
               onChange={(event) => handleTypeChange(event.target.value)}
             >
@@ -1036,7 +1041,7 @@ function ProfileStepCard({
           </label>
 
           {stepType === 'script' ? (
-            <label className="text-xs font-medium text-zinc-700 md:col-span-2">
+            <label className="min-w-0 text-xs font-medium text-zinc-700 md:col-span-2">
               Command
               <input
                 className="mt-1 w-full rounded-md border border-zinc-300 bg-white px-2 py-2 font-mono text-sm"
@@ -1045,10 +1050,10 @@ function ProfileStepCard({
               />
             </label>
           ) : (
-            <label className="text-xs font-medium text-zinc-700 md:col-span-2">
+            <label className="min-w-0 text-xs font-medium text-zinc-700">
               Target
               <select
-                className="mt-1 w-full rounded-md border border-zinc-300 bg-white px-2 py-2 text-sm"
+                className="mt-1 w-full min-w-0 truncate rounded-md border border-zinc-300 bg-white px-2 py-2 pr-9 text-sm"
                 value={step.reference_id}
                 onChange={(event) => handleTargetChange(event.target.value)}
               >
@@ -1061,10 +1066,10 @@ function ProfileStepCard({
             </label>
           )}
 
-          <label className="text-xs font-medium text-zinc-700">
+          <label className="min-w-0 text-xs font-medium text-zinc-700">
             Credential
             <select
-              className="mt-1 w-full rounded-md border border-zinc-300 bg-white px-2 py-2 text-sm"
+              className="mt-1 w-full min-w-[12rem] truncate rounded-md border border-zinc-300 bg-white px-2 py-2 pr-10 text-sm"
               value={step.credential_ref ?? ''}
               onChange={(event) => onUpdate({ credential_ref: event.target.value || null })}
             >
@@ -1078,7 +1083,7 @@ function ProfileStepCard({
           </label>
         </div>
 
-        <div className="flex flex-wrap justify-end gap-2">
+        <div className="flex flex-wrap justify-end gap-2 xl:flex-nowrap">
           <label className="inline-flex h-9 items-center gap-2 rounded-md border border-zinc-300 px-3 text-sm font-medium text-zinc-700">
             <input
               checked={step.enabled !== false}
@@ -1128,12 +1133,14 @@ function Badge({ label }: { label: string }) {
 }
 
 function TextInput({
+  className = '',
   label,
   name,
   value,
   placeholder,
   onChange,
 }: {
+  className?: string;
   label: string;
   name: keyof ProfileFormState;
   value: string;
@@ -1141,7 +1148,7 @@ function TextInput({
   onChange: (name: keyof ProfileFormState, value: string) => void;
 }) {
   return (
-    <label className="text-sm font-medium text-zinc-700">
+    <label className={`min-w-0 text-sm font-medium text-zinc-700 ${className}`}>
       {label}
       <input
         className="mt-1 w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-950 shadow-sm outline-none transition focus:border-zinc-900 focus:ring-2 focus:ring-zinc-900/10"
