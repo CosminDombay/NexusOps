@@ -1011,14 +1011,23 @@ function ProfileStepCard({
         onMove(Number(event.dataTransfer.getData('text/plain')), index);
       }}
     >
-      <div className="grid gap-4 xl:grid-cols-[minmax(14rem,1.2fr)_minmax(0,4fr)_minmax(12rem,auto)] xl:items-start">
-        <div className="flex min-w-0 items-center gap-3">
+      <div className="grid gap-4 xl:grid-cols-[minmax(14rem,1.1fr)_minmax(0,4fr)_auto] xl:items-start">
+        <div className="flex min-w-0 items-start gap-3">
           <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-zinc-950 text-white">
             <Icon className="h-4 w-4" aria-hidden="true" />
           </span>
-          <div className="min-w-0">
+          <div className="min-w-0 space-y-2">
             <p className="truncate text-sm font-semibold text-zinc-950">{step.name}</p>
             <p className="text-xs text-zinc-500">Step {index + 1}</p>
+            <label className="inline-flex h-8 w-fit items-center gap-2 rounded-md border border-zinc-300 px-2.5 text-xs font-semibold text-zinc-700">
+              <input
+                className="h-4 w-4 shrink-0"
+                checked={step.enabled !== false}
+                type="checkbox"
+                onChange={(event) => onUpdate({ enabled: event.target.checked })}
+              />
+              Enabled
+            </label>
           </div>
         </div>
 
@@ -1083,16 +1092,7 @@ function ProfileStepCard({
           </label>
         </div>
 
-        <div className="flex min-w-[12rem] flex-wrap items-start justify-end gap-2">
-          <label className="inline-flex h-9 min-w-[6.75rem] shrink-0 items-center justify-center gap-2 rounded-md border border-zinc-300 px-3 text-sm font-medium text-zinc-700">
-            <input
-              className="h-4 w-4 shrink-0"
-              checked={step.enabled !== false}
-              type="checkbox"
-              onChange={(event) => onUpdate({ enabled: event.target.checked })}
-            />
-            Enabled
-          </label>
+        <div className="flex shrink-0 items-start justify-end gap-2">
           <button
             className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-zinc-300 text-zinc-700 disabled:opacity-40"
             disabled={index === 0}
