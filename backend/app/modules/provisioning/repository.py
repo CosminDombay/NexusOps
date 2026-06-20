@@ -6,6 +6,7 @@ from uuid import UUID
 from backend.app.common.repository import BaseRepository
 from backend.app.modules.provisioning.models import (
     ProvisioningBlueprint,
+    ProvisioningBootstrapTemplate,
     ProvisioningBatch,
     ProvisioningRequest,
     VirtualMachine,
@@ -78,6 +79,40 @@ class ProvisioningBlueprintRepository(BaseRepository[ProvisioningBlueprint]):
 
     async def delete(self, blueprint: ProvisioningBlueprint) -> None:
         await self.session.delete(blueprint)
+
+
+class ProvisioningBootstrapTemplateRepository(BaseRepository[ProvisioningBootstrapTemplate]):
+    async def create(self, template: ProvisioningBootstrapTemplate) -> ProvisioningBootstrapTemplate:
+        self.session.add(template)
+        await self.session.flush()
+        await self.session.refresh(template)
+        return template
+
+    async def get_by_id(
+        self,
+        template_id: UUID,
+        *,
+        include_deleted: bool = False,
+    ) -> ProvisioningBootstrapTemplate | None:
+        query = select(ProvisioningBootstrapTemplate).where(ProvisioningBootstrapTemplate.id == template_id)
+        if not include_deleted:
+            query = query.where(ProvisioningBootstrapTemplate.deleted_at.is_(None))
+        result = await self.session.execute(query)
+        return result.scalar_one_or_none()
+
+    async def list(
+        self,
+        *,
+        include_deleted: bool = False,
+        only_deleted: bool = False,
+    ) -> list[ProvisioningBootstrapTemplate]:
+        query = select(ProvisioningBootstrapTemplate)
+        if only_deleted:
+            query = query.where(ProvisioningBootstrapTemplate.deleted_at.is_not(None))
+        elif not include_deleted:
+            query = query.where(ProvisioningBootstrapTemplate.deleted_at.is_(None))
+        result = await self.session.execute(query.order_by(ProvisioningBootstrapTemplate.name.asc()))
+        return list(result.scalars().all())
 
 
 class ProvisioningBatchRepository(BaseRepository[ProvisioningBatch]):

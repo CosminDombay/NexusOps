@@ -20,6 +20,7 @@ from backend.app.modules.packages.repository import PackageDefinitionRepository
 from backend.app.modules.profiles.repository import InfrastructureProfileRepository
 from backend.app.modules.provisioning.repository import (
     ProvisioningBlueprintRepository,
+    ProvisioningBootstrapTemplateRepository,
     ProvisioningBatchRepository,
     ProvisioningRequestRepository,
 )
@@ -28,6 +29,9 @@ from backend.app.modules.provisioning.schemas import (
     ProvisioningBlueprintCreate,
     ProvisioningBlueprintRead,
     ProvisioningBlueprintUpdate,
+    ProvisioningBootstrapTemplateCreate,
+    ProvisioningBootstrapTemplateRead,
+    ProvisioningBootstrapTemplateUpdate,
     ProvisioningBatchCreate,
     ProvisioningBatchRead,
     ProvisioningCreate,
@@ -36,6 +40,8 @@ from backend.app.modules.provisioning.schemas import (
 from backend.app.modules.provisioning.service import (
     ProvisioningBlueprintConflictError,
     ProvisioningBlueprintNotFoundError,
+    ProvisioningBootstrapTemplateConflictError,
+    ProvisioningBootstrapTemplateNotFoundError,
     ProvisioningBatchNotFoundError,
     ProvisioningNotFoundError,
     ProvisioningService,
@@ -60,6 +66,7 @@ async def get_provisioning_service(
     return ProvisioningService(
         repository=ProvisioningRequestRepository(session),
         blueprint_repository=ProvisioningBlueprintRepository(session),
+        bootstrap_template_repository=ProvisioningBootstrapTemplateRepository(session),
         batch_repository=ProvisioningBatchRepository(session),
         server_repository=ServerRepository(session),
         job_repository=JobRepository(session),
@@ -108,6 +115,53 @@ async def list_batches(
     service: Annotated[ProvisioningService, Depends(get_provisioning_service)],
 ) -> list[ProvisioningBatchRead]:
     return await service.list_batches()
+
+
+@router.get("/bootstrap-templates", response_model=list[ProvisioningBootstrapTemplateRead])
+async def list_bootstrap_templates(
+    service: Annotated[ProvisioningService, Depends(get_provisioning_service)],
+) -> list[ProvisioningBootstrapTemplateRead]:
+    return await service.list_bootstrap_templates()
+
+
+@router.post(
+    "/bootstrap-templates",
+    response_model=ProvisioningBootstrapTemplateRead,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_bootstrap_template(
+    payload: ProvisioningBootstrapTemplateCreate,
+    service: Annotated[ProvisioningService, Depends(get_provisioning_service)],
+) -> ProvisioningBootstrapTemplateRead:
+    try:
+        return await service.create_bootstrap_template(payload)
+    except ProvisioningBootstrapTemplateConflictError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+
+
+@router.put("/bootstrap-templates/{template_id}", response_model=ProvisioningBootstrapTemplateRead)
+async def update_bootstrap_template(
+    template_id: UUID,
+    payload: ProvisioningBootstrapTemplateUpdate,
+    service: Annotated[ProvisioningService, Depends(get_provisioning_service)],
+) -> ProvisioningBootstrapTemplateRead:
+    try:
+        return await service.update_bootstrap_template(template_id, payload)
+    except ProvisioningBootstrapTemplateNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except ProvisioningBootstrapTemplateConflictError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+
+
+@router.delete("/bootstrap-templates/{template_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_bootstrap_template(
+    template_id: UUID,
+    service: Annotated[ProvisioningService, Depends(get_provisioning_service)],
+) -> None:
+    try:
+        await service.delete_bootstrap_template(template_id)
+    except ProvisioningBootstrapTemplateNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
 
 
 @router.post("/batches", response_model=ProvisioningBatchRead, status_code=status.HTTP_201_CREATED)

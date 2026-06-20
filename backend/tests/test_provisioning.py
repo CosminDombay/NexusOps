@@ -26,11 +26,18 @@ from backend.app.modules.packages.repository import PackageDefinitionRepository
 from backend.app.modules.profiles.repository import InfrastructureProfileRepository
 from backend.app.modules.provisioning.repository import (
     ProvisioningBlueprintRepository,
+    ProvisioningBootstrapTemplateRepository,
     ProvisioningBatchRepository,
     ProvisioningRequestRepository,
 )
 from backend.app.modules.provisioning.models import ProvisioningRequest, ProvisioningStatus
-from backend.app.modules.provisioning.schemas import ProvisioningBatchCreate, ProvisioningBlueprintCreate, ProvisioningCreate
+from backend.app.modules.provisioning.schemas import (
+    ProvisioningBatchCreate,
+    ProvisioningBlueprintCreate,
+    ProvisioningBootstrapTemplateCreate,
+    ProvisioningBootstrapTemplateUpdate,
+    ProvisioningCreate,
+)
 from backend.app.modules.provisioning.service import ProvisioningService
 
 
@@ -193,6 +200,7 @@ def service(
     return ProvisioningService(
         repository=ProvisioningRequestRepository(db_session),
         blueprint_repository=ProvisioningBlueprintRepository(db_session),
+        bootstrap_template_repository=ProvisioningBootstrapTemplateRepository(db_session),
         batch_repository=ProvisioningBatchRepository(db_session),
         server_repository=ServerRepository(db_session),
         job_repository=JobRepository(db_session),
@@ -221,6 +229,42 @@ async def test_provisioning_lists_storage(client) -> None:
 
     assert storage[0].storage == "local-lvm"
     assert storage[0].content == ["images"]
+
+
+@pytest.mark.asyncio
+async def test_provisioning_bootstrap_template_crud(client) -> None:
+    session = next(iter(client.app.dependency_overrides.values()))
+    async for db_session in session():
+        provisioning_service = service(db_session)
+        created = await provisioning_service.create_bootstrap_template(
+            ProvisioningBootstrapTemplateCreate(
+                name="Docker App Bootstrap",
+                description="Install Docker and deploy the app.",
+                bootstrap_items=[
+                    {"kind": "package", "reference_id": "docker-engine"},
+                    {"kind": "deployment", "reference_id": "00000000-0000-0000-0000-000000000001"},
+                ],
+            )
+        )
+
+        assert created.name == "Docker App Bootstrap"
+        assert [item.kind for item in created.bootstrap_items] == ["package", "deployment"]
+
+        listed = await provisioning_service.list_bootstrap_templates()
+        assert [template.id for template in listed] == [created.id]
+
+        updated = await provisioning_service.update_bootstrap_template(
+            created.id,
+            ProvisioningBootstrapTemplateUpdate(
+                name="Base Docker Bootstrap",
+                bootstrap_items=[{"kind": "profile", "reference_id": "base-linux-server"}],
+            ),
+        )
+        assert updated.name == "Base Docker Bootstrap"
+        assert updated.bootstrap_items[0].reference_id == "base-linux-server"
+
+        await provisioning_service.delete_bootstrap_template(created.id)
+        assert await provisioning_service.list_bootstrap_templates() == []
 
 
 @pytest.mark.asyncio

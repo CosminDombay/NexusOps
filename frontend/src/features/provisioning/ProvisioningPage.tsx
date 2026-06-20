@@ -14,21 +14,27 @@ import type { PackageDefinition } from '../packages/types/package';
 import { listProfiles } from '../profiles/api/profilesApi';
 import type { InfrastructureProfile } from '../profiles/types/profile';
 import {
+  createProvisioningBootstrapTemplate,
   createProvisioningBlueprint,
   createProvisioningBatch,
   createProvisioningRequest,
+  deleteProvisioningBootstrapTemplate,
   deleteProvisioningBlueprint,
   deleteProvisioningRequest,
   listProxmoxStorage,
   listProxmoxTemplates,
+  listProvisioningBootstrapTemplates,
   listProvisioningBatches,
   listProvisioningBlueprints,
   listProvisioningRequests,
+  updateProvisioningBootstrapTemplate,
   updateProvisioningBlueprint,
 } from './api/provisioningApi';
 import type {
+  CreateProvisioningBootstrapTemplatePayload,
   CreateProvisioningPayload,
   ProvisioningBootstrapItem,
+  ProvisioningBootstrapTemplate,
   ProvisioningBatch,
   ProxmoxStorage,
   ProxmoxTemplate,
@@ -121,6 +127,7 @@ export function ProvisioningPage() {
   const [requests, setRequests] = useState<ProvisioningRequest[]>([]);
   const [batches, setBatches] = useState<ProvisioningBatch[]>([]);
   const [blueprints, setBlueprints] = useState<ProvisioningBlueprint[]>([]);
+  const [bootstrapTemplates, setBootstrapTemplates] = useState<ProvisioningBootstrapTemplate[]>([]);
   const [provisioningKind, setProvisioningKind] = useState<'qemu' | 'lxc'>('qemu');
   const [selectedBlueprintId, setSelectedBlueprintId] = useState('');
   const [blueprintName, setBlueprintName] = useState('');
@@ -211,6 +218,7 @@ export function ProvisioningPage() {
           nextDeployments,
           nextRequests,
           nextBlueprints,
+          nextBootstrapTemplates,
           nextBatches,
         ] = await Promise.all([
           listProxmoxTemplates(),
@@ -219,6 +227,7 @@ export function ProvisioningPage() {
           listDeployments(),
           listProvisioningRequests(),
           listProvisioningBlueprints(),
+          listProvisioningBootstrapTemplates(),
           listProvisioningBatches(),
         ]);
         const nodeNames = Array.from(
@@ -238,6 +247,7 @@ export function ProvisioningPage() {
         setDeployments(nextDeployments);
         setRequests(nextRequests);
         setBlueprints(nextBlueprints);
+        setBootstrapTemplates(nextBootstrapTemplates);
         setBatches(nextBatches);
         const firstTemplate = nextTemplates[0];
         if (firstTemplate) {
@@ -468,6 +478,69 @@ export function ProvisioningPage() {
       setBlueprints((current) => current.filter((item) => item.id !== blueprint.id));
       setSelectedBlueprintId('');
       setNotice({ tone: 'success', message: `Deleted blueprint ${blueprint.name}.` });
+    } catch (caughtError) {
+      setError(getApiErrorMessage(caughtError));
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  async function handleCreateBootstrapTemplate(payload: CreateProvisioningBootstrapTemplatePayload) {
+    if (!payload.bootstrap_items.length) {
+      setError('Select at least one bootstrap item before saving an order template.');
+      return;
+    }
+    setIsSubmitting(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const created = await createProvisioningBootstrapTemplate(payload);
+      setBootstrapTemplates((current) =>
+        [...current, created].sort((left, right) => left.name.localeCompare(right.name)),
+      );
+      setNotice({ tone: 'success', message: `Saved bootstrap order template ${created.name}.` });
+    } catch (caughtError) {
+      setError(getApiErrorMessage(caughtError));
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  async function handleUpdateBootstrapTemplate(templateId: string, payload: CreateProvisioningBootstrapTemplatePayload) {
+    if (!payload.bootstrap_items.length) {
+      setError('Select at least one bootstrap item before updating an order template.');
+      return;
+    }
+    setIsSubmitting(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const updated = await updateProvisioningBootstrapTemplate(templateId, payload);
+      setBootstrapTemplates((current) =>
+        current
+          .map((template) => (template.id === updated.id ? updated : template))
+          .sort((left, right) => left.name.localeCompare(right.name)),
+      );
+      setNotice({ tone: 'success', message: `Updated bootstrap order template ${updated.name}.` });
+    } catch (caughtError) {
+      setError(getApiErrorMessage(caughtError));
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  async function handleDeleteBootstrapTemplate(template: ProvisioningBootstrapTemplate) {
+    const confirmed = window.confirm(`Delete bootstrap order template ${template.name}?`);
+    if (!confirmed) {
+      return;
+    }
+    setIsSubmitting(true);
+    setError(null);
+    setNotice(null);
+    try {
+      await deleteProvisioningBootstrapTemplate(template.id);
+      setBootstrapTemplates((current) => current.filter((item) => item.id !== template.id));
+      setNotice({ tone: 'success', message: `Deleted bootstrap order template ${template.name}.` });
     } catch (caughtError) {
       setError(getApiErrorMessage(caughtError));
     } finally {
@@ -1125,10 +1198,15 @@ export function ProvisioningPage() {
                 </summary>
                 <div className="border-t border-zinc-200 p-4">
                   <BootstrapPlanner
+                    bootstrapTemplates={bootstrapTemplates}
                     deployments={deployments}
+                    isSaving={isSubmitting}
                     packages={packages}
                     profiles={profiles}
                     value={formState.bootstrap_items}
+                    onCreateTemplate={(payload) => void handleCreateBootstrapTemplate(payload)}
+                    onDeleteTemplate={(template) => void handleDeleteBootstrapTemplate(template)}
+                    onUpdateTemplate={(templateId, payload) => void handleUpdateBootstrapTemplate(templateId, payload)}
                     onChange={(value) => updateField('bootstrap_items', value)}
                   />
                 </div>
@@ -1229,21 +1307,34 @@ type BootstrapOption = {
 };
 
 function BootstrapPlanner({
+  bootstrapTemplates,
   deployments,
+  isSaving,
   packages,
   profiles,
   value,
   onChange,
+  onCreateTemplate,
+  onDeleteTemplate,
+  onUpdateTemplate,
 }: {
+  bootstrapTemplates: ProvisioningBootstrapTemplate[];
   deployments: Deployment[];
+  isSaving: boolean;
   packages: PackageDefinition[];
   profiles: InfrastructureProfile[];
   value: ProvisioningBootstrapItem[];
   onChange: (value: ProvisioningBootstrapItem[]) => void;
+  onCreateTemplate: (payload: CreateProvisioningBootstrapTemplatePayload) => void;
+  onDeleteTemplate: (template: ProvisioningBootstrapTemplate) => void;
+  onUpdateTemplate: (templateId: string, payload: CreateProvisioningBootstrapTemplatePayload) => void;
 }) {
   const [search, setSearch] = useState('');
   const [kindFilter, setKindFilter] = useState<'all' | ProvisioningBootstrapItem['kind']>('all');
   const [selectionFilter, setSelectionFilter] = useState<'all' | 'available' | 'selected'>('available');
+  const [selectedTemplateId, setSelectedTemplateId] = useState('');
+  const [templateName, setTemplateName] = useState('');
+  const [templateDescription, setTemplateDescription] = useState('');
   const options: BootstrapOption[] = useMemo(
     () => [
       ...profiles.map((profile) => ({
@@ -1323,6 +1414,42 @@ function BootstrapPlanner({
     const next = [...value];
     [next[index], next[nextIndex]] = [next[nextIndex], next[index]];
     onChange(next);
+  };
+  const selectedTemplate = bootstrapTemplates.find((template) => template.id === selectedTemplateId) ?? null;
+  const templatePayload = (): CreateProvisioningBootstrapTemplatePayload | null => {
+    const name = templateName.trim();
+    if (!name || !value.length) {
+      return null;
+    }
+    return {
+      name,
+      description: templateDescription.trim() || null,
+      bootstrap_items: value,
+    };
+  };
+  const applyTemplate = (templateId: string) => {
+    const template = bootstrapTemplates.find((item) => item.id === templateId);
+    setSelectedTemplateId(templateId);
+    if (!template) {
+      setTemplateName('');
+      setTemplateDescription('');
+      return;
+    }
+    setTemplateName(template.name);
+    setTemplateDescription(template.description ?? '');
+    onChange(template.bootstrap_items);
+  };
+  const saveTemplate = () => {
+    const payload = templatePayload();
+    if (payload) {
+      onCreateTemplate(payload);
+    }
+  };
+  const updateTemplate = () => {
+    const payload = templatePayload();
+    if (selectedTemplate && payload) {
+      onUpdateTemplate(selectedTemplate.id, payload);
+    }
   };
 
   return (
@@ -1441,6 +1568,69 @@ function BootstrapPlanner({
           <span className="rounded-full border border-zinc-200 bg-zinc-50 px-2 py-1 text-xs font-semibold text-zinc-600">
             {value.length} selected
           </span>
+        </div>
+        <div className="space-y-3 border-b border-zinc-200 p-3">
+          <label className="block text-xs font-semibold uppercase tracking-wide text-zinc-500">
+            Order template
+            <select
+              className="mt-1 w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm font-medium normal-case text-zinc-950 shadow-sm outline-none transition focus:border-zinc-900 focus:ring-2 focus:ring-zinc-900/10"
+              value={selectedTemplateId}
+              onChange={(event) => applyTemplate(event.target.value)}
+            >
+              <option value="">No template selected</option>
+              {bootstrapTemplates.map((template) => (
+                <option key={template.id} value={template.id}>
+                  {template.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <div className="grid gap-2 sm:grid-cols-2">
+            <label className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
+              Name
+              <input
+                className="mt-1 w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm font-medium normal-case text-zinc-950 shadow-sm outline-none transition focus:border-zinc-900 focus:ring-2 focus:ring-zinc-900/10"
+                placeholder="Docker app bootstrap"
+                value={templateName}
+                onChange={(event) => setTemplateName(event.target.value)}
+              />
+            </label>
+            <label className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
+              Description
+              <input
+                className="mt-1 w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm font-medium normal-case text-zinc-950 shadow-sm outline-none transition focus:border-zinc-900 focus:ring-2 focus:ring-zinc-900/10"
+                placeholder="Base setup and deployment"
+                value={templateDescription}
+                onChange={(event) => setTemplateDescription(event.target.value)}
+              />
+            </label>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button
+              className="rounded-md bg-zinc-950 px-3 py-2 text-xs font-semibold text-white transition hover:bg-zinc-800 disabled:bg-zinc-300"
+              disabled={isSaving || !templateName.trim() || !value.length}
+              type="button"
+              onClick={saveTemplate}
+            >
+              Save as template
+            </button>
+            <button
+              className="rounded-md border border-zinc-300 px-3 py-2 text-xs font-semibold text-zinc-700 transition hover:bg-zinc-50 disabled:opacity-50"
+              disabled={isSaving || !selectedTemplate || !templateName.trim() || !value.length}
+              type="button"
+              onClick={updateTemplate}
+            >
+              Update
+            </button>
+            <button
+              className="rounded-md border border-rose-300 px-3 py-2 text-xs font-semibold text-rose-700 transition hover:bg-rose-50 disabled:opacity-50"
+              disabled={isSaving || !selectedTemplate}
+              type="button"
+              onClick={() => selectedTemplate && onDeleteTemplate(selectedTemplate)}
+            >
+              Delete
+            </button>
+          </div>
         </div>
         <ol className="max-h-80 space-y-2 overflow-auto p-3">
           {value.map((item, index) => {

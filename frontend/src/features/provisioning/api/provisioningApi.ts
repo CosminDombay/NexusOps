@@ -1,14 +1,17 @@
 import { apiClient } from '../../../lib/api/client';
 import type {
   CreateProvisioningBlueprintPayload,
+  CreateProvisioningBootstrapTemplatePayload,
   CreateProvisioningBatchPayload,
   CreateProvisioningPayload,
   ProxmoxStorage,
   ProxmoxTemplate,
   ProvisioningBlueprint,
+  ProvisioningBootstrapTemplate,
   ProvisioningBatch,
   ProvisioningRequest,
   UpdateProvisioningBlueprintPayload,
+  UpdateProvisioningBootstrapTemplatePayload,
 } from '../types/provisioning';
 
 export async function listProvisioningRequests(): Promise<ProvisioningRequest[]> {
@@ -73,4 +76,28 @@ export async function updateProvisioningBlueprint(
 
 export async function deleteProvisioningBlueprint(blueprintId: string): Promise<void> {
   await apiClient.delete(`/vms/blueprints/${blueprintId}`);
+}
+
+export async function listProvisioningBootstrapTemplates(): Promise<ProvisioningBootstrapTemplate[]> {
+  const response = await apiClient.get<ProvisioningBootstrapTemplate[]>('/vms/bootstrap-templates');
+  return response.data;
+}
+
+export async function createProvisioningBootstrapTemplate(
+  payload: CreateProvisioningBootstrapTemplatePayload,
+): Promise<ProvisioningBootstrapTemplate> {
+  const response = await apiClient.post<ProvisioningBootstrapTemplate>('/vms/bootstrap-templates', payload);
+  return response.data;
+}
+
+export async function updateProvisioningBootstrapTemplate(
+  templateId: string,
+  payload: UpdateProvisioningBootstrapTemplatePayload,
+): Promise<ProvisioningBootstrapTemplate> {
+  const response = await apiClient.put<ProvisioningBootstrapTemplate>(`/vms/bootstrap-templates/${templateId}`, payload);
+  return response.data;
+}
+
+export async function deleteProvisioningBootstrapTemplate(templateId: string): Promise<void> {
+  await apiClient.delete(`/vms/bootstrap-templates/${templateId}`);
 }

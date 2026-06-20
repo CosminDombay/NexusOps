@@ -105,6 +105,7 @@ The implemented system is focused on foundations, visibility, narrowly scoped pr
   - SSH readiness polling
   - inventory auto-registration
   - optional ordered profile/package/deployment bootstrap through Jobs
+  - reusable bootstrap order templates for saving and reapplying profile/package/deployment sequences
   - provisioning lifecycle history
   - provisioning UI distinguishes VM and LXC run paths while reusing managed-node registration
 - Jobs and orchestration:
@@ -345,6 +346,8 @@ NexusOps provisioning blueprints are UI/API-side presets for repeatable VM creat
 - ordered bootstrap profile, package, and deployment selections
 
 Blueprints intentionally do not lock per-machine identity values such as VM name, VMID, cloud-init hostname, or static IP/CIDR. Operators select a blueprint, fill in the unique host identity/network fields, then provisioning registers Inventory before running the ordered bootstrap plan through Jobs. Bootstrap items can mix infrastructure profiles, package definitions, and Docker Compose deployments. Deployment bootstrap attaches the freshly provisioned Inventory host as a deployment target when needed, then runs the deployment through the existing Jobs-backed Docker Compose path.
+
+Bootstrap order templates store only the ordered profile/package/deployment sequence. They are useful when the same bootstrap run order should be reused across multiple provisioning blueprints or one-off VM/LXC requests without copying the full sizing, network, and Proxmox template defaults.
 
 Provisioning now separates QEMU VM provisioning from LXC provisioning. VM provisioning uses Proxmox templates and cloud-init customization. LXC provisioning uses downloaded Proxmox container templates, CTID allocation, target node/storage/network sizing inputs, Inventory registration, readiness-state metadata, and optional bootstrap through the existing Jobs/Profile/Package paths. Shell access is validated separately from infrastructure discovery so a container can be imported even when SSH is not ready.
 

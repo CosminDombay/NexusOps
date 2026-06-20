@@ -294,6 +294,54 @@ class ProvisioningBlueprintRead(ProvisioningBlueprintBase):
     model_config = ConfigDict(from_attributes=True)
 
 
+class ProvisioningBootstrapTemplateBase(BaseModel):
+    name: str = Field(min_length=1, max_length=255)
+    description: str | None = Field(default=None, max_length=2000)
+    bootstrap_items: list[ProvisioningBootstrapItem] = Field(default_factory=list, min_length=1)
+
+    @field_validator("name")
+    @classmethod
+    def strip_template_name(cls, value: str) -> str:
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("Value cannot be blank")
+        return stripped
+
+
+class ProvisioningBootstrapTemplateCreate(ProvisioningBootstrapTemplateBase):
+    pass
+
+
+class ProvisioningBootstrapTemplateUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=255)
+    description: str | None = Field(default=None, max_length=2000)
+    bootstrap_items: list[ProvisioningBootstrapItem] | None = Field(default=None, min_length=1)
+
+    @field_validator("name")
+    @classmethod
+    def strip_optional_template_name(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("Value cannot be blank")
+        return stripped
+
+    @model_validator(mode="after")
+    def require_template_update_field(self) -> Self:
+        if not self.model_dump(exclude_unset=True):
+            raise ValueError("At least one field must be provided")
+        return self
+
+
+class ProvisioningBootstrapTemplateRead(ProvisioningBootstrapTemplateBase):
+    id: UUID
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 class ProvisioningRead(BaseModel):
     id: UUID
     vm_name: str

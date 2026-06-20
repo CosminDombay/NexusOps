@@ -369,6 +369,7 @@ The Provisioning UI includes:
 - cloud-init username/password/SSH key inputs
 - static IP/CIDR, gateway, and DNS inputs
 - ordered bootstrap planner for profiles, packages, and Docker Compose deployments
+- saved bootstrap order templates for reusing the same execution sequence across different provisioning runs
 - provisioning lifecycle history cards
 
 Blueprints fill the fixed defaults while keeping VM name, VMID, cloud-init hostname, and static IP/CIDR editable for each run.

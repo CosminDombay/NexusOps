@@ -37,6 +37,7 @@ from backend.app.modules.profiles.schemas import ProfileApplyRequest
 from backend.app.modules.profiles.service import ProfileService
 from backend.app.modules.provisioning.models import (
     ProvisioningBlueprint,
+    ProvisioningBootstrapTemplate,
     ProvisioningBatch,
     ProvisioningBatchStatus,
     ProvisioningRequest,
@@ -44,6 +45,7 @@ from backend.app.modules.provisioning.models import (
 )
 from backend.app.modules.provisioning.repository import (
     ProvisioningBlueprintRepository,
+    ProvisioningBootstrapTemplateRepository,
     ProvisioningBatchRepository,
     ProvisioningRequestRepository,
 )
@@ -52,6 +54,9 @@ from backend.app.modules.provisioning.schemas import (
     ProvisioningBlueprintCreate,
     ProvisioningBlueprintRead,
     ProvisioningBlueprintUpdate,
+    ProvisioningBootstrapTemplateCreate,
+    ProvisioningBootstrapTemplateRead,
+    ProvisioningBootstrapTemplateUpdate,
     ProvisioningBatchCreate,
     ProvisioningBatchRead,
     ProvisioningCreate,
@@ -77,6 +82,14 @@ class ProvisioningBlueprintConflictError(Exception):
     """Raised when a provisioning blueprint name already exists."""
 
 
+class ProvisioningBootstrapTemplateNotFoundError(Exception):
+    """Raised when a bootstrap template cannot be found."""
+
+
+class ProvisioningBootstrapTemplateConflictError(Exception):
+    """Raised when a bootstrap template name already exists."""
+
+
 class ProvisioningBatchNotFoundError(Exception):
     """Raised when a provisioning batch cannot be found."""
 
@@ -94,12 +107,16 @@ class ProvisioningService:
         job_repository: JobRepository,
         package_repository: PackageDefinitionRepository,
         profile_repository: InfrastructureProfileRepository,
-        credential_service: CredentialService | None = None,
         proxmox_adapter: ProxmoxAdapter,
         ssh_adapter: SshAdapter,
+        bootstrap_template_repository: ProvisioningBootstrapTemplateRepository | None = None,
+        credential_service: CredentialService | None = None,
     ) -> None:
         self.repository = repository
         self.blueprint_repository = blueprint_repository
+        self.bootstrap_template_repository = bootstrap_template_repository or ProvisioningBootstrapTemplateRepository(
+            repository.session
+        )
         self.batch_repository = batch_repository
         self.server_repository = server_repository
         self.job_repository = job_repository
@@ -197,6 +214,51 @@ class ProvisioningService:
             raise ProvisioningBlueprintNotFoundError("Provisioning blueprint not found")
         blueprint.deleted_at = datetime.now(UTC)
         await self.blueprint_repository.session.commit()
+
+    async def list_bootstrap_templates(self) -> list[ProvisioningBootstrapTemplateRead]:
+        return [
+            ProvisioningBootstrapTemplateRead.model_validate(item)
+            for item in await self.bootstrap_template_repository.list()
+        ]
+
+    async def create_bootstrap_template(
+        self,
+        payload: ProvisioningBootstrapTemplateCreate,
+    ) -> ProvisioningBootstrapTemplateRead:
+        template = ProvisioningBootstrapTemplate(**payload.model_dump(mode="json"))
+        try:
+            template = await self.bootstrap_template_repository.create(template)
+            await self.bootstrap_template_repository.session.commit()
+        except IntegrityError as exc:
+            await self.bootstrap_template_repository.session.rollback()
+            raise ProvisioningBootstrapTemplateConflictError("Bootstrap order template already exists") from exc
+        return ProvisioningBootstrapTemplateRead.model_validate(template)
+
+    async def update_bootstrap_template(
+        self,
+        template_id: UUID,
+        payload: ProvisioningBootstrapTemplateUpdate,
+    ) -> ProvisioningBootstrapTemplateRead:
+        template = await self.bootstrap_template_repository.get_by_id(template_id)
+        if template is None:
+            raise ProvisioningBootstrapTemplateNotFoundError("Bootstrap order template not found")
+
+        for key, value in payload.model_dump(exclude_unset=True, mode="json").items():
+            setattr(template, key, value)
+        try:
+            await self.bootstrap_template_repository.session.commit()
+            await self.bootstrap_template_repository.session.refresh(template)
+        except IntegrityError as exc:
+            await self.bootstrap_template_repository.session.rollback()
+            raise ProvisioningBootstrapTemplateConflictError("Bootstrap order template already exists") from exc
+        return ProvisioningBootstrapTemplateRead.model_validate(template)
+
+    async def delete_bootstrap_template(self, template_id: UUID) -> None:
+        template = await self.bootstrap_template_repository.get_by_id(template_id)
+        if template is None:
+            raise ProvisioningBootstrapTemplateNotFoundError("Bootstrap order template not found")
+        template.deleted_at = datetime.now(UTC)
+        await self.bootstrap_template_repository.session.commit()
 
     async def provision(
         self,

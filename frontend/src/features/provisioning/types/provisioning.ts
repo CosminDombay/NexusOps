@@ -132,6 +132,22 @@ export type ProvisioningBlueprint = {
   updated_at: string;
 };
 
+export type ProvisioningBootstrapTemplate = {
+  id: string;
+  name: string;
+  description: string | null;
+  bootstrap_items: ProvisioningBootstrapItem[];
+  created_at: string;
+  updated_at: string;
+};
+
+export type CreateProvisioningBootstrapTemplatePayload = Omit<
+  ProvisioningBootstrapTemplate,
+  'id' | 'created_at' | 'updated_at'
+>;
+
+export type UpdateProvisioningBootstrapTemplatePayload = Partial<CreateProvisioningBootstrapTemplatePayload>;
+
 export type CreateProvisioningBlueprintPayload = Omit<ProvisioningBlueprint, 'id' | 'created_at' | 'updated_at'>;
 
 export type UpdateProvisioningBlueprintPayload = Partial<CreateProvisioningBlueprintPayload>;

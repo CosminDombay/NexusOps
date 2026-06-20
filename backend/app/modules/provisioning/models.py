@@ -134,6 +134,18 @@ class ProvisioningBlueprint(Base, UuidPrimaryKeyMixin, TimestampMixin):
     delete_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
+class ProvisioningBootstrapTemplate(Base, UuidPrimaryKeyMixin, TimestampMixin):
+    __tablename__ = "provisioning_bootstrap_templates"
+    __table_args__ = (UniqueConstraint("name", name="uq_provisioning_bootstrap_templates_name"),)
+
+    name: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    description: Mapped[str | None] = mapped_column(Text)
+    bootstrap_items: Mapped[list[dict]] = mapped_column(JSON, default=list, nullable=False)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    deleted_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    delete_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
 class ProvisioningBatch(Base, UuidPrimaryKeyMixin, TimestampMixin):
     __tablename__ = "provisioning_batches"
 
