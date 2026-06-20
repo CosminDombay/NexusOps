@@ -1011,7 +1011,7 @@ function ProfileStepCard({
         onMove(Number(event.dataTransfer.getData('text/plain')), index);
       }}
     >
-      <div className="grid gap-4 xl:grid-cols-[minmax(14rem,1.2fr)_minmax(0,4fr)_auto] xl:items-start">
+      <div className="grid gap-4 xl:grid-cols-[minmax(14rem,1.2fr)_minmax(0,4fr)_minmax(12rem,auto)] xl:items-start">
         <div className="flex min-w-0 items-center gap-3">
           <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-zinc-950 text-white">
             <Icon className="h-4 w-4" aria-hidden="true" />
@@ -1083,9 +1083,10 @@ function ProfileStepCard({
           </label>
         </div>
 
-        <div className="flex flex-wrap justify-end gap-2 xl:flex-nowrap">
-          <label className="inline-flex h-9 items-center gap-2 rounded-md border border-zinc-300 px-3 text-sm font-medium text-zinc-700">
+        <div className="flex min-w-[12rem] flex-wrap items-start justify-end gap-2">
+          <label className="inline-flex h-9 min-w-[6.75rem] shrink-0 items-center justify-center gap-2 rounded-md border border-zinc-300 px-3 text-sm font-medium text-zinc-700">
             <input
+              className="h-4 w-4 shrink-0"
               checked={step.enabled !== false}
               type="checkbox"
               onChange={(event) => onUpdate({ enabled: event.target.checked })}
@@ -1093,7 +1094,7 @@ function ProfileStepCard({
             Enabled
           </label>
           <button
-            className="rounded-md border border-zinc-300 p-2 text-zinc-700 disabled:opacity-40"
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-zinc-300 text-zinc-700 disabled:opacity-40"
             disabled={index === 0}
             type="button"
             onClick={() => onMove(index, index - 1)}
@@ -1102,7 +1103,7 @@ function ProfileStepCard({
             <ArrowUp className="h-4 w-4" aria-hidden="true" />
           </button>
           <button
-            className="rounded-md border border-zinc-300 p-2 text-zinc-700 disabled:opacity-40"
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-zinc-300 text-zinc-700 disabled:opacity-40"
             disabled={index === total - 1}
             type="button"
             onClick={() => onMove(index, index + 1)}
@@ -1111,7 +1112,7 @@ function ProfileStepCard({
             <ArrowDown className="h-4 w-4" aria-hidden="true" />
           </button>
           <button
-            className="rounded-md border border-rose-300 p-2 text-rose-700 hover:bg-rose-50"
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-rose-300 text-rose-700 hover:bg-rose-50"
             type="button"
             onClick={onRemove}
             title="Remove step"
