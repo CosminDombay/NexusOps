@@ -332,6 +332,25 @@ class DockerComposeDeploymentService:
             raise DeploymentValidationError("Deployment target does not match the profile target host")
         return await self._run_operation(deployment.id, "deploy", target_server_ids={target_server_id})
 
+    async def deploy_to_server(self, deployment_id: UUID, target_server_id: UUID) -> DeploymentOperationRead:
+        deployment = await self.repository.get_by_id(deployment_id)
+        if deployment is None:
+            raise DeploymentNotFoundError("Deployment not found")
+        await self._managed_server(target_server_id)
+        targets = await self.target_repository.list_for_deployment(deployment.id)
+        if target_server_id not in {target.server_id for target in targets}:
+            remote_path = targets[0].remote_path if targets else "/opt/nexusops/deployments"
+            await self.target_repository.create(
+                DeploymentTarget(
+                    deployment_id=deployment.id,
+                    server_id=target_server_id,
+                    remote_path=remote_path,
+                    status=DeploymentStatus.DRAFT,
+                )
+            )
+            await self.repository.session.commit()
+        return await self._run_operation(deployment.id, "deploy", target_server_ids={target_server_id})
+
     async def redeploy(self, deployment_id: UUID) -> DeploymentOperationRead:
         return await self._run_operation(deployment_id, "redeploy")
 

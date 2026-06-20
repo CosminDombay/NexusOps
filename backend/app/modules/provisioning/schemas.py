@@ -33,6 +33,19 @@ class ProvisioningDiskCreate(BaseModel):
         return stripped
 
 
+class ProvisioningBootstrapItem(BaseModel):
+    kind: Literal["profile", "package", "deployment"]
+    reference_id: str = Field(min_length=1, max_length=255)
+
+    @field_validator("reference_id")
+    @classmethod
+    def strip_reference_id(cls, value: str) -> str:
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("Value cannot be blank")
+        return stripped
+
+
 class ProvisioningCreate(BaseModel):
     vm_name: str = Field(min_length=1, max_length=255)
     provisioning_type: Literal["qemu", "lxc"] = "qemu"
@@ -60,6 +73,7 @@ class ProvisioningCreate(BaseModel):
 
     bootstrap_profile_ids: list[str] = Field(default_factory=list)
     bootstrap_package_ids: list[str] = Field(default_factory=list)
+    bootstrap_items: list[ProvisioningBootstrapItem] = Field(default_factory=list)
 
     @field_validator(
         "vm_name",
@@ -111,6 +125,27 @@ class ProvisioningCreate(BaseModel):
             raise ValueError("template_ref is required for LXC provisioning")
         return self
 
+    @model_validator(mode="after")
+    def populate_bootstrap_items(self) -> Self:
+        if not self.bootstrap_items:
+            self.bootstrap_items = [
+                *[
+                    ProvisioningBootstrapItem(kind="profile", reference_id=profile_id)
+                    for profile_id in self.bootstrap_profile_ids
+                ],
+                *[
+                    ProvisioningBootstrapItem(kind="package", reference_id=package_id)
+                    for package_id in self.bootstrap_package_ids
+                ],
+            ]
+        self.bootstrap_profile_ids = [
+            item.reference_id for item in self.bootstrap_items if item.kind == "profile"
+        ]
+        self.bootstrap_package_ids = [
+            item.reference_id for item in self.bootstrap_items if item.kind == "package"
+        ]
+        return self
+
 
 class ProvisioningBlueprintBase(BaseModel):
     name: str = Field(min_length=1, max_length=255)
@@ -131,6 +166,7 @@ class ProvisioningBlueprintBase(BaseModel):
     dns_servers: list[str] = Field(default_factory=list)
     bootstrap_profile_ids: list[str] = Field(default_factory=list)
     bootstrap_package_ids: list[str] = Field(default_factory=list)
+    bootstrap_items: list[ProvisioningBootstrapItem] = Field(default_factory=list)
 
     @field_validator("name", "target_node", "network_bridge", "cloud_init_username")
     @classmethod
@@ -162,6 +198,27 @@ class ProvisioningBlueprintBase(BaseModel):
     def validate_blueprint_dns_servers(cls, value: list[str]) -> list[str]:
         return [str(ip_address(item)) for item in value]
 
+    @model_validator(mode="after")
+    def populate_blueprint_bootstrap_items(self) -> Self:
+        if not self.bootstrap_items:
+            self.bootstrap_items = [
+                *[
+                    ProvisioningBootstrapItem(kind="profile", reference_id=profile_id)
+                    for profile_id in self.bootstrap_profile_ids
+                ],
+                *[
+                    ProvisioningBootstrapItem(kind="package", reference_id=package_id)
+                    for package_id in self.bootstrap_package_ids
+                ],
+            ]
+        self.bootstrap_profile_ids = [
+            item.reference_id for item in self.bootstrap_items if item.kind == "profile"
+        ]
+        self.bootstrap_package_ids = [
+            item.reference_id for item in self.bootstrap_items if item.kind == "package"
+        ]
+        return self
+
 
 class ProvisioningBlueprintCreate(ProvisioningBlueprintBase):
     pass
@@ -186,6 +243,7 @@ class ProvisioningBlueprintUpdate(BaseModel):
     dns_servers: list[str] | None = None
     bootstrap_profile_ids: list[str] | None = None
     bootstrap_package_ids: list[str] | None = None
+    bootstrap_items: list[ProvisioningBootstrapItem] | None = None
 
     @field_validator("name", "target_node", "network_bridge", "cloud_init_username")
     @classmethod
@@ -264,6 +322,7 @@ class ProvisioningRead(BaseModel):
     server_id: UUID | None = None
     bootstrap_profile_ids: list[str]
     bootstrap_package_ids: list[str]
+    bootstrap_items: list[ProvisioningBootstrapItem] = Field(default_factory=list)
     bootstrap_job_ids: list[str]
     batch_id: UUID | None = None
     batch_index: int | None = None

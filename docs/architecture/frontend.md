@@ -368,7 +368,7 @@ The Provisioning UI includes:
 - root disk and additional disk controls
 - cloud-init username/password/SSH key inputs
 - static IP/CIDR, gateway, and DNS inputs
-- profile/package bootstrap selectors
+- ordered bootstrap planner for profiles, packages, and Docker Compose deployments
 - provisioning lifecycle history cards
 
 Blueprints fill the fixed defaults while keeping VM name, VMID, cloud-init hostname, and static IP/CIDR editable for each run.

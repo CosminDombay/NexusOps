@@ -166,7 +166,7 @@ For a self-hosted runner deployment job on the LXC host:
 - Proxmox integration discovers nodes, VMs/containers, cluster summary data, import status, and supports guarded VM lifecycle actions.
 - Discovered Proxmox assets can be imported into Inventory, but NexusOps does not blindly auto-import every VM.
 - Provisioning clones cloud-init-capable Proxmox templates, configures static networking, starts VMs, waits for SSH, and registers inventory records.
-- Provisioning blueprints save repeatable defaults such as Proxmox template, node, sizing, disks, bridge, gateway, DNS, environment, tags, default username, and bootstrap selections. Per-machine values such as VM name, VMID, hostname, and static IP remain editable every run.
+- Provisioning blueprints save repeatable defaults such as Proxmox template, node, sizing, disks, bridge, gateway, DNS, environment, tags, default username, and ordered bootstrap selections for profiles, packages, and Docker Compose deployments. Per-machine values such as VM name, VMID, hostname, and static IP remain editable every run.
 - Provisioning supports a root disk plus optional additional disks.
 - Jobs execute SSH commands against inventory targets and persist status, stdout, stderr, exit code, timestamps, correlation IDs, activity events, and redacted command history.
 - Jobs resolve node credentials and execution credential references server-side. Sensitive values are never returned to the frontend, and commands persisted to job history are redacted when runtime secrets are injected.

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { ArrowDown, ArrowUp, Plus, Trash2 } from 'lucide-react';
 
 import { ContextDrawer } from '../../components/ContextDrawer';
 import { PageHeader } from '../../components/layout/PageHeader';
@@ -6,6 +7,8 @@ import { CollapsibleSection, PageActionButton } from '../../components/operation
 import { SearchField } from '../../components/search/SearchField';
 import { getApiErrorMessage } from '../../lib/api/client';
 import { matchesSearch } from '../../lib/search/match';
+import { listDeployments } from '../deployments/api/deploymentsApi';
+import type { Deployment } from '../deployments/types/deployment';
 import { listPackageDefinitions } from '../packages/api/packagesApi';
 import type { PackageDefinition } from '../packages/types/package';
 import { listProfiles } from '../profiles/api/profilesApi';
@@ -25,6 +28,7 @@ import {
 } from './api/provisioningApi';
 import type {
   CreateProvisioningPayload,
+  ProvisioningBootstrapItem,
   ProvisioningBatch,
   ProxmoxStorage,
   ProxmoxTemplate,
@@ -53,6 +57,7 @@ type FormState = {
   static_ip_cidr: string;
   gateway: string;
   dns_servers_text: string;
+  bootstrap_items: ProvisioningBootstrapItem[];
   bootstrap_profile_ids: string[];
   bootstrap_package_ids: string[];
 };
@@ -102,6 +107,7 @@ const initialFormState: FormState = {
   static_ip_cidr: '',
   gateway: '',
   dns_servers_text: '1.1.1.1',
+  bootstrap_items: [],
   bootstrap_profile_ids: [],
   bootstrap_package_ids: [],
 };
@@ -111,6 +117,7 @@ export function ProvisioningPage() {
   const [storageOptions, setStorageOptions] = useState<ProxmoxStorage[]>([]);
   const [profiles, setProfiles] = useState<InfrastructureProfile[]>([]);
   const [packages, setPackages] = useState<PackageDefinition[]>([]);
+  const [deployments, setDeployments] = useState<Deployment[]>([]);
   const [requests, setRequests] = useState<ProvisioningRequest[]>([]);
   const [batches, setBatches] = useState<ProvisioningBatch[]>([]);
   const [blueprints, setBlueprints] = useState<ProvisioningBlueprint[]>([]);
@@ -167,6 +174,7 @@ export function ProvisioningPage() {
           request.status,
           request.error_message,
           request.tags,
+          request.bootstrap_items.map((item) => `${item.kind}:${item.reference_id}`),
           request.bootstrap_profile_ids,
           request.bootstrap_package_ids,
         ]),
@@ -200,6 +208,7 @@ export function ProvisioningPage() {
           nextTemplates,
           nextProfiles,
           nextPackages,
+          nextDeployments,
           nextRequests,
           nextBlueprints,
           nextBatches,
@@ -207,6 +216,7 @@ export function ProvisioningPage() {
           listProxmoxTemplates(),
           listProfiles(),
           listPackageDefinitions(),
+          listDeployments(),
           listProvisioningRequests(),
           listProvisioningBlueprints(),
           listProvisioningBatches(),
@@ -225,6 +235,7 @@ export function ProvisioningPage() {
         setStorageOptions(nextStorage);
         setProfiles(nextProfiles);
         setPackages(nextPackages);
+        setDeployments(nextDeployments);
         setRequests(nextRequests);
         setBlueprints(nextBlueprints);
         setBatches(nextBatches);
@@ -248,7 +259,22 @@ export function ProvisioningPage() {
   }, []);
 
   function updateField(name: keyof FormState, value: FormState[keyof FormState]) {
-    setFormState((current) => ({ ...current, [name]: value }));
+    setFormState((current) => {
+      if (name === 'bootstrap_items') {
+        const bootstrapItems = value as ProvisioningBootstrapItem[];
+        return {
+          ...current,
+          bootstrap_items: bootstrapItems,
+          bootstrap_profile_ids: bootstrapItems
+            .filter((item) => item.kind === 'profile')
+            .map((item) => item.reference_id),
+          bootstrap_package_ids: bootstrapItems
+            .filter((item) => item.kind === 'package')
+            .map((item) => item.reference_id),
+        };
+      }
+      return { ...current, [name]: value };
+    });
     setError(null);
     setNotice(null);
   }
@@ -318,6 +344,7 @@ export function ProvisioningPage() {
       ssh_public_key: blueprint.ssh_public_key ?? '',
       gateway: blueprint.gateway,
       dns_servers_text: blueprint.dns_servers.join(', '),
+      bootstrap_items: normalizeBootstrapItems(blueprint.bootstrap_items, blueprint.bootstrap_profile_ids, blueprint.bootstrap_package_ids),
       bootstrap_profile_ids: blueprint.bootstrap_profile_ids,
       bootstrap_package_ids: blueprint.bootstrap_package_ids,
     }));
@@ -1091,40 +1118,19 @@ export function ProvisioningPage() {
 
               <details className="mt-5 rounded-md border border-zinc-200">
                 <summary className="cursor-pointer list-none px-4 py-3 marker:hidden">
-                  <h4 className="text-sm font-semibold text-zinc-950">Bootstrap and profiles</h4>
+                  <h4 className="text-sm font-semibold text-zinc-950">Bootstrap order</h4>
                   <p className="mt-1 text-xs text-zinc-500">
-                    Optional Jobs-backed profiles and packages to run after inventory registration.
+                    Optional Jobs-backed profiles, packages, and deployments to run after inventory registration.
                   </p>
                 </summary>
-                <div className="grid gap-4 border-t border-zinc-200 p-4 md:grid-cols-2">
-                <BootstrapSelector
-                  label="Bootstrap profiles"
-                  helper="Applied after inventory registration. Profiles can run actions, packages, commands, and deployment steps."
-                  options={profiles.map((profile) => ({
-                    label: profile.name,
-                    value: profile.id,
-                    description: profile.description,
-                    meta: [profile.category, `${profile.steps.length} step${profile.steps.length === 1 ? '' : 's'}`],
-                    tags: profile.tags,
-                    builtIn: profile.is_builtin,
-                  }))}
-                  value={formState.bootstrap_profile_ids}
-                  onChange={(value) => updateField('bootstrap_profile_ids', value)}
-                />
-                <BootstrapSelector
-                  label="Bootstrap packages"
-                  helper="Installed after selected profiles. Use packages for focused one-off server capabilities."
-                  options={packages.map((pkg) => ({
-                    label: pkg.name,
-                    value: pkg.id,
-                    description: pkg.description,
-                    meta: [pkg.category, pkg.supported_os.join(', ') || 'any OS'],
-                    tags: pkg.tags,
-                    builtIn: pkg.is_builtin,
-                  }))}
-                  value={formState.bootstrap_package_ids}
-                  onChange={(value) => updateField('bootstrap_package_ids', value)}
-                />
+                <div className="border-t border-zinc-200 p-4">
+                  <BootstrapPlanner
+                    deployments={deployments}
+                    packages={packages}
+                    profiles={profiles}
+                    value={formState.bootstrap_items}
+                    onChange={(value) => updateField('bootstrap_items', value)}
+                  />
                 </div>
               </details>
 
@@ -1213,6 +1219,7 @@ function BatchTextInput({
 }
 
 type BootstrapOption = {
+  kind: ProvisioningBootstrapItem['kind'];
   label: string;
   value: string;
   description: string;
@@ -1221,105 +1228,229 @@ type BootstrapOption = {
   builtIn: boolean;
 };
 
-function BootstrapSelector({
-  label,
-  helper,
-  options,
+function BootstrapPlanner({
+  deployments,
+  packages,
+  profiles,
   value,
   onChange,
 }: {
-  label: string;
-  helper: string;
-  options: BootstrapOption[];
-  value: string[];
-  onChange: (value: string[]) => void;
+  deployments: Deployment[];
+  packages: PackageDefinition[];
+  profiles: InfrastructureProfile[];
+  value: ProvisioningBootstrapItem[];
+  onChange: (value: ProvisioningBootstrapItem[]) => void;
 }) {
-  const selected = new Set(value);
-  const toggle = (nextValue: string) => {
-    if (selected.has(nextValue)) {
-      onChange(value.filter((item) => item !== nextValue));
+  const options: BootstrapOption[] = [
+    ...profiles.map((profile) => ({
+      kind: 'profile' as const,
+      label: profile.name,
+      value: profile.id,
+      description: profile.description,
+      meta: [profile.category, `${profile.steps.length} step${profile.steps.length === 1 ? '' : 's'}`],
+      tags: profile.tags,
+      builtIn: profile.is_builtin,
+    })),
+    ...packages.map((pkg) => ({
+      kind: 'package' as const,
+      label: pkg.name,
+      value: pkg.id,
+      description: pkg.description,
+      meta: [pkg.category, pkg.supported_os.join(', ') || 'any OS'],
+      tags: pkg.tags,
+      builtIn: pkg.is_builtin,
+    })),
+    ...deployments.map((deployment) => ({
+      kind: 'deployment' as const,
+      label: deployment.name,
+      value: deployment.id,
+      description: deployment.description ?? 'Docker Compose deployment.',
+      meta: [deployment.status, deployment.ports.length ? deployment.ports.join(', ') : 'compose'],
+      tags: [],
+      builtIn: false,
+    })),
+  ];
+  const optionByKey = new Map(options.map((option) => [bootstrapItemKey(option), option]));
+  const selectedKeys = new Set(value.map(bootstrapItemKey));
+
+  const add = (option: BootstrapOption) => {
+    const nextItem = { kind: option.kind, reference_id: option.value };
+    if (!selectedKeys.has(bootstrapItemKey(nextItem))) {
+      onChange([...value, nextItem]);
+    }
+  };
+  const remove = (index: number) => {
+    onChange(value.filter((_, itemIndex) => itemIndex !== index));
+  };
+  const move = (index: number, direction: -1 | 1) => {
+    const nextIndex = index + direction;
+    if (nextIndex < 0 || nextIndex >= value.length) {
       return;
     }
-    onChange([...value, nextValue]);
+    const next = [...value];
+    [next[index], next[nextIndex]] = [next[nextIndex], next[index]];
+    onChange(next);
   };
 
   return (
-    <section className="rounded-md border border-zinc-200 bg-white">
-      <div className="flex flex-wrap items-start justify-between gap-3 border-b border-zinc-200 px-3 py-3">
-        <div>
-          <h5 className="text-sm font-semibold text-zinc-950">{label}</h5>
-          <p className="mt-1 text-xs leading-5 text-zinc-500">{helper}</p>
+    <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(280px,420px)]">
+      <section className="rounded-md border border-zinc-200 bg-white">
+        <div className="flex flex-wrap items-start justify-between gap-3 border-b border-zinc-200 px-3 py-3">
+          <div>
+            <h5 className="text-sm font-semibold text-zinc-950">Available bootstrap items</h5>
+            <p className="mt-1 text-xs leading-5 text-zinc-500">
+              Profiles, packages, and Docker Compose deployments can be mixed in one run order.
+            </p>
+          </div>
+          <span className="rounded-full border border-zinc-200 bg-zinc-50 px-2 py-1 text-xs font-semibold text-zinc-600">
+            {options.length} available
+          </span>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="max-h-80 space-y-2 overflow-auto p-3">
+          {options.map((option) => {
+            const selected = selectedKeys.has(bootstrapItemKey(option));
+            return (
+              <div
+                key={bootstrapItemKey(option)}
+                className={`rounded-md border p-3 ${
+                  selected ? 'border-cyan-300 bg-cyan-50' : 'border-zinc-200 bg-zinc-50'
+                }`}
+              >
+                <div className="flex items-start gap-3">
+                  <button
+                    className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-zinc-300 bg-white text-zinc-700 transition hover:border-zinc-500 hover:text-zinc-950 disabled:opacity-40"
+                    disabled={selected}
+                    title={`Add ${option.label}`}
+                    type="button"
+                    onClick={() => add(option)}
+                  >
+                    <Plus className="h-4 w-4" aria-hidden="true" />
+                  </button>
+                  <BootstrapOptionSummary option={option} />
+                </div>
+              </div>
+            );
+          })}
+          {!options.length ? (
+            <p className="rounded-md border border-dashed border-zinc-300 px-3 py-6 text-center text-sm text-zinc-500">
+              No bootstrap options available.
+            </p>
+          ) : null}
+        </div>
+      </section>
+      <section className="rounded-md border border-zinc-200 bg-white">
+        <div className="flex items-start justify-between gap-3 border-b border-zinc-200 px-3 py-3">
+          <div>
+            <h5 className="text-sm font-semibold text-zinc-950">Execution order</h5>
+            <p className="mt-1 text-xs leading-5 text-zinc-500">
+              Items run top to bottom after the host is registered in Inventory.
+            </p>
+          </div>
           <span className="rounded-full border border-zinc-200 bg-zinc-50 px-2 py-1 text-xs font-semibold text-zinc-600">
             {value.length} selected
           </span>
-          {value.length ? (
-            <button
-              className="rounded-md border border-zinc-200 px-2 py-1 text-xs font-semibold text-zinc-600 transition hover:border-zinc-400 hover:text-zinc-950"
-              type="button"
-              onClick={() => onChange([])}
-            >
-              Clear
-            </button>
-          ) : null}
         </div>
-      </div>
-      <div className="max-h-72 space-y-2 overflow-auto p-3">
-        {options.map((option) => {
-          const checked = selected.has(option.value);
-          return (
-            <button
-              key={option.value}
-              className={`w-full rounded-md border p-3 text-left transition ${
-                checked
-                  ? 'border-cyan-400 bg-cyan-50 ring-1 ring-cyan-200'
-                  : 'border-zinc-200 bg-zinc-50 hover:border-zinc-400 hover:bg-white'
-              }`}
-              type="button"
-              onClick={() => toggle(option.value)}
-            >
-              <div className="flex items-start gap-3">
-                <span
-                  className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded border text-xs font-bold ${
-                    checked ? 'border-cyan-500 bg-cyan-500 text-white' : 'border-zinc-300 bg-white text-transparent'
-                  }`}
-                  aria-hidden="true"
-                >
-                  x
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className="flex flex-wrap items-center gap-2">
-                    <span className="text-sm font-semibold text-zinc-950">{option.label}</span>
-                    <span className="rounded-full border border-zinc-200 bg-white px-2 py-0.5 text-[11px] font-semibold uppercase text-zinc-500">
-                      {option.builtIn ? 'Built-in' : 'Custom'}
-                    </span>
+        <ol className="max-h-80 space-y-2 overflow-auto p-3">
+          {value.map((item, index) => {
+            const option = optionByKey.get(bootstrapItemKey(item));
+            return (
+              <li key={`${bootstrapItemKey(item)}-${index}`} className="rounded-md border border-zinc-200 bg-white p-3">
+                <div className="flex items-start gap-3">
+                  <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-zinc-950 font-mono text-xs font-semibold text-white">
+                    {index + 1}
                   </span>
-                  <span className="mt-1 block text-xs leading-5 text-zinc-600">{option.description || 'No description provided.'}</span>
-                  <span className="mt-2 flex flex-wrap gap-1.5">
-                    {option.meta.filter(Boolean).map((item) => (
-                      <span key={item} className="rounded-full bg-zinc-200/70 px-2 py-0.5 text-[11px] font-medium text-zinc-700">
-                        {item}
-                      </span>
-                    ))}
-                    {option.tags.slice(0, 3).map((tag) => (
-                      <span key={tag} className="rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700">
-                        {tag}
-                      </span>
-                    ))}
-                  </span>
-                </span>
-              </div>
-            </button>
-          );
-        })}
-        {!options.length ? (
-          <p className="rounded-md border border-dashed border-zinc-300 px-3 py-6 text-center text-sm text-zinc-500">
-            No bootstrap options available.
-          </p>
-        ) : null}
+                  <div className="min-w-0 flex-1">
+                    {option ? (
+                      <BootstrapOptionSummary option={option} compact />
+                    ) : (
+                      <p className="break-all text-sm font-semibold text-zinc-950">
+                        {item.kind}: {item.reference_id}
+                      </p>
+                    )}
+                  </div>
+                  <div className="flex shrink-0 gap-1">
+                    <button
+                      className="flex h-8 w-8 items-center justify-center rounded-md border border-zinc-300 text-zinc-700 transition hover:border-zinc-500 hover:text-zinc-950 disabled:opacity-40"
+                      disabled={index === 0}
+                      title="Move up"
+                      type="button"
+                      onClick={() => move(index, -1)}
+                    >
+                      <ArrowUp className="h-4 w-4" aria-hidden="true" />
+                    </button>
+                    <button
+                      className="flex h-8 w-8 items-center justify-center rounded-md border border-zinc-300 text-zinc-700 transition hover:border-zinc-500 hover:text-zinc-950 disabled:opacity-40"
+                      disabled={index === value.length - 1}
+                      title="Move down"
+                      type="button"
+                      onClick={() => move(index, 1)}
+                    >
+                      <ArrowDown className="h-4 w-4" aria-hidden="true" />
+                    </button>
+                    <button
+                      className="flex h-8 w-8 items-center justify-center rounded-md border border-rose-300 text-rose-700 transition hover:bg-rose-50"
+                      title="Remove"
+                      type="button"
+                      onClick={() => remove(index)}
+                    >
+                      <Trash2 className="h-4 w-4" aria-hidden="true" />
+                    </button>
+                  </div>
+                </div>
+              </li>
+            );
+          })}
+          {!value.length ? (
+            <li className="rounded-md border border-dashed border-zinc-300 px-3 py-6 text-center text-sm text-zinc-500">
+              No bootstrap items selected.
+            </li>
+          ) : null}
+        </ol>
+      </section>
+    </div>
+  );
+}
+
+function BootstrapOptionSummary({
+  compact = false,
+  option,
+}: {
+  compact?: boolean;
+  option: BootstrapOption;
+}) {
+  return (
+    <div className="min-w-0 flex-1">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-sm font-semibold text-zinc-950">{option.label}</span>
+        <span className="rounded-full border border-zinc-200 bg-white px-2 py-0.5 text-[11px] font-semibold uppercase text-zinc-500">
+          {option.kind}
+        </span>
+        {option.kind === 'deployment' ? null : (
+          <span className="rounded-full border border-zinc-200 bg-white px-2 py-0.5 text-[11px] font-semibold uppercase text-zinc-500">
+            {option.builtIn ? 'Built-in' : 'Custom'}
+          </span>
+        )}
       </div>
-    </section>
+      {!compact ? (
+        <p className="mt-1 text-xs leading-5 text-zinc-600">
+          {option.description || 'No description provided.'}
+        </p>
+      ) : null}
+      <div className="mt-2 flex flex-wrap gap-1.5">
+        {option.meta.filter(Boolean).slice(0, compact ? 2 : 4).map((item) => (
+          <span key={item} className="rounded-full bg-zinc-200/70 px-2 py-0.5 text-[11px] font-medium text-zinc-700">
+            {item}
+          </span>
+        ))}
+        {!compact
+          ? option.tags.slice(0, 3).map((tag) => (
+              <span key={tag} className="rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700">
+                {tag}
+              </span>
+            ))
+          : null}
+      </div>
+    </div>
   );
 }
 
@@ -1583,6 +1714,7 @@ function toPayload(
     static_ip_cidr: formState.static_ip_cidr.trim(),
     gateway: formState.gateway.trim(),
     dns_servers: splitCsv(formState.dns_servers_text),
+    bootstrap_items: formState.bootstrap_items,
     bootstrap_profile_ids: formState.bootstrap_profile_ids,
     bootstrap_package_ids: formState.bootstrap_package_ids,
   };
@@ -1616,6 +1748,7 @@ function toBlueprintPayload(formState: FormState, name: string) {
     ssh_public_key: formState.ssh_public_key.trim() || null,
     gateway: formState.gateway.trim(),
     dns_servers: splitCsv(formState.dns_servers_text),
+    bootstrap_items: formState.bootstrap_items,
     bootstrap_profile_ids: formState.bootstrap_profile_ids,
     bootstrap_package_ids: formState.bootstrap_package_ids,
   };
@@ -1660,7 +1793,7 @@ function reviewCompleteness(formState: FormState, selectedBlueprintId: string): 
     (!formState.cloud_init_password && !formState.ssh_public_key)
   )
     return 2;
-  if (formState.bootstrap_profile_ids.length || formState.bootstrap_package_ids.length) return 3;
+  if (formState.bootstrap_items.length) return 3;
   if (toPayload(formState, null)) return 4;
   return 3;
 }
@@ -1700,6 +1833,24 @@ function provisioningTimelineItems(request: ProvisioningRequest): Array<{
             : undefined;
     return { label, state, detail };
   });
+}
+
+function normalizeBootstrapItems(
+  items: ProvisioningBootstrapItem[] | undefined,
+  profileIds: string[] = [],
+  packageIds: string[] = [],
+): ProvisioningBootstrapItem[] {
+  if (items?.length) {
+    return items;
+  }
+  return [
+    ...profileIds.map((reference_id) => ({ kind: 'profile' as const, reference_id })),
+    ...packageIds.map((reference_id) => ({ kind: 'package' as const, reference_id })),
+  ];
+}
+
+function bootstrapItemKey(item: ProvisioningBootstrapItem | BootstrapOption): string {
+  return `${item.kind}:${'reference_id' in item ? item.reference_id : item.value}`;
 }
 
 function splitCsv(value: string): string[] {

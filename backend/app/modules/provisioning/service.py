@@ -228,6 +228,7 @@ class ProvisioningService:
             static_ip_cidr=payload.static_ip_cidr,
             gateway=payload.gateway,
             dns_servers=payload.dns_servers,
+            bootstrap_items=[item.model_dump() for item in payload.bootstrap_items],
             bootstrap_profile_ids=payload.bootstrap_profile_ids,
             bootstrap_package_ids=payload.bootstrap_package_ids,
             status=ProvisioningStatus.REQUESTED,
@@ -392,7 +393,7 @@ class ProvisioningService:
             request.server_id = server.id
             await self.repository.session.commit()
 
-            if ssh_ready and (payload.bootstrap_profile_ids or payload.bootstrap_package_ids):
+            if ssh_ready and payload.bootstrap_items:
                 await self._set_status(request, ProvisioningStatus.BOOTSTRAP_RUNNING)
                 await self._run_bootstrap(request)
 
@@ -507,6 +508,7 @@ class ProvisioningService:
                 static_ip_cidr=f"{next_ip}/{start_interface.network.prefixlen}",
                 gateway=blueprint.gateway,
                 dns_servers=blueprint.dns_servers,
+                bootstrap_items=blueprint.bootstrap_items,
                 bootstrap_profile_ids=blueprint.bootstrap_profile_ids,
                 bootstrap_package_ids=blueprint.bootstrap_package_ids,
             )
@@ -545,6 +547,24 @@ class ProvisioningService:
         data = payload.model_dump(exclude_unset=exclude_unset)
         if "environment" in data and data["environment"] is not None:
             data["environment"] = data["environment"].value
+        if "bootstrap_items" in data and data["bootstrap_items"] is not None:
+            data["bootstrap_profile_ids"] = [
+                item["reference_id"] for item in data["bootstrap_items"] if item["kind"] == "profile"
+            ]
+            data["bootstrap_package_ids"] = [
+                item["reference_id"] for item in data["bootstrap_items"] if item["kind"] == "package"
+            ]
+        elif "bootstrap_profile_ids" in data or "bootstrap_package_ids" in data:
+            data["bootstrap_items"] = [
+                *[
+                    {"kind": "profile", "reference_id": profile_id}
+                    for profile_id in data.get("bootstrap_profile_ids", [])
+                ],
+                *[
+                    {"kind": "package", "reference_id": package_id}
+                    for package_id in data.get("bootstrap_package_ids", [])
+                ],
+            ]
         return data
 
     async def _set_status(
@@ -627,24 +647,48 @@ class ProvisioningService:
             repository=self.package_repository,
             job_service=job_service,
         )
+        deployment_service = profile_service.deployment_service
 
         job_ids = list(request.bootstrap_job_ids)
-        for profile_id in request.bootstrap_profile_ids:
-            result = await profile_service.apply_profile(
-                profile_id,
-                ProfileApplyRequest(target_server_id=request.server_id),
-            )
-            job_ids.extend(str(job.id) for job in result.jobs)
-
-        for package_id in request.bootstrap_package_ids:
-            job = await package_service.execute_definition(
-                package_id,
-                PackageExecuteRequest(target_server_id=request.server_id),
-            )
-            job_ids.append(str(job.id))
+        for item in self._bootstrap_items(request):
+            reference_id = item["reference_id"]
+            if item["kind"] == "profile":
+                result = await profile_service.apply_profile(
+                    reference_id,
+                    ProfileApplyRequest(target_server_id=request.server_id),
+                )
+                job_ids.extend(str(job.id) for job in result.jobs)
+            elif item["kind"] == "package":
+                job = await package_service.execute_definition(
+                    reference_id,
+                    PackageExecuteRequest(target_server_id=request.server_id),
+                )
+                job_ids.append(str(job.id))
+            elif item["kind"] == "deployment":
+                result = await deployment_service.deploy_to_server(UUID(reference_id), request.server_id)
+                job_ids.extend(str(job.id) for job in result.jobs)
 
         request.bootstrap_job_ids = job_ids
         await self.repository.session.commit()
+
+    @staticmethod
+    def _bootstrap_items(request: ProvisioningRequest) -> list[dict[str, str]]:
+        if request.bootstrap_items:
+            return [
+                {"kind": str(item.get("kind")), "reference_id": str(item.get("reference_id"))}
+                for item in request.bootstrap_items
+                if item.get("kind") in {"profile", "package", "deployment"} and item.get("reference_id")
+            ]
+        return [
+            *[
+                {"kind": "profile", "reference_id": profile_id}
+                for profile_id in request.bootstrap_profile_ids
+            ],
+            *[
+                {"kind": "package", "reference_id": package_id}
+                for package_id in request.bootstrap_package_ids
+            ],
+        ]
 
     async def _batch_read(self, batch: ProvisioningBatch) -> ProvisioningBatchRead:
         requests = await self.repository.list_by_batch(batch.id)

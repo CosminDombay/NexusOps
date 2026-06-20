@@ -58,6 +58,7 @@ export type ProvisioningRequest = {
   error_message: string | null;
   proxmox_task_ids: string[];
   server_id: string | null;
+  bootstrap_items: ProvisioningBootstrapItem[];
   bootstrap_profile_ids: string[];
   bootstrap_package_ids: string[];
   bootstrap_job_ids: string[];
@@ -71,6 +72,11 @@ export type ProvisioningDisk = {
   size_gb: number;
   storage: string;
   bus: 'scsi' | 'virtio' | 'sata';
+};
+
+export type ProvisioningBootstrapItem = {
+  kind: 'profile' | 'package' | 'deployment';
+  reference_id: string;
 };
 
 export type CreateProvisioningPayload = {
@@ -96,6 +102,7 @@ export type CreateProvisioningPayload = {
   static_ip_cidr: string;
   gateway: string;
   dns_servers: string[];
+  bootstrap_items: ProvisioningBootstrapItem[];
   bootstrap_profile_ids: string[];
   bootstrap_package_ids: string[];
 };
@@ -118,6 +125,7 @@ export type ProvisioningBlueprint = {
   ssh_public_key: string | null;
   gateway: string;
   dns_servers: string[];
+  bootstrap_items: ProvisioningBootstrapItem[];
   bootstrap_profile_ids: string[];
   bootstrap_package_ids: string[];
   created_at: string;

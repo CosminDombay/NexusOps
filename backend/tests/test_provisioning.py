@@ -13,7 +13,15 @@ from backend.app.common.constants import (
 )
 from backend.app.modules.inventory.models import Server
 from backend.app.modules.inventory.repository import ServerRepository
+from backend.app.modules.deployments.repository import (
+    DeploymentRepository,
+    DeploymentRevisionRepository,
+    DeploymentTargetRepository,
+)
+from backend.app.modules.deployments.schemas import DeploymentCreate
+from backend.app.modules.deployments.service import DockerComposeDeploymentService
 from backend.app.modules.jobs.repository import JobRepository
+from backend.app.modules.jobs.service import JobService
 from backend.app.modules.packages.repository import PackageDefinitionRepository
 from backend.app.modules.profiles.repository import InfrastructureProfileRepository
 from backend.app.modules.provisioning.repository import (
@@ -274,6 +282,62 @@ async def test_provisioning_runs_bootstrap_profile_after_inventory_registration(
         assert "get.docker.com" in commands
         assert "systemctl status docker --no-pager" in commands
         assert "docker ps" in commands
+
+
+@pytest.mark.asyncio
+async def test_provisioning_runs_ordered_bootstrap_items_with_deployment(client) -> None:
+    session = next(iter(client.app.dependency_overrides.values()))
+    async for db_session in session():
+        ssh = FakeSshAdapter()
+        server_repository = ServerRepository(db_session)
+        job_service = JobService(
+            job_repository=JobRepository(db_session),
+            server_repository=server_repository,
+            ssh_adapter=ssh,
+        )
+        deployment_service = DockerComposeDeploymentService(
+            repository=DeploymentRepository(db_session),
+            target_repository=DeploymentTargetRepository(db_session),
+            revision_repository=DeploymentRevisionRepository(db_session),
+            server_repository=server_repository,
+            job_service=job_service,
+        )
+        deployment = await deployment_service.create_deployment(
+            DeploymentCreate(
+                name="provisioned-web",
+                compose_content="services:\n  web:\n    image: nginx:alpine\n",
+            )
+        )
+
+        result = await service(db_session, FakeProxmoxAdapter(), ssh).provision(
+            ProvisioningCreate(
+                **payload(
+                    vm_name="ordered-bootstrap-vm",
+                    cloud_init_hostname="ordered-bootstrap-vm",
+                    new_vm_id=152,
+                    static_ip_cidr="10.3.0.52/24",
+                    bootstrap_items=[
+                        {"kind": "package", "reference_id": "docker-engine"},
+                        {"kind": "deployment", "reference_id": str(deployment.id)},
+                    ],
+                )
+            )
+        )
+
+        assert result.status == "completed"
+        assert result.bootstrap_profile_ids == []
+        assert result.bootstrap_package_ids == ["docker-engine"]
+        assert [item.kind for item in result.bootstrap_items] == ["package", "deployment"]
+        assert len(result.bootstrap_job_ids) == 2
+
+        jobs = await JobRepository(db_session).list_for_target(result.server_id)
+        bootstrap_jobs = [job for job in reversed(jobs) if str(job.id) in result.bootstrap_job_ids]
+        assert [job.operation_type for job in bootstrap_jobs] == [
+            "package:install:docker-engine",
+            f"deployment:{deployment.id}:deploy",
+        ]
+        deployment_targets = await DeploymentTargetRepository(db_session).list_for_deployment(deployment.id)
+        assert [target.server_id for target in deployment_targets] == [result.server_id]
 
 
 @pytest.mark.asyncio
