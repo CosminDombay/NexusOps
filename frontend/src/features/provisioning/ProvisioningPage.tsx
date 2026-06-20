@@ -1241,37 +1241,70 @@ function BootstrapPlanner({
   value: ProvisioningBootstrapItem[];
   onChange: (value: ProvisioningBootstrapItem[]) => void;
 }) {
-  const options: BootstrapOption[] = [
-    ...profiles.map((profile) => ({
-      kind: 'profile' as const,
-      label: profile.name,
-      value: profile.id,
-      description: profile.description,
-      meta: [profile.category, `${profile.steps.length} step${profile.steps.length === 1 ? '' : 's'}`],
-      tags: profile.tags,
-      builtIn: profile.is_builtin,
-    })),
-    ...packages.map((pkg) => ({
-      kind: 'package' as const,
-      label: pkg.name,
-      value: pkg.id,
-      description: pkg.description,
-      meta: [pkg.category, pkg.supported_os.join(', ') || 'any OS'],
-      tags: pkg.tags,
-      builtIn: pkg.is_builtin,
-    })),
-    ...deployments.map((deployment) => ({
-      kind: 'deployment' as const,
-      label: deployment.name,
-      value: deployment.id,
-      description: deployment.description ?? 'Docker Compose deployment.',
-      meta: [deployment.status, deployment.ports.length ? deployment.ports.join(', ') : 'compose'],
-      tags: [],
-      builtIn: false,
-    })),
-  ];
+  const [search, setSearch] = useState('');
+  const [kindFilter, setKindFilter] = useState<'all' | ProvisioningBootstrapItem['kind']>('all');
+  const [selectionFilter, setSelectionFilter] = useState<'all' | 'available' | 'selected'>('available');
+  const options: BootstrapOption[] = useMemo(
+    () => [
+      ...profiles.map((profile) => ({
+        kind: 'profile' as const,
+        label: profile.name,
+        value: profile.id,
+        description: profile.description,
+        meta: [profile.category, `${profile.steps.length} step${profile.steps.length === 1 ? '' : 's'}`],
+        tags: profile.tags,
+        builtIn: profile.is_builtin,
+      })),
+      ...packages.map((pkg) => ({
+        kind: 'package' as const,
+        label: pkg.name,
+        value: pkg.id,
+        description: pkg.description,
+        meta: [pkg.category, pkg.supported_os.join(', ') || 'any OS'],
+        tags: pkg.tags,
+        builtIn: pkg.is_builtin,
+      })),
+      ...deployments.map((deployment) => ({
+        kind: 'deployment' as const,
+        label: deployment.name,
+        value: deployment.id,
+        description: deployment.description ?? 'Docker Compose deployment.',
+        meta: [deployment.status, deployment.ports.length ? deployment.ports.join(', ') : 'compose'],
+        tags: [],
+        builtIn: false,
+      })),
+    ],
+    [deployments, packages, profiles],
+  );
   const optionByKey = new Map(options.map((option) => [bootstrapItemKey(option), option]));
   const selectedKeys = new Set(value.map(bootstrapItemKey));
+  const kindCounts = {
+    all: options.length,
+    profile: options.filter((option) => option.kind === 'profile').length,
+    package: options.filter((option) => option.kind === 'package').length,
+    deployment: options.filter((option) => option.kind === 'deployment').length,
+  };
+  const filteredOptions = options.filter((option) => {
+    const selected = selectedKeys.has(bootstrapItemKey(option));
+    if (kindFilter !== 'all' && option.kind !== kindFilter) {
+      return false;
+    }
+    if (selectionFilter === 'available' && selected) {
+      return false;
+    }
+    if (selectionFilter === 'selected' && !selected) {
+      return false;
+    }
+    return matchesSearch(search, [
+      option.kind,
+      option.label,
+      option.value,
+      option.description,
+      option.meta,
+      option.tags,
+      option.builtIn ? 'built-in' : 'custom',
+    ]);
+  });
 
   const add = (option: BootstrapOption) => {
     const nextItem = { kind: option.kind, reference_id: option.value };
@@ -1295,19 +1328,73 @@ function BootstrapPlanner({
   return (
     <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(280px,420px)]">
       <section className="rounded-md border border-zinc-200 bg-white">
-        <div className="flex flex-wrap items-start justify-between gap-3 border-b border-zinc-200 px-3 py-3">
-          <div>
-            <h5 className="text-sm font-semibold text-zinc-950">Available bootstrap items</h5>
-            <p className="mt-1 text-xs leading-5 text-zinc-500">
-              Profiles, packages, and Docker Compose deployments can be mixed in one run order.
-            </p>
+        <div className="border-b border-zinc-200 px-3 py-3">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h5 className="text-sm font-semibold text-zinc-950">Available bootstrap items</h5>
+              <p className="mt-1 text-xs leading-5 text-zinc-500">
+                Profiles, packages, and Docker Compose deployments can be mixed in one run order.
+              </p>
+            </div>
+            <span className="rounded-full border border-zinc-200 bg-zinc-50 px-2 py-1 text-xs font-semibold text-zinc-600">
+              {filteredOptions.length}/{options.length} visible
+            </span>
           </div>
-          <span className="rounded-full border border-zinc-200 bg-zinc-50 px-2 py-1 text-xs font-semibold text-zinc-600">
-            {options.length} available
-          </span>
+          <SearchField
+            className="mt-3"
+            placeholder="Search names, tags, category, OS, status..."
+            value={search}
+            onChange={setSearch}
+          />
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            {[
+              ['all', `All ${kindCounts.all}`],
+              ['profile', `Profiles ${kindCounts.profile}`],
+              ['package', `Packages ${kindCounts.package}`],
+              ['deployment', `Deployments ${kindCounts.deployment}`],
+            ].map(([filter, label]) => (
+              <button
+                key={filter}
+                className={`rounded-md border px-2.5 py-1.5 text-xs font-semibold transition ${
+                  kindFilter === filter
+                    ? 'border-cyan-400 bg-cyan-50 text-cyan-900'
+                    : 'border-zinc-200 bg-zinc-50 text-zinc-600 hover:border-zinc-400 hover:text-zinc-950'
+                }`}
+                type="button"
+                onClick={() => setKindFilter(filter as 'all' | ProvisioningBootstrapItem['kind'])}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            {[
+              ['available', 'Available'],
+              ['all', 'All'],
+              ['selected', 'Selected'],
+            ].map(([filter, label]) => (
+              <button
+                key={filter}
+                className={`rounded-md border px-2.5 py-1.5 text-xs font-semibold transition ${
+                  selectionFilter === filter
+                    ? 'border-zinc-900 bg-zinc-950 text-white'
+                    : 'border-zinc-200 bg-white text-zinc-600 hover:border-zinc-400 hover:text-zinc-950'
+                }`}
+                type="button"
+                onClick={() => setSelectionFilter(filter as 'all' | 'available' | 'selected')}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          {search || kindFilter !== 'all' || selectionFilter !== 'available' ? (
+            <p className="mt-1 text-xs leading-5 text-zinc-500">
+              Filters are active.
+            </p>
+          ) : null}
         </div>
         <div className="max-h-80 space-y-2 overflow-auto p-3">
-          {options.map((option) => {
+          {filteredOptions.map((option) => {
             const selected = selectedKeys.has(bootstrapItemKey(option));
             return (
               <div
@@ -1334,6 +1421,11 @@ function BootstrapPlanner({
           {!options.length ? (
             <p className="rounded-md border border-dashed border-zinc-300 px-3 py-6 text-center text-sm text-zinc-500">
               No bootstrap options available.
+            </p>
+          ) : null}
+          {options.length && !filteredOptions.length ? (
+            <p className="rounded-md border border-dashed border-zinc-300 px-3 py-6 text-center text-sm text-zinc-500">
+              No bootstrap items match these filters.
             </p>
           ) : null}
         </div>
