@@ -60,6 +60,7 @@ Current main routes:
 - `/provisioning` Proxmox template provisioning workflow
 - `/deployments` Docker Compose deployment workflows
 - `/settings/integrations` integration records and connection tests
+- `/settings/trash` universal restore/purge workspace
 - `/settings/users` admin-only user and RBAC lifecycle management
 
 Route authorization mirrors `frontend/src/app/router.tsx`:
@@ -67,7 +68,7 @@ Route authorization mirrors `frontend/src/app/router.tsx`:
 ```text
 authenticated: /, /nodes/:id, /inventory/:id, /infrastructure, /infrastructure/nodes/:id, /monitoring, /workflows
 operator: /provisioning, /deployments, /packages, /profiles, /jobs, /automations, /inventory/:id/tools
-admin: /infrastructure/credentials, /identity, /settings/integrations, /settings/users
+admin: /infrastructure/credentials, /identity, /settings/integrations, /settings/trash, /settings/users
 ```
 
 ## Feature-Based Structure

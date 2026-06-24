@@ -2,7 +2,7 @@
 
 Created: 2026-05-23
 
-Updated: 2026-06-04
+Updated: 2026-06-21
 
 ## Priority Roadmap
 
@@ -91,6 +91,23 @@ Updated: 2026-06-04
 
 24. Add runtime event filtering by correlation ID and target for deployment, job, workflow, and scheduler diagnostics.
 
+25. Completed on 2026-06-18: stabilize deployment drafts, package uninstall execution, sidebar scrolling, credential/search/manual Trash validation, and profile builder ergonomics for thesis validation.
+
+26. Completed on 2026-06-21: simplify the first thesis/demo use case to a Docker demo host:
+   - base utilities
+   - optional secondary disk
+   - Docker Engine
+   - Identity step for `cerberus` Docker access
+   - Portainer, cAdvisor, and demo Nginx deployment
+   - final Jobs-backed validation
+
+27. Before thesis screenshots, run one full remote development/test-server pass of `USECASE-001 Demo Bootstrap` and record:
+   - provisioning completion
+   - profile step Jobs
+   - deployment runtime state
+   - final validation Job output
+   - reachable Portainer, cAdvisor, and demo web URLs
+
 ## Notes
 
 These items came from the project review performed on 2026-05-23. They are intended as future hardening and delivery priorities before broadening destructive infrastructure capabilities.
@@ -102,6 +119,10 @@ The 2026-05-27 preparation pass adds deployment guidance and keeps automated con
 The 2026-06-03 stabilization pass prioritizes manual findings over new feature breadth. Identity users/groups management and Docker deployment runtime clarity are the main product-stabilization tracks; backlog items believed fixed should remain `Needs testing` until manually confirmed.
 
 The 2026-06-04 stabilization pass added execution/sudo credential consistency, deployment validation/dry-run previews, runtime stale/failure diagnostics, Host Detail credential readiness, and self-sanitize dry-run preview. These improvements are implementation-complete but remain in manual `Needs testing` status until the staging pipeline and operator tests confirm them.
+
+The 2026-06-18 stabilization pass validated enough of the deployment/package/credential/manual Trash path to support thesis preparation, but full unattended provisioning plus profile/package/deployment bootstrap still needs one clean end-to-end run in the remote test environment.
+
+The 2026-06-21 thesis documentation pass keeps the first demo deliberately small. Use the broader platform documentation for thesis background, but use `USECASE.md` and `USECASE-001-RUNBOOK.md` for the live presentation recipe.
 
 ## Review Findings Added on 2026-05-23
 

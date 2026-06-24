@@ -170,8 +170,8 @@ The implemented system is focused on foundations, visibility, narrowly scoped pr
   - visual variable editor for required/sensitive/defaulted variables
   - contextual create/edit drawer so package management does not dominate the page layout
   - simple `{{ variable_name }}` command parameterization with execution-time inputs
-  - sensitive variables resolved from Credential Manager references at runtime
-  - persisted job commands redacted when sensitive runtime values are injected
+  - runtime variables can be supplied from typed values or Credential Manager references
+  - persisted job commands redacted when credential-backed runtime values are injected
 - Infrastructure profiles:
   - Base Linux Server
   - Docker Host
@@ -307,7 +307,7 @@ Profile -> Package/Action/Deployment/Identity step -> Job -> SSH adapter -> mana
 
 Profile execution is synchronous and sequential for the MVP. Each step creates a persisted job or calls a module service that creates persisted Jobs. Profiles can be built from built-in actions, built-in packages, custom package definitions, Docker Compose deployments, managed Identity users/groups/permission templates, and raw command steps. Built-in profiles can be edited as persisted working copies, cloned into user-managed templates, or reset to the code-defined default.
 
-Template variables use the intentionally small syntax `{{ variable_name }}`. Variables are resolved before Jobs execution using definition defaults, execution-time inputs, and server-side credential references for sensitive values. Sensitive variables marked `sensitive=true` must be supplied as `credential_refs`; plaintext sensitive variable values are rejected. This is not a full templating engine: NexusOps does not execute Jinja, Python, or arbitrary template logic.
+Template variables use the intentionally small syntax `{{ variable_name }}`. Variables are resolved before Jobs execution using definition defaults, execution-time inputs, and server-side credential references. Operators can select Credential Manager records as runtime variable values for packages and profiles, which keeps reusable tokens such as a Tailscale auth key out of plaintext run forms. Sensitive variables marked `sensitive=true` must be supplied as `credential_refs`; plaintext sensitive variable values are rejected. This is not a full templating engine: NexusOps does not execute Jinja, Python, or arbitrary template logic.
 
 Runtime secret handling now flows through Credential Manager:
 
@@ -484,7 +484,7 @@ The 2026-06-06 documentation/code audit aligned durable Markdown docs with the c
 - `docs/architecture/backend.md` now includes audit, runtime-state, variables, and the centralized router authorization boundary.
 - `docs/architecture/frontend.md` now matches `frontend/src/app/router.tsx`, including route groups for authenticated, operator, and admin users.
 - `docs/architecture/runtime-snapshots.md` now describes the implemented snapshot/status/event tables more precisely.
-- The current review log is `docs/project-review-2026-06-06-doc-code-audit.md`.
+- The 2026-06-06 review log remains a historical router/docs audit. The latest thesis-readiness documentation review is `docs/project-review-2026-06-21-thesis-docs-readiness.md`.
 - Failed job completion and failed audit events now log at error severity. Human-readable logs are the default with JSON logging still available through `LOG_FORMAT=json`.
 - The local ignored `backlog.md` is the manual stabilization tracker. Items believed fixed should be marked `Needs testing` until manual validation confirms the final status.
 - Full backend validation passed locally with `DEBUG=false .venv/bin/python -m pytest backend/tests -q` producing 147 passing tests after the Identity replication credential changes.
@@ -514,8 +514,19 @@ The 2026-06-18 stabilization work focused on keeping the app steady for thesis v
 - Docker deployment cards expose target lists and per-target runtime state for multi-host deployments.
 - Package uninstall commands are now executable through Jobs as explicit uninstall operations; package install remains install plus validation, while uninstall runs the uninstall command alone.
 - Search, credential references, and the universal Trash workflow were manually retested and worked in the remote test environment.
-- Remaining UI cleanup: Trash is still visible both inside Credentials and as the general Trash surface. Keep one clear Trash entrypoint.
+- Credentials now use the universal Trash page for restore and purge, keeping one clear Trash entrypoint.
 - Full unattended VM provisioning plus profile/package/deployment application still needs final start-to-end validation before being marked complete.
+
+### Thesis Documentation Readiness Review on 2026-06-21
+
+The 2026-06-21 review aligned the living documentation and local thesis use-case files with the current simplified demonstration plan:
+
+- `USECASE.md` and `USECASE-001-RUNBOOK.md` now describe a focused Docker demo host instead of the earlier monitoring-heavy node.
+- The primary demo flow is base utilities, optional data disk preparation, Docker Engine, an Identity step that places `cerberus` in the `docker` group, Portainer, cAdvisor, a demo Nginx service, and final Jobs-backed validation.
+- Node Exporter, Promtail, Tailscale, code-server, broad account rollout, and monitoring deep dives are intentionally out of the first live presentation path.
+- The router/page review found no `.doc` or `.docx` Word files in the repository at the time of review.
+- Repository shape at review time was approximately 190 backend Python files, 113 frontend TypeScript/TSX files, 42 Alembic migration files, and 20 backend test modules.
+- Validation after the documentation refresh passed with frontend lint, frontend build, 175 backend tests, and an Alembic single-head check at `20260620_0042`. The backend suite emitted one `passlib` `crypt` deprecation warning.
 
 ## Architecture Status
 
@@ -552,7 +563,7 @@ The 2026-06-18 stabilization work focused on keeping the app steady for thesis v
 - Execution module is still a placeholder.
 - `backend/app/modules/identity/__init__.py` is the only tracked zero-byte code file and is intentionally kept as a Python package marker.
 - Authentication, authorization, and admin user lifecycle are implemented for local users. Google SSO, OIDC, LDAP, SAML, MFA, API keys, and fine-grained permissions are not implemented.
-- Workflow chaining is still implicit. Provisioning can bootstrap profiles/packages, but deployment-as-a-profile-step is not fully executed yet.
+- Workflow chaining is still partial. Provisioning can bootstrap profiles, packages, and deployment items, and ProfileService can run deployment steps when a deployment service is supplied. A deeper WorkflowRun-backed orchestration model for clone/config/bootstrap/deployment phases remains future work.
 - Legacy inline SSH passwords/private key paths still exist for backward compatibility and local MVP use; shared Credential Manager records are the preferred path for reusable secrets.
 - Integration configs are structured and credential-reference aware, but they are not a secrets vault yet.
 - No frontend test framework is configured yet.

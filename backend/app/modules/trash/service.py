@@ -81,7 +81,7 @@ class TrashService:
                     credential.deleted_by,
                     credential.delete_reason,
                     reference_count=len(references),
-                    metadata={"credential_type": credential.credential_type.value, "scope": credential.scope},
+                    metadata={"credential_type": str(credential.credential_type), "scope": str(credential.scope)},
                 )
             )
 
@@ -211,7 +211,7 @@ class TrashService:
                 item_id=str(credential.id),
                 name=credential.name,
                 reference_count=credential.reference_count,
-                metadata={"credential_type": credential.credential_type.value, "scope": credential.scope},
+                metadata={"credential_type": str(credential.credential_type), "scope": str(credential.scope)},
             )
 
         if item_type == "inventory_server":

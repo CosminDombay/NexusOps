@@ -19,7 +19,6 @@ from backend.app.modules.credentials.schemas import (
 )
 from backend.app.modules.credentials.service import (
     CredentialConflictError,
-    CredentialInUseError,
     CredentialNotFoundError,
     CredentialService,
 )
@@ -38,13 +37,6 @@ async def list_credentials(
     service: Annotated[CredentialService, Depends(get_credential_service)],
 ) -> list[CredentialRead]:
     return await service.list_credentials()
-
-
-@router.get("/trash", response_model=list[CredentialRead])
-async def list_deleted_credentials(
-    service: Annotated[CredentialService, Depends(get_credential_service)],
-) -> list[CredentialRead]:
-    return await service.list_credentials(only_deleted=True)
 
 
 @router.get("/{credential_id}/usage", response_model=CredentialUsageRead)
@@ -140,51 +132,3 @@ async def delete_credential(
         return credential
     except CredentialNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
-
-
-@router.post("/{credential_id}/restore", response_model=CredentialRead)
-async def restore_credential(
-    credential_id: UUID,
-    request: Request,
-    session: Annotated[AsyncSession, Depends(get_db_session)],
-    current_user: Annotated[User, Depends(require_admin)],
-    service: Annotated[CredentialService, Depends(get_credential_service)],
-) -> CredentialRead:
-    try:
-        credential = await service.restore_credential(credential_id)
-        await audit_service_from_session(session).record(
-            event_type="credential.restored",
-            actor=current_user,
-            target_type="credential",
-            target_id=credential_id,
-            result="success",
-            source_ip=source_ip_from_request(request),
-            metadata={"name": credential.name},
-        )
-        return credential
-    except CredentialNotFoundError as exc:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
-
-
-@router.delete("/{credential_id}/purge", status_code=status.HTTP_204_NO_CONTENT)
-async def purge_credential(
-    credential_id: UUID,
-    request: Request,
-    session: Annotated[AsyncSession, Depends(get_db_session)],
-    current_user: Annotated[User, Depends(require_admin)],
-    service: Annotated[CredentialService, Depends(get_credential_service)],
-) -> None:
-    try:
-        await service.purge_credential(credential_id)
-        await audit_service_from_session(session).record(
-            event_type="credential.purged",
-            actor=current_user,
-            target_type="credential",
-            target_id=credential_id,
-            result="success",
-            source_ip=source_ip_from_request(request),
-        )
-    except CredentialNotFoundError as exc:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
-    except CredentialInUseError as exc:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc

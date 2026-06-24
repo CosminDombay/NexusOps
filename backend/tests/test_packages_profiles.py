@@ -31,8 +31,9 @@ from backend.app.modules.identity.service import (
 )
 from backend.app.modules.jobs.repository import JobRepository
 from backend.app.modules.jobs.service import JobService
+from backend.app.modules.packages.repository import PackageDefinitionRepository
 from backend.app.modules.packages.service import PackageAutomationService
-from backend.app.modules.packages.schemas import PackageExecuteRequest
+from backend.app.modules.packages.schemas import PackageDefinitionCreate, PackageExecuteRequest
 from backend.app.modules.profiles.schemas import ProfileApplyRequest
 from backend.app.modules.profiles.schemas import InfrastructureProfileCreate
 from backend.app.modules.profiles.repository import InfrastructureProfileRepository
@@ -163,6 +164,58 @@ async def test_package_service_uses_execution_credential_for_sudo_jobs(client) -
 
 
 @pytest.mark.asyncio
+async def test_package_service_uses_credential_ref_for_runtime_variable(client) -> None:
+    session = next(iter(client.app.dependency_overrides.values()))
+    async for db_session in session():
+        server = await InventoryService(ServerRepository(db_session)).create_server(
+            ServerCreate(**server_payload(hostname="package-secret-var-01", ip_address="10.2.0.18"))
+        )
+        adapter = FakeSshAdapter()
+        service = PackageAutomationService(
+            repository=PackageDefinitionRepository(db_session),
+            job_service=JobService(
+                job_repository=JobRepository(db_session),
+                server_repository=ServerRepository(db_session),
+                ssh_adapter=adapter,
+            ),
+            credential_service=FakeCredentialService(),
+        )
+        await service.create_definition(
+            PackageDefinitionCreate(
+                id="credential-variable-package",
+                name="Credential Variable Package",
+                category="Test",
+                supported_os=["ubuntu"],
+                install_command="echo {{ tailscale_auth_key }}",
+                validation_command="test -n {{ tailscale_auth_key }}",
+                variables=[
+                    {
+                        "name": "tailscale_auth_key",
+                        "description": "Tailscale auth key",
+                        "default_value": None,
+                        "required": True,
+                        "sensitive": False,
+                    }
+                ],
+                tags=["test"],
+                description="Test package.",
+            )
+        )
+
+        job = await service.execute_definition(
+            "credential-variable-package",
+            PackageExecuteRequest(
+                target_server_id=server.id,
+                credential_refs={"tailscale_auth_key": "tailscale-key"},
+            ),
+        )
+
+        assert "deploy-sudo-secret" in adapter.calls[0]["command"]
+        assert "deploy-sudo-secret" not in job.command
+        assert "********" in job.command
+
+
+@pytest.mark.asyncio
 async def test_package_service_can_execute_uninstall_command(client) -> None:
     session = next(iter(client.app.dependency_overrides.values()))
     async for db_session in session():
@@ -239,6 +292,66 @@ async def test_profile_apply_generates_sequential_jobs(client) -> None:
         assert result.jobs[0].operation_type == "profile:docker-host:install-docker"
         assert "get.docker.com" in adapter.calls[0]["command"]
         assert adapter.calls[1]["command"] == "systemctl status docker --no-pager"
+
+
+@pytest.mark.asyncio
+async def test_profile_service_uses_credential_ref_for_runtime_variable(client) -> None:
+    session = next(iter(client.app.dependency_overrides.values()))
+    async for db_session in session():
+        server = await InventoryService(ServerRepository(db_session)).create_server(
+            ServerCreate(**server_payload(hostname="profile-secret-var-01", ip_address="10.2.0.19"))
+        )
+        adapter = FakeSshAdapter()
+        service = ProfileService(
+            repository=InfrastructureProfileRepository(db_session),
+            job_service=JobService(
+                job_repository=JobRepository(db_session),
+                server_repository=ServerRepository(db_session),
+                ssh_adapter=adapter,
+                credential_service=FakeCredentialService(),
+            ),
+        )
+        profile = await service.create_profile(
+            InfrastructureProfileCreate(
+                id="credential-variable-profile",
+                name="Credential Variable Profile",
+                category="Test",
+                description="Test profile.",
+                tags=["test"],
+                steps=[
+                    {
+                        "id": "echo-secret",
+                        "name": "Echo secret",
+                        "kind": "command",
+                        "type": "script",
+                        "reference_id": "echo-secret",
+                        "command": "echo {{ tailscale_auth_key }}",
+                    }
+                ],
+                variables=[
+                    {
+                        "name": "tailscale_auth_key",
+                        "description": "Tailscale auth key",
+                        "default_value": None,
+                        "required": True,
+                        "sensitive": False,
+                    }
+                ],
+            )
+        )
+
+        result = await service.apply_profile(
+            profile.id,
+            ProfileApplyRequest(
+                target_server_id=server.id,
+                credential_refs={"tailscale_auth_key": "tailscale-key"},
+            ),
+        )
+
+        assert result.status == "success"
+        assert "deploy-sudo-secret" in adapter.calls[0]["command"]
+        assert "deploy-sudo-secret" not in result.jobs[0].command
+        assert "********" in result.jobs[0].command
 
 
 @pytest.mark.asyncio

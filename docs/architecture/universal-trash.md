@@ -35,4 +35,4 @@ Repositories hide soft-deleted rows by default, so normal list, edit, and execut
 
 ## Current Manual Test Note
 
-The Trash lifecycle was manually retested on 2026-06-18 and worked generally in the remote test environment. The remaining UI cleanup is navigation/surface duplication: Trash is visible both as a general Trash page and inside Credentials. The intended final shape is one clear Trash entrypoint, with credential Trash behavior represented through the universal Trash flow rather than a second competing destination.
+The Trash lifecycle was manually retested on 2026-06-18 and worked generally in the remote test environment. Credentials now use the universal Trash page for restore and purge instead of a second Credentials-specific Trash surface.

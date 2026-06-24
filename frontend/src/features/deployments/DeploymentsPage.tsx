@@ -957,7 +957,7 @@ function DeploymentDrawer({
           </label>
           <section className="space-y-3 rounded-md border border-zinc-200 bg-zinc-50 p-4">
             <div className="flex items-center justify-between gap-3">
-              <span className="text-sm font-medium text-zinc-950">Credential-backed env</span>
+              <span className="text-sm font-medium text-zinc-950">Credential-backed environment variables</span>
               <button
                 className="inline-flex items-center gap-2 rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
                 type="button"
@@ -969,7 +969,7 @@ function DeploymentDrawer({
                 }
               >
                 <Plus className="h-4 w-4" aria-hidden="true" />
-                Add secret
+                Add variable
               </button>
             </div>
             {credentialRefs.length ? (
@@ -1022,8 +1022,8 @@ function DeploymentDrawer({
               </div>
             ) : (
               <p className="text-sm text-zinc-500">
-                Use credentials for tokens, passwords, and API keys that should not live in the env
-                editor.
+                Select existing credentials as environment variable values for tokens, passwords, and
+                API keys.
               </p>
             )}
           </section>

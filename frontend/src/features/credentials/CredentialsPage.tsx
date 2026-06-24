@@ -1,4 +1,4 @@
-import { Eye, KeyRound, Link2, Loader2, Plus, RotateCcw, Trash2, X } from 'lucide-react';
+import { Eye, KeyRound, Link2, Loader2, Plus, Trash2, X } from 'lucide-react';
 import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
 
 import { ContextDrawer } from '../../components/ContextDrawer';
@@ -11,10 +11,7 @@ import {
   createCredential,
   deleteCredential,
   getCredentialUsage,
-  listDeletedCredentials,
   listCredentials,
-  purgeCredential,
-  restoreCredential,
   updateCredential,
 } from './api/credentialsApi';
 import type { Credential, CredentialReference, CredentialScope, CredentialType } from './types/credential';
@@ -50,8 +47,6 @@ const scopes: CredentialScope[] = ['global', 'project', 'environment'];
 
 export function CredentialsPage() {
   const [credentials, setCredentials] = useState<Credential[]>([]);
-  const [deletedCredentials, setDeletedCredentials] = useState<Credential[]>([]);
-  const [view, setView] = useState<'active' | 'trash'>('active');
   const [formState, setFormState] = useState<FormState>(initialFormState);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
@@ -70,7 +65,7 @@ export function CredentialsPage() {
     formState.credential_type === 'password';
   const visibleCredentials = useMemo(
     () =>
-      (view === 'active' ? credentials : deletedCredentials).filter((credential) =>
+      credentials.filter((credential) =>
         matchesSearch(search, [
           credential.name,
           credential.description,
@@ -82,19 +77,15 @@ export function CredentialsPage() {
           credential.delete_reason,
         ]),
       ),
-    [credentials, deletedCredentials, search, view],
+    [credentials, search],
   );
 
   const load = useCallback(async () => {
     setIsLoading(true);
     setError(null);
     try {
-      const [nextCredentials, nextDeletedCredentials] = await Promise.all([
-        listCredentials(),
-        listDeletedCredentials(),
-      ]);
+      const nextCredentials = await listCredentials();
       setCredentials(nextCredentials);
-      setDeletedCredentials(nextDeletedCredentials);
       setReferencePanel(null);
     } catch (caughtError) {
       setError(getApiErrorMessage(caughtError));
@@ -166,39 +157,8 @@ export function CredentialsPage() {
     try {
       const deleted = await deleteCredential(credential.id, 'Deleted from Credential Manager UI');
       setCredentials((current) => current.filter((item) => item.id !== credential.id));
-      setDeletedCredentials((current) => [deleted, ...current]);
       setReferencePanel(null);
-      setSuccess(`Moved credential ${credential.name} to Trash.`);
-    } catch (caughtError) {
-      setError(getApiErrorMessage(caughtError));
-    }
-  }
-
-  async function handleRestore(credential: Credential) {
-    try {
-      const restored = await restoreCredential(credential.id);
-      setDeletedCredentials((current) => current.filter((item) => item.id !== credential.id));
-      setCredentials((current) => [restored, ...current]);
-      setReferencePanel(null);
-      setSuccess(`Restored credential ${credential.name}.`);
-    } catch (caughtError) {
-      setError(getApiErrorMessage(caughtError));
-    }
-  }
-
-  async function handlePurge(credential: Credential) {
-    if (
-      !window.confirm(
-        `Permanently delete credential ${credential.name}? This cannot be undone and is blocked while references exist.`,
-      )
-    ) {
-      return;
-    }
-    try {
-      await purgeCredential(credential.id);
-      setDeletedCredentials((current) => current.filter((item) => item.id !== credential.id));
-      setReferencePanel(null);
-      setSuccess(`Permanently deleted credential ${credential.name}.`);
+      setSuccess(`Moved credential ${deleted.name} to Trash. Use Settings > Trash to restore or permanently delete it.`);
     } catch (caughtError) {
       setError(getApiErrorMessage(caughtError));
     }
@@ -379,25 +339,7 @@ export function CredentialsPage() {
 
       <section className="rounded-lg border border-zinc-200 bg-white shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-zinc-200 px-5 py-4">
-          <h3 className="text-base font-semibold text-zinc-950">
-            {view === 'active' ? 'Saved credentials' : 'Credential Trash'}
-          </h3>
-          <div className="inline-flex rounded-md border border-zinc-300 bg-zinc-50 p-1">
-            <button
-              className={`rounded px-3 py-1.5 text-sm font-semibold ${view === 'active' ? 'bg-white text-zinc-950 shadow-sm' : 'text-zinc-600 hover:text-zinc-950'}`}
-              type="button"
-              onClick={() => setView('active')}
-            >
-              Active
-            </button>
-            <button
-              className={`rounded px-3 py-1.5 text-sm font-semibold ${view === 'trash' ? 'bg-white text-zinc-950 shadow-sm' : 'text-zinc-600 hover:text-zinc-950'}`}
-              type="button"
-              onClick={() => setView('trash')}
-            >
-              Trash
-            </button>
-          </div>
+          <h3 className="text-base font-semibold text-zinc-950">Saved credentials</h3>
         </div>
         <div className="border-b border-zinc-200 px-5 py-4">
           <SearchField
@@ -409,7 +351,7 @@ export function CredentialsPage() {
         {isLoading ? <p className="p-5 text-sm text-zinc-500">Loading credentials...</p> : null}
         {!isLoading && visibleCredentials.length === 0 ? (
           <p className="p-5 text-sm text-zinc-500">
-            {search ? 'No credentials match this search.' : view === 'active' ? 'No credentials yet.' : 'Trash is empty.'}
+            {search ? 'No credentials match this search.' : 'No credentials yet.'}
           </p>
         ) : null}
         <div className="divide-y divide-zinc-100">
@@ -425,7 +367,6 @@ export function CredentialsPage() {
                   <Badge label={credential.credential_type.replace('_', ' ')} />
                   <Badge label={credential.scope} />
                   {credential.reference_count ? <Badge label={`${credential.reference_count} refs`} /> : null}
-                  {credential.deleted_at ? <Badge label="trashed" /> : null}
                 </div>
                 <p className="mt-2 max-w-3xl text-sm leading-6 text-zinc-600">
                   {credential.description || 'No description'}
@@ -433,13 +374,6 @@ export function CredentialsPage() {
                 <p className="mt-1 font-mono text-xs text-zinc-500">
                   {credential.username ?? 'no username'} / {credential.masked_secret}
                 </p>
-                {credential.deleted_at ? (
-                  <p className="mt-1 text-xs text-zinc-500">
-                    Deleted {new Date(credential.deleted_at).toLocaleString()}
-                    {credential.deleted_by ? ` by ${credential.deleted_by}` : ''}
-                    {credential.delete_reason ? ` - ${credential.delete_reason}` : ''}
-                  </p>
-                ) : null}
               </div>
               <div className="flex flex-wrap gap-2">
                 {credential.reference_count ? (
@@ -452,44 +386,21 @@ export function CredentialsPage() {
                     References
                   </button>
                 ) : null}
-                {view === 'active' ? (
-                  <>
-                    <button
-                      className="rounded-md border border-zinc-300 px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
-                      type="button"
-                      onClick={() => openEditDrawer(credential)}
-                    >
-                      Edit
-                    </button>
-                    <button
-                      className="inline-flex items-center gap-2 rounded-md border border-rose-300 px-3 py-2 text-sm font-semibold text-rose-700 hover:bg-rose-50"
-                      type="button"
-                      onClick={() => void handleDelete(credential)}
-                    >
-                      <Trash2 className="h-4 w-4" aria-hidden="true" />
-                      Delete
-                    </button>
-                  </>
-                ) : (
-                  <>
-                    <button
-                      className="inline-flex items-center gap-2 rounded-md border border-zinc-300 px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
-                      type="button"
-                      onClick={() => void handleRestore(credential)}
-                    >
-                      <RotateCcw className="h-4 w-4" aria-hidden="true" />
-                      Restore
-                    </button>
-                    <button
-                      className="inline-flex items-center gap-2 rounded-md border border-rose-300 px-3 py-2 text-sm font-semibold text-rose-700 hover:bg-rose-50"
-                      type="button"
-                      onClick={() => void handlePurge(credential)}
-                    >
-                      <Trash2 className="h-4 w-4" aria-hidden="true" />
-                      Permanently delete
-                    </button>
-                  </>
-                )}
+                <button
+                  className="rounded-md border border-zinc-300 px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
+                  type="button"
+                  onClick={() => openEditDrawer(credential)}
+                >
+                  Edit
+                </button>
+                <button
+                  className="inline-flex items-center gap-2 rounded-md border border-rose-300 px-3 py-2 text-sm font-semibold text-rose-700 hover:bg-rose-50"
+                  type="button"
+                  onClick={() => void handleDelete(credential)}
+                >
+                  <Trash2 className="h-4 w-4" aria-hidden="true" />
+                  Delete
+                </button>
               </div>
             </div>
           ))}

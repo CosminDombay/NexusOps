@@ -6,11 +6,6 @@ export async function listCredentials(): Promise<Credential[]> {
   return response.data;
 }
 
-export async function listDeletedCredentials(): Promise<Credential[]> {
-  const response = await apiClient.get<Credential[]>('/credentials/trash');
-  return response.data;
-}
-
 export async function createCredential(payload: CreateCredentialPayload): Promise<Credential> {
   const response = await apiClient.post<Credential>('/credentials', payload);
   return response.data;
@@ -26,15 +21,6 @@ export async function deleteCredential(credentialId: string, reason?: string): P
     data: reason ? { reason } : undefined,
   });
   return response.data;
-}
-
-export async function restoreCredential(credentialId: string): Promise<Credential> {
-  const response = await apiClient.post<Credential>(`/credentials/${credentialId}/restore`);
-  return response.data;
-}
-
-export async function purgeCredential(credentialId: string): Promise<void> {
-  await apiClient.delete(`/credentials/${credentialId}/purge`);
 }
 
 export async function getCredentialUsage(credentialId: string): Promise<CredentialUsage> {

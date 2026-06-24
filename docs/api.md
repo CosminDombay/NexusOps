@@ -1,12 +1,12 @@
 # NexusOps API Overview
 
-Current date: 2026-06-13
+Current date: 2026-06-21
 
 NexusOps exposes its backend API under `/api/v1` by default. The prefix is configurable through `API_V1_PREFIX`.
 
 OpenAPI is available at `/api/v1/openapi.json` and Swagger UI at `/docs` when `ENABLE_OPENAPI=true` or the app is not running in production. In production, set `ENABLE_OPENAPI=false` if public API documentation should be hidden.
 
-This overview was refreshed against the versioned router map and feature routes on 2026-06-13. It remains a compact operator/developer guide rather than a generated endpoint reference; use Swagger/OpenAPI for request and response schemas.
+This overview was refreshed against the versioned router map and feature routes on 2026-06-21. It remains a compact operator/developer guide rather than a generated endpoint reference; use Swagger/OpenAPI for request and response schemas.
 
 ## Authentication
 
@@ -77,10 +77,11 @@ Raw Jobs and operational actions can carry an explicit `credential_ref` for exec
 ## Credentials, Variables, And Integrations
 
 - `GET/POST/PUT/DELETE /api/v1/credentials`
-- `GET /api/v1/credentials/trash`
 - `GET /api/v1/credentials/{credential_id}/usage`
-- `POST /api/v1/credentials/{credential_id}/restore`
-- `DELETE /api/v1/credentials/{credential_id}/purge`
+- `GET /api/v1/trash`
+- `GET /api/v1/trash/{item_type}/{item_id}/references`
+- `POST /api/v1/trash/{item_type}/{item_id}/restore`
+- `DELETE /api/v1/trash/{item_type}/{item_id}/purge`
 - `GET/POST /api/v1/variables`
 - `GET/POST/PUT/DELETE /api/v1/integrations`
 - integration test and provider sync endpoints:
@@ -111,7 +112,7 @@ Provisioning uses Proxmox templates/cloud-init only. It registers Inventory befo
 - `GET/POST/PUT/DELETE /api/v1/automations`
 - automation enable, disable, and run-now actions
 
-Packages and profiles resolve into Jobs. Automations create WorkflowRuns and dispatch through existing service pipelines.
+Packages and profiles resolve into Jobs. Package/profile runtime variables can be supplied as typed values or `credential_refs` that are resolved server-side from Credential Manager records and redacted from persisted Job command history. Automations create WorkflowRuns and dispatch through existing service pipelines.
 
 Profiles can include package, action, deployment, raw command, Identity user, Identity group, and Identity permission steps. Identity profile steps reference managed Identity records and execute through the existing Identity -> Jobs -> SSH path.
 

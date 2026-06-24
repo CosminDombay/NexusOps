@@ -15,8 +15,8 @@ infrastructure profiles, editable operational templates, credential-backed secre
 Linux identity orchestration, remote shell/file access, runtime diagnostics, simple variable-driven execution, and
 production-aware security guardrails.
 
-The latest detailed code/documentation review is documented in `docs/project-review-2026-06-06-doc-code-audit.md`.
-A lightweight documentation refresh was completed on 2026-06-13; see `docs/development.md` for validation notes.
+The latest documentation/readiness review is documented in `docs/project-review-2026-06-21-thesis-docs-readiness.md`.
+See `docs/development.md` for validation notes and the current documentation refresh status.
 
 ## MVP Domains
 
@@ -35,7 +35,7 @@ A lightweight documentation refresh was completed on 2026-06-13; see `docs/devel
 - Reusable infrastructure profiles
 - Editable built-in profile templates with clone, step ordering, and reset-to-default workflows
 - Simple `{{ variable_name }}` parameterization for package/profile execution
-- Credential-backed sensitive package/profile variables with redacted job history
+- Credential-backed package/profile runtime variables with redacted job history
 - Variable Manager foundations for reusable runtime values
 - Integration records for provider and monitoring connection settings
 - SSH-backed Docker Compose deployment workflows
@@ -53,8 +53,8 @@ A lightweight documentation refresh was completed on 2026-06-13; see `docs/devel
 
 ## Quick Start With Docker
 
-> WSL note: in this local setup the checkout lives at `/home/cerberus/Projects/NexusOps`.
-> If you are launching commands from Windows tooling, use WSL commands or open the folder through the WSL integration rather than treating it as `C:\home\cerberus\Projects\NexusOps`.
+> WSL note: in this local setup the checkout lives at `/home/cerberus/Projects/NexusOps-project`.
+> If you are launching commands from Windows tooling, use WSL commands or open the folder through the WSL integration rather than treating it as `C:\home\cerberus\Projects\NexusOps-project`.
 
 Copy the example environment file and set a local admin password:
 

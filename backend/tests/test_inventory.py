@@ -350,26 +350,32 @@ def test_credential_delete_moves_referenced_credential_to_trash(client) -> None:
     assert deleted_payload["reference_count"] == 1
     assert all(item["id"] != credential_id for item in client.get("/api/v1/credentials").json())
 
-    trash_response = client.get("/api/v1/credentials/trash")
+    trash_response = client.get("/api/v1/trash")
 
     assert trash_response.status_code == 200
-    assert trash_response.json()[0]["id"] == credential_id
+    credential_group = next(group for group in trash_response.json()["groups"] if group["item_type"] == "credential")
+    trashed_item = credential_group["items"][0]
+    assert trashed_item["item_id"] == credential_id
+    assert trashed_item["metadata"]["credential_type"] == "ssh_password"
+    assert trashed_item["metadata"]["scope"] == "global"
+    assert trashed_item["reference_count"] == 1
 
-    usage_response = client.get(f"/api/v1/credentials/{credential_id}/usage")
+    usage_response = client.get(f"/api/v1/trash/credential/{credential_id}/references")
 
     assert usage_response.status_code == 200
-    assert usage_response.json()["reference_count"] == 1
     assert usage_response.json()["references"][0]["reference_type"] == "inventory_server"
 
-    purge_response = client.delete(f"/api/v1/credentials/{credential_id}/purge")
+    purge_response = client.delete(f"/api/v1/trash/credential/{credential_id}/purge")
 
     assert purge_response.status_code == 409
     assert "referenced" in purge_response.json()["detail"]
 
-    restore_response = client.post(f"/api/v1/credentials/{credential_id}/restore")
+    restore_response = client.post(f"/api/v1/trash/credential/{credential_id}/restore")
 
     assert restore_response.status_code == 200
-    assert restore_response.json()["deleted_at"] is None
+    assert restore_response.json()["item_type"] == "credential"
+    assert restore_response.json()["item_id"] == credential_id
+    assert client.get("/api/v1/trash").json()["groups"] == []
 
 
 def test_credential_can_be_permanently_purged_after_trash_when_unreferenced(client) -> None:
@@ -390,7 +396,13 @@ def test_credential_can_be_permanently_purged_after_trash_when_unreferenced(clie
     assert delete_response.status_code == 200
     assert delete_response.json()["deleted_at"] is not None
 
-    purge_response = client.delete(f"/api/v1/credentials/{credential_id}/purge")
+    trash_response = client.get("/api/v1/trash")
+
+    assert trash_response.status_code == 200
+    credential_group = next(group for group in trash_response.json()["groups"] if group["item_type"] == "credential")
+    assert credential_group["items"][0]["item_id"] == credential_id
+
+    purge_response = client.delete(f"/api/v1/trash/credential/{credential_id}/purge")
 
     assert purge_response.status_code == 204
     assert client.get(f"/api/v1/credentials/{credential_id}/usage").status_code == 404

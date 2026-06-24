@@ -5,16 +5,16 @@
 This checkout is expected to live in WSL at:
 
 ```bash
-/home/cerberus/Projects/NexusOps
+/home/cerberus/Projects/NexusOps-project
 ```
 
 From PowerShell or other Windows tooling, prefer WSL-aware commands such as:
 
 ```powershell
-wsl.exe sh -lc 'cd /home/cerberus/Projects/NexusOps && ./scripts/start-dev.sh'
+wsl.exe sh -lc 'cd /home/cerberus/Projects/NexusOps-project && ./scripts/start-dev.sh'
 ```
 
-Do not assume the equivalent Windows path is `C:\home\cerberus\Projects\NexusOps`; that path may not exist because the repository is inside the WSL filesystem.
+Do not assume the equivalent Windows path is `C:\home\cerberus\Projects\NexusOps-project`; that path may not exist because the repository is inside the WSL filesystem.
 
 ## Local Services
 
@@ -61,6 +61,13 @@ If the browser reports a CORS/API failure but `/api/v1/health` works, check Post
 - Migrations on Windows: set `DATABASE_URL`, then run `.venv\Scripts\python.exe -m alembic upgrade head`
 - Migrations on Linux/LXC: set `DATABASE_URL`, then run `.venv/bin/python -m alembic upgrade head`
 
+Use `DEBUG=false` for backend test and Alembic commands when the shell environment may contain a non-empty `DEBUG` value:
+
+```bash
+DEBUG=false .venv/bin/python -m pytest backend/tests -q
+DEBUG=false .venv/bin/alembic heads
+```
+
 CI runner entrypoints:
 
 ```bash
@@ -77,6 +84,22 @@ Self-hosted deployment entrypoints:
 ./scripts/healthcheck.sh
 ```
 
+### 2026-06-21 Thesis Documentation Readiness Status
+
+Latest documentation/readiness review from the current checkout:
+
+- confirmed the active workspace path is `/home/cerberus/Projects/NexusOps-project`
+- checked the registered backend router tree, frontend route tree, backend module surface, migrations, tests, and local thesis use-case files
+- refreshed README pointers, API overview date/surface, development path notes, current-state review notes, architecture route notes, next-step priorities, and the local thesis use-case narrative
+- no Word `.doc` or `.docx` files were present in the repository at review time
+- validation after the documentation refresh:
+  - `cd frontend && npm run lint`: passed
+  - `cd frontend && npm run build`: passed
+  - `DEBUG=false .venv/bin/python -m pytest backend/tests -q`: passed with 175 tests and one `passlib` `crypt` deprecation warning
+  - `DEBUG=false .venv/bin/python -m alembic heads`: passed with single head `20260620_0042`
+
+Because the main changes were documentation and local planning files, application behavior did not change. Repeat the validation commands before using a later code-bearing tree as a release candidate.
+
 ### 2026-06-06 Documentation Audit Status
 
 Latest documentation/code audit from the project root:
@@ -91,7 +114,7 @@ Because this pass changed Markdown documentation only, frontend/backend runtime 
 
 Latest documentation refresh from the WSL checkout:
 
-- confirmed the active workspace path is `/home/cerberus/Projects/NexusOps`
+- refreshed the then-current workspace-path guidance, superseded by the 2026-06-21 path note above
 - checked durable docs against the versioned backend router and frontend route map
 - refreshed README setup notes, the API overview timestamp/context, and development workspace-path guidance
 - no application code changed in this pass

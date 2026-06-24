@@ -34,6 +34,10 @@ backlog.md
 # Editors
 .idea/
 .vscode/
+app.json
+appearance.json
+core-plugins.json
+workspace.json
 
 # OS
 Thumbs.db

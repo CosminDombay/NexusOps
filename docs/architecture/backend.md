@@ -52,6 +52,7 @@ Current implemented domain routes include:
 - `/api/v1/monitoring` for telemetry provider health and infrastructure observability readiness
 - `/api/v1/runtime-state` for refresh status and manual runtime snapshot refreshes
 - `/api/v1/variables` for admin-managed variable records
+- `/api/v1/trash` for the universal restore/purge surface across supported soft-deleted records
 
 Most operator-facing modules now have implemented API surface. The legacy `execution` module remains placeholder scaffolding; active remote execution uses the Jobs module.
 
@@ -60,7 +61,7 @@ The router authorization boundary is centralized in `backend/app/api/v1/router.p
 ```text
 viewer: servers, proxmox, monitoring, runtime-state, workflows
 operator: automations, vms, deployments, packages, profiles, jobs
-admin: audit-events, credentials, identity, integrations, variables
+admin: audit-events, credentials, identity, integrations, variables, trash
 module-owned auth: auth, remote-access
 ```
 

@@ -56,15 +56,14 @@ The frontend is organized by feature rather than technical layer. Pages for inve
 - `ProvisioningBlueprint`: NexusOps-side provisioning preset around a Proxmox VM or LXC template.
 - `DeploymentExecution`: deployment runtime instance for an orchestration run.
 - `DeploymentTargetExecution`: per-node deployment runtime state and output summary.
-- `CommandExecution`: legacy placeholder for old command audit concepts; active remote execution uses `Job`.
+- `Job`: persisted SSH command/action execution state, output, exit code, command metadata, events, and timestamps.
 - `Deployment`: Docker Compose project definition and target configuration.
 - `PackageDefinitionRecord`: persisted package template, including custom packages and editable built-in overrides.
 - `InfrastructureProfileRecord`: persisted profile template, including custom profiles and editable built-in overrides.
 - `Integration`: persisted provider/monitoring integration metadata and connection-test configuration.
-- `PackageInstallation`: package automation execution record.
-- Monitoring readiness records: derived telemetry availability, stale metrics, exporter detection, and provider health.
-- `StandardizationProfile`: reusable users/groups profile.
-- `Job`: persisted SSH command/action execution state, output, exit code, and timestamps.
+- `WorkflowRun` and `WorkflowStep`: persisted orchestration timeline and step visibility.
+- `Automation`: scheduled action, package, and profile trigger definition.
+- `MonitoringSnapshot`, validation attempts, and runtime snapshot/status/event records: derived telemetry availability, stale metrics, exporter detection, provider health, and runtime refresh history.
 
 ## Infrastructure Adapter Interfaces
 
