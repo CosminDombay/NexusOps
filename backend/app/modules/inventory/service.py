@@ -4,9 +4,12 @@ from uuid import UUID
 
 import structlog
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy import delete, inspect, update
+from sqlalchemy import delete, inspect, select, update
 
-from backend.app.modules.deployments.models import DeploymentTarget
+from backend.app.modules.automations.models import Automation
+from backend.app.modules.deployments.models import DeploymentRevision, DeploymentTarget, DeploymentTargetExecution
+from backend.app.modules.execution.models import CommandExecution
+from backend.app.modules.identity.models import IdentityExecution
 from backend.app.modules.inventory.models import (
     InventoryLifecycleState,
     InventoryHealthStatus,
@@ -16,7 +19,11 @@ from backend.app.modules.inventory.models import (
     Server,
     ServerEnvironment,
 )
+from backend.app.modules.jobs.models import Job
+from backend.app.modules.monitoring.models import MetricSample, MonitoringSnapshot, MonitoringValidationAttempt
+from backend.app.modules.packages.models import PackageInstallation
 from backend.app.modules.provisioning.models import ProvisioningRequest, VirtualMachine
+from backend.app.modules.runtime_state.models import NodeRuntimeSnapshot, RuntimeRefreshEvent
 from backend.app.modules.workflows.models import WorkflowRun
 from backend.app.modules.inventory.repository import ServerRepository
 from backend.app.modules.inventory.schemas import (
@@ -505,6 +512,37 @@ class InventoryService:
             )
 
     async def _cleanup_server_references(self, server_id: UUID) -> None:
+        automations = (
+            await self.repository.session.execute(
+                select(Automation).where(Automation.target_server_ids.contains(str(server_id)))
+            )
+        ).scalars().all()
+        for automation in automations:
+            automation.target_server_ids = [
+                item for item in automation.target_server_ids if str(item) != str(server_id)
+            ]
+
+        job_ids = select(Job.id).where(Job.target_server_id == server_id)
+        await self.repository.session.execute(
+            update(DeploymentTargetExecution)
+            .where(DeploymentTargetExecution.job_id.in_(job_ids))
+            .values(job_id=None)
+        )
+        await self.repository.session.execute(
+            update(DeploymentRevision)
+            .where(DeploymentRevision.job_id.in_(job_ids))
+            .values(job_id=None)
+        )
+        await self.repository.session.execute(
+            update(DeploymentTarget)
+            .where(DeploymentTarget.last_job_id.in_(job_ids))
+            .values(last_job_id=None)
+        )
+        await self.repository.session.execute(
+            update(IdentityExecution)
+            .where(IdentityExecution.job_id.in_(job_ids))
+            .values(job_id=None)
+        )
         await self.repository.session.execute(
             update(ProvisioningRequest)
             .where(ProvisioningRequest.server_id == server_id)
@@ -521,7 +559,22 @@ class InventoryService:
             .where(WorkflowRun.target_server_id == server_id)
             .values(target_server_id=None)
         )
+        await self.repository.session.execute(
+            update(RuntimeRefreshEvent)
+            .where(RuntimeRefreshEvent.node_id == server_id)
+            .values(node_id=None)
+        )
+        await self.repository.session.execute(delete(DeploymentTargetExecution).where(DeploymentTargetExecution.server_id == server_id))
+        await self.repository.session.execute(delete(DeploymentRevision).where(DeploymentRevision.server_id == server_id))
         await self.repository.session.execute(delete(DeploymentTarget).where(DeploymentTarget.server_id == server_id))
+        await self.repository.session.execute(delete(IdentityExecution).where(IdentityExecution.target_server_id == server_id))
+        await self.repository.session.execute(delete(PackageInstallation).where(PackageInstallation.server_id == server_id))
+        await self.repository.session.execute(delete(CommandExecution).where(CommandExecution.server_id == server_id))
+        await self.repository.session.execute(delete(MonitoringValidationAttempt).where(MonitoringValidationAttempt.server_id == server_id))
+        await self.repository.session.execute(delete(MonitoringSnapshot).where(MonitoringSnapshot.server_id == server_id))
+        await self.repository.session.execute(delete(MetricSample).where(MetricSample.server_id == server_id))
+        await self.repository.session.execute(delete(NodeRuntimeSnapshot).where(NodeRuntimeSnapshot.node_id == server_id))
+        await self.repository.session.execute(delete(Job).where(Job.target_server_id == server_id))
 
     async def _table_exists(self, table_name: str) -> bool:
         connection = await self.repository.session.connection()

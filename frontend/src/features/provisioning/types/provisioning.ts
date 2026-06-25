@@ -62,10 +62,24 @@ export type ProvisioningRequest = {
   bootstrap_profile_ids: string[];
   bootstrap_package_ids: string[];
   bootstrap_job_ids: string[];
+  bootstrap_jobs: ProvisioningBootstrapJob[];
   batch_id: string | null;
   batch_index: number | null;
   created_at: string;
   updated_at: string;
+};
+
+export type ProvisioningBootstrapJob = {
+  id: string;
+  operation_type: string;
+  command: string;
+  status: string;
+  stdout: string | null;
+  stderr: string | null;
+  exit_code: number | null;
+  target_hostname: string | null;
+  created_at: string;
+  completed_at: string | null;
 };
 
 export type ProvisioningDisk = {

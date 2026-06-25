@@ -227,6 +227,7 @@ The Jobs UI includes:
 - destructive action confirmation
 - raw command execution form
 - persisted job history
+- quick history filters for failures and orchestration source such as Profiles, Workflows, Automations, Packages, and Deployments
 - tabbed stdout/stderr/command/metadata result viewer
 - larger expandable output inspector
 - server-generated sanitized command snapshots in job history
@@ -301,6 +302,7 @@ The Profiles UI includes:
 - shared target inventory host selector
 - apply profile action
 - generated job sequence visibility
+- inline failed-job stderr/stdout panels for single-host and bulk profile execution results
 
 Profile steps are authored as structured JSON through visual cards. The frontend still preserves backend compatibility with older `kind/reference_id` step shape, but operators no longer edit compact step text directly.
 
@@ -372,6 +374,7 @@ The Provisioning UI includes:
 - ordered bootstrap planner for profiles, packages, and Docker Compose deployments
 - saved bootstrap order templates for reusing the same execution sequence across different provisioning runs
 - provisioning lifecycle history cards
+- hydrated bootstrap job summaries so profile/package/deployment bootstrap failures show child job status and captured output from the provisioning history
 
 Blueprints fill the fixed defaults while keeping VM name, VMID, cloud-init hostname, and static IP/CIDR editable for each run.
 

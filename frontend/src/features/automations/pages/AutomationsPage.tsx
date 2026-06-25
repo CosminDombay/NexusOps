@@ -575,20 +575,42 @@ function RecentExecutions({ automation }: { automation: Automation }) {
     <div>
       <p className="mb-2 text-xs font-semibold uppercase text-zinc-500">Recent execution history</p>
       <div className="grid gap-2">
-        {automation.recent_executions.map((execution) => (
-          <div key={execution.id} className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-zinc-200 px-3 py-2 text-sm">
-            <div>
-              <span className="font-semibold text-zinc-950">{formatLabel(execution.workflow_type)}</span>
-              <span className="ml-2 text-zinc-500">{execution.target_nodes.join(', ') || execution.target_hostname || 'Unknown target'}</span>
+        {automation.recent_executions.map((execution) => {
+          const failedSteps = execution.steps.filter((step) => step.status === 'failed');
+          return (
+            <div
+              key={execution.id}
+              className={`rounded-md border px-3 py-2 text-sm ${
+                failedSteps.length ? 'border-rose-200 bg-rose-50/70' : 'border-zinc-200'
+              }`}
+            >
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <span className="font-semibold text-zinc-950">{formatLabel(execution.workflow_type)}</span>
+                  <span className="ml-2 text-zinc-500">{execution.target_nodes.join(', ') || execution.target_hostname || 'Unknown target'}</span>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <RuntimeBadge value={execution.status} />
+                  <span className="text-xs text-zinc-500">{formatDurationSeconds(execution.duration_seconds)}</span>
+                  <span className="text-xs text-zinc-500">{formatDate(execution.started_at ?? execution.created_at)}</span>
+                </div>
+              </div>
+              {execution.error_message ? <p className="mt-2 text-xs text-rose-700">{execution.error_message}</p> : null}
+              {failedSteps.length ? (
+                <div className="mt-2 grid gap-2">
+                  {failedSteps.map((step) => (
+                    <div key={step.id} className="rounded-md border border-rose-200 bg-white p-2">
+                      <p className="text-xs font-semibold text-rose-950">{step.step_order}. {step.name}</p>
+                      <pre className="mt-1 max-h-32 overflow-auto rounded bg-zinc-950 p-2 text-xs leading-5 text-zinc-50">
+                        {step.error_output?.trim() || step.log_output?.trim() || '(no logs)'}
+                      </pre>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
             </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <RuntimeBadge value={execution.status} />
-              <span className="text-xs text-zinc-500">{formatDurationSeconds(execution.duration_seconds)}</span>
-              <span className="text-xs text-zinc-500">{formatDate(execution.started_at ?? execution.created_at)}</span>
-            </div>
-            {execution.error_message ? <p className="basis-full text-xs text-rose-700">{execution.error_message}</p> : null}
-          </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );

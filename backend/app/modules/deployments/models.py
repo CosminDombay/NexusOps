@@ -30,6 +30,7 @@ class Deployment(Base, UuidPrimaryKeyMixin, TimestampMixin):
     env_content: Mapped[str | None] = mapped_column(Text, nullable=True)
     credential_refs: Mapped[dict[str, str]] = mapped_column(JSON, default=dict, nullable=False)
     execution_credential_ref: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    remote_path: Mapped[str] = mapped_column(String(500), default="/opt/nexusops/deployments", nullable=False)
     status: Mapped[DeploymentStatus] = mapped_column(
         Enum(
             DeploymentStatus,

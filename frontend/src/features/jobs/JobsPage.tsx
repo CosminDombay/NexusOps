@@ -27,6 +27,8 @@ import { RunCommandPanel } from './components/RunCommandPanel';
 import type { CreateOperationalActionPayload, Job, OperationalAction } from './types/job';
 
 type ActionFormState = CreateOperationalActionPayload;
+type JobStatusFilter = 'all' | 'failed';
+type JobScopeFilter = 'all' | 'profile' | 'workflow' | 'automation' | 'package' | 'deployment';
 
 const initialActionForm: ActionFormState = {
   id: '',
@@ -63,11 +65,9 @@ export function JobsPage() {
   const [isActionBuilderOpen, setIsActionBuilderOpen] = useState(false);
   const [actionSearch, setActionSearch] = useState('');
   const [jobSearch, setJobSearch] = useState('');
+  const [jobStatusFilter, setJobStatusFilter] = useState<JobStatusFilter>('all');
+  const [jobScopeFilter, setJobScopeFilter] = useState<JobScopeFilter>('all');
 
-  const selectedJob = useMemo(
-    () => jobs.find((job) => job.id === selectedJobId) ?? jobs[0] ?? null,
-    [jobs, selectedJobId],
-  );
   const filteredActions = useMemo(
     () =>
       actions.filter((action) =>
@@ -84,19 +84,27 @@ export function JobsPage() {
   );
   const filteredJobs = useMemo(
     () =>
-      jobs.filter((job) =>
-        matchesSearch(jobSearch, [
-          job.target_hostname,
-          job.operation_type,
-          job.status,
-          job.command,
-          job.stderr,
-          job.stdout,
-          job.exit_code,
-          job.execution_origin,
-        ]),
+      jobs.filter(
+        (job) =>
+          matchesJobStatusFilter(job, jobStatusFilter) &&
+          matchesJobScopeFilter(job, jobScopeFilter) &&
+          matchesSearch(jobSearch, [
+            job.target_hostname,
+            job.operation_type,
+            job.status,
+            job.command,
+            job.stderr,
+            job.stdout,
+            job.exit_code,
+            job.execution_origin,
+            job.correlation_id,
+          ]),
       ),
-    [jobSearch, jobs],
+    [jobScopeFilter, jobSearch, jobStatusFilter, jobs],
+  );
+  const visibleSelectedJob = useMemo(
+    () => filteredJobs.find((job) => job.id === selectedJobId) ?? filteredJobs[0] ?? null,
+    [filteredJobs, selectedJobId],
   );
 
   const refresh = useCallback(async () => {
@@ -362,24 +370,116 @@ export function JobsPage() {
 
       <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(480px,1fr)]">
         <div className="space-y-3">
+          <JobHistoryFilters
+            scopeFilter={jobScopeFilter}
+            statusFilter={jobStatusFilter}
+            onScopeFilterChange={setJobScopeFilter}
+            onStatusFilterChange={setJobStatusFilter}
+          />
           <SearchField
             placeholder="Search jobs, hosts, commands, output..."
             value={jobSearch}
             onChange={setJobSearch}
           />
-        <JobsTable
-          error={loadError}
-          isLoading={isLoading}
-          jobs={filteredJobs}
-          selectedJobId={selectedJob?.id ?? null}
-          onRefresh={refresh}
-          onSelectJob={(job) => setSelectedJobId(job.id)}
-        />
+          <JobsTable
+            error={loadError}
+            isLoading={isLoading}
+            jobs={filteredJobs}
+            selectedJobId={visibleSelectedJob?.id ?? null}
+            onRefresh={refresh}
+            onSelectJob={(job) => setSelectedJobId(job.id)}
+          />
         </div>
-        <JobResultViewer job={selectedJob} />
+        <JobResultViewer job={visibleSelectedJob} />
       </div>
     </div>
   );
+}
+
+function JobHistoryFilters({
+  scopeFilter,
+  statusFilter,
+  onScopeFilterChange,
+  onStatusFilterChange,
+}: {
+  scopeFilter: JobScopeFilter;
+  statusFilter: JobStatusFilter;
+  onScopeFilterChange: (filter: JobScopeFilter) => void;
+  onStatusFilterChange: (filter: JobStatusFilter) => void;
+}) {
+  return (
+    <div className="rounded-lg border border-zinc-200 bg-white p-3 shadow-sm">
+      <div className="flex flex-wrap gap-2">
+        {[
+          ['all', 'All statuses'],
+          ['failed', 'Failures'],
+        ].map(([value, label]) => (
+          <button
+            key={value}
+            className={filterButtonClass(statusFilter === value)}
+            type="button"
+            onClick={() => onStatusFilterChange(value as JobStatusFilter)}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      <div className="mt-2 flex flex-wrap gap-2">
+        {[
+          ['all', 'All sources'],
+          ['profile', 'Profiles'],
+          ['workflow', 'Workflows'],
+          ['automation', 'Automations'],
+          ['package', 'Packages'],
+          ['deployment', 'Deployments'],
+        ].map(([value, label]) => (
+          <button
+            key={value}
+            className={filterButtonClass(scopeFilter === value)}
+            type="button"
+            onClick={() => onScopeFilterChange(value as JobScopeFilter)}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function filterButtonClass(isActive: boolean): string {
+  return [
+    'rounded-md px-3 py-1.5 text-sm font-semibold transition',
+    isActive ? 'bg-zinc-950 text-white' : 'bg-zinc-100 text-zinc-700 hover:bg-zinc-200',
+  ].join(' ');
+}
+
+function matchesJobStatusFilter(job: Job, filter: JobStatusFilter): boolean {
+  if (filter === 'all') {
+    return true;
+  }
+  return ['failed', 'cancelled', 'stale'].includes(job.status);
+}
+
+function matchesJobScopeFilter(job: Job, filter: JobScopeFilter): boolean {
+  if (filter === 'all') {
+    return true;
+  }
+  const operationType = job.operation_type.toLowerCase();
+  const origin = job.execution_origin.toLowerCase();
+  if (filter === 'profile') {
+    return operationType.startsWith('profile:') || origin === 'profile';
+  }
+  if (filter === 'workflow') {
+    return origin === 'workflow' || operationType.startsWith('workflow:');
+  }
+  if (filter === 'automation') {
+    return origin === 'automation' || operationType.startsWith('automation:');
+  }
+  if (filter === 'package') {
+    return operationType.startsWith('package:') || origin === 'package';
+  }
+  return operationType.startsWith('deployment:') || origin === 'deployment';
 }
 
 function CustomActionBuilder({

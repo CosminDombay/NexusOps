@@ -129,6 +129,7 @@ function WorkflowDetail({ workflow }: { workflow: WorkflowRun | null }) {
   if (!workflow) {
     return null;
   }
+  const failedSteps = workflow.steps.filter((step) => step.status === 'failed');
   return (
     <section className="rounded-lg border border-zinc-200 bg-white shadow-sm">
       <div className="border-b border-zinc-200 px-5 py-4">
@@ -143,11 +144,12 @@ function WorkflowDetail({ workflow }: { workflow: WorkflowRun | null }) {
           <RuntimeInfo label="Linked jobs" value={workflow.linked_job_ids.length ? workflow.linked_job_ids.join(', ') : 'None'} />
         </div>
         {workflow.error_message ? <p className="mt-2 text-sm text-rose-700">{workflow.error_message}</p> : null}
+        {failedSteps.length ? <WorkflowFailureDetails steps={failedSteps} /> : null}
       </div>
       <div className="grid gap-5 p-5 lg:grid-cols-[minmax(0,1fr)_26rem]">
         <ol className="divide-y divide-zinc-100 rounded-md border border-zinc-200">
           {workflow.steps.map((step) => (
-            <li key={step.id} className="p-4">
+            <li key={step.id} className={`p-4 ${step.status === 'failed' ? 'bg-rose-50/70' : ''}`}>
               <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                 <div>
                   <p className="text-sm font-semibold text-zinc-950">{step.step_order}. {stepTitle(step)}</p>
@@ -156,7 +158,7 @@ function WorkflowDetail({ workflow }: { workflow: WorkflowRun | null }) {
                 <RuntimeBadge value={step.status} />
               </div>
               <pre className="mt-3 max-h-44 overflow-auto rounded-md bg-zinc-950 p-3 text-xs leading-5 text-zinc-50">
-                {step.log_output || step.error_output || '(no logs)'}
+                {stepOutput(step)}
               </pre>
             </li>
           ))}
@@ -168,6 +170,27 @@ function WorkflowDetail({ workflow }: { workflow: WorkflowRun | null }) {
         </div>
       </div>
     </section>
+  );
+}
+
+function WorkflowFailureDetails({ steps }: { steps: WorkflowRun['steps'] }) {
+  return (
+    <div className="mt-3 space-y-2 rounded-md border border-rose-200 bg-rose-50 p-3">
+      <p className="text-sm font-semibold text-rose-700">Failed workflow step output</p>
+      {steps.map((step) => (
+        <div key={step.id} className="rounded-md border border-rose-200 bg-white p-3">
+          <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
+            <p className="text-sm font-semibold text-rose-950">{step.step_order}. {stepTitle(step)}</p>
+            <span className="w-fit rounded-full bg-rose-50 px-2 py-1 text-xs font-semibold text-rose-700 ring-1 ring-inset ring-rose-200">
+              {step.status}
+            </span>
+          </div>
+          <pre className="mt-2 max-h-40 overflow-auto rounded-md bg-zinc-950 p-3 text-xs leading-5 text-zinc-50">
+            {stepOutput(step)}
+          </pre>
+        </div>
+      ))}
+    </div>
   );
 }
 
@@ -224,6 +247,13 @@ function stepTitle(step: WorkflowRun['steps'][number]): string {
   }
   const targetId = typeof step.metadata_json.target_server_id === 'string' ? step.metadata_json.target_server_id : '';
   return targetId ? step.name.replace(targetId, step.target_hostname) : `${step.name} on ${step.target_hostname}`;
+}
+
+function stepOutput(step: WorkflowRun['steps'][number]): string {
+  if (step.status === 'failed') {
+    return step.error_output?.trim() || step.log_output?.trim() || '(no logs)';
+  }
+  return step.log_output?.trim() || step.error_output?.trim() || '(no logs)';
 }
 
 function durationSeconds(value: number | null, startedAt: string | null, finishedAt: string | null): string {

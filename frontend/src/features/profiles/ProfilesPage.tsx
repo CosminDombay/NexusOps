@@ -4,6 +4,8 @@ import { ArrowDown, ArrowUp, Package, Play, Plus, ShieldCheck, Trash2, UsersRoun
 
 import { ContextDrawer } from '../../components/ContextDrawer';
 import { PageHeader } from '../../components/layout/PageHeader';
+import { JobFailureDetails } from '../../components/operations/JobFailureDetails';
+import { isFailedJobStatus } from '../../components/operations/jobStatus';
 import { PageActionButton } from '../../components/operations/OperationalComponents';
 import { SearchField } from '../../components/search/SearchField';
 import {
@@ -548,9 +550,16 @@ function BulkProfileResult({ result }: { result: ApplyProfileBulkResult | null }
               {item.target_hostname ?? item.target_server_id}
             </span>
             {item.result ? (
-              <p className="mt-1 text-xs text-zinc-500">
-                {item.result.jobs.length} job(s), status {item.result.status}
-              </p>
+              <div className="mt-2 space-y-2">
+                <p className="text-xs text-zinc-500">
+                  {item.result.jobs.length} job(s), status {item.result.status}
+                </p>
+                <JobFailureDetails
+                  jobs={item.result.jobs}
+                  emptyMessage="No failed profile jobs for this host."
+                  title="Profile failed job output"
+                />
+              </div>
             ) : null}
             {item.error ? (
               <p className="mt-1 font-mono text-xs text-zinc-500">{item.error}</p>
@@ -1179,9 +1188,19 @@ function ProfileResult({ result }: { result: ApplyProfileResult | null }) {
         <h3 className="text-base font-semibold text-zinc-950">Execution sequence</h3>
         <p className="mt-1 text-sm text-zinc-500">{result.message}</p>
       </div>
+      <div className="border-b border-zinc-200 p-5">
+        <JobFailureDetails
+          jobs={result.jobs}
+          emptyMessage="No failed profile jobs in this run."
+          title="Profile failed job output"
+        />
+      </div>
       <div className="divide-y divide-zinc-100">
         {result.jobs.map((job, index) => (
-          <div key={job.id} className="p-5">
+          <div
+            key={job.id}
+            className={`p-5 ${isFailedJobStatus(job.status) ? 'bg-rose-50/70' : ''}`}
+          >
             <div className="flex items-start justify-between gap-4">
               <div>
                 <p className="text-sm font-semibold text-zinc-950">Step {index + 1}</p>

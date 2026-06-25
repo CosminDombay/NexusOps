@@ -902,6 +902,7 @@ async def test_deployment_service_allows_planned_draft_without_targets(client) -
                 name="planned-compose",
                 target_server_ids=[],
                 compose_content="services:\n  web:\n    image: nginx:alpine\n",
+                remote_path="/mnt/data/compose",
             )
         )
         preview = await service.dry_run(deployment.id)
@@ -910,10 +911,58 @@ async def test_deployment_service_allows_planned_draft_without_targets(client) -
         assert deployment.target_server_id is None
         assert deployment.target_server_ids == []
         assert deployment.targets == []
+        assert deployment.remote_path == "/mnt/data/compose"
         assert preview.validation.valid is True
         assert preview.targets == []
         with pytest.raises(DeploymentValidationError):
             await service.deploy(deployment.id)
+
+
+@pytest.mark.asyncio
+async def test_deployment_update_preserves_remote_path_without_targets(client) -> None:
+    session = next(iter(client.app.dependency_overrides.values()))
+    async for db_session in session():
+        server = await InventoryService(ServerRepository(db_session)).create_server(
+            ServerCreate(**server_payload(hostname="planned-path-01", ip_address="10.2.0.25"))
+        )
+        server_repository = ServerRepository(db_session)
+        service = DockerComposeDeploymentService(
+            repository=DeploymentRepository(db_session),
+            target_repository=DeploymentTargetRepository(db_session),
+            revision_repository=DeploymentRevisionRepository(db_session),
+            server_repository=server_repository,
+            job_service=JobService(
+                job_repository=JobRepository(db_session),
+                server_repository=server_repository,
+                ssh_adapter=FakeSshAdapter(),
+            ),
+        )
+
+        deployment = await service.create_deployment(
+            DeploymentCreate(
+                name="planned-path",
+                target_server_ids=[],
+                compose_content="services:\n  web:\n    image: nginx:alpine\n",
+            )
+        )
+        updated = await service.update_deployment(
+            deployment.id,
+            DeploymentCreate(
+                name="planned-path",
+                target_server_ids=[],
+                compose_content="services:\n  web:\n    image: nginx:alpine\n",
+                remote_path="/mnt/data/compose",
+            ),
+        )
+
+        assert updated.remote_path == "/mnt/data/compose"
+        assert updated.targets == []
+
+        await service.deploy_to_server(deployment.id, server.id)
+        with_target = await service.repository.get_by_id(deployment.id)
+        assert with_target is not None
+        targets = await service.target_repository.list_for_deployment(with_target.id)
+        assert [target.remote_path for target in targets] == ["/mnt/data/compose"]
 
 
 @pytest.mark.asyncio

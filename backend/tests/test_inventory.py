@@ -4,6 +4,7 @@ from typing import Any
 from uuid import uuid4
 
 import pytest
+from sqlalchemy import select
 
 from backend.app.adapters.ssh import SshAdapter, SshExecutionResult
 from backend.app.common.constants import (
@@ -14,12 +15,39 @@ from backend.app.common.constants import (
     ServerEnvironment,
     ServerStatus,
 )
+from backend.app.modules.automations.models import Automation, AutomationOperationType, AutomationScheduleType, AutomationTargetMode
 from backend.app.modules.credentials.schemas import ResolvedCredential
+from backend.app.modules.deployments.models import (
+    Deployment,
+    DeploymentExecution,
+    DeploymentRevision,
+    DeploymentStatus,
+    DeploymentTarget,
+    DeploymentTargetExecution,
+)
+from backend.app.modules.execution.models import CommandExecution, CommandStatus
+from backend.app.modules.identity.models import IdentityExecution, IdentityExecutionStatus
 from backend.app.modules.inventory.discovery import HostDiscoveryService
 from backend.app.modules.inventory.models import ServerSshAuthMethod
+from backend.app.modules.inventory.repository import ServerRepository
 from backend.app.modules.inventory.schemas import ServerRead
+from backend.app.modules.inventory.schemas import ServerCreate
+from backend.app.modules.inventory.service import InventoryService
+from backend.app.modules.jobs.models import Job, JobStatus
+from backend.app.modules.monitoring.models import (
+    MetricSample,
+    MonitoringComponentStatus,
+    MonitoringSnapshot,
+    MonitoringState,
+    MonitoringValidationAttempt,
+)
+from backend.app.modules.packages.models import PackageInstallation, PackageInstallStatus
+from backend.app.modules.provisioning.models import ProvisioningRequest, ProvisioningStatus, VirtualMachine, VmStatus
 from backend.app.modules.proxmox.schemas import ProxmoxVmRead
 from backend.app.modules.proxmox.service import ProxmoxService
+from backend.app.modules.runtime_state.models import RuntimeRefreshEvent
+from backend.app.modules.trash.service import TrashService
+from backend.app.modules.workflows.models import WorkflowRun, WorkflowStatus, WorkflowTriggerSource, WorkflowType
 
 
 class FakeDiscoverySshAdapter(SshAdapter):
@@ -136,6 +164,195 @@ def test_inventory_crud_flow(client) -> None:
 
     missing_response = client.get(f"/api/v1/servers/{server_id}")
     assert missing_response.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_inventory_delete_removes_vm_record_with_operational_references(client) -> None:
+    session = next(iter(client.app.dependency_overrides.values()))
+    async for db_session in session():
+        service = InventoryService(ServerRepository(db_session))
+        server = await service.create_server(
+            ServerCreate(
+                **server_payload(
+                    hostname="delete-vm-01",
+                    ip_address="10.0.0.91",
+                    external_id="910",
+                    provider_node="hellgate",
+                    provider_type="qemu",
+                )
+            )
+        )
+        now = datetime.now(UTC)
+
+        job = Job(
+            target_server_id=server.id,
+            operation_type="profile:demo:step",
+            command="false",
+            status=JobStatus.FAILED,
+            stderr="failed",
+        )
+        deployment = Deployment(
+            name="delete-vm-deployment",
+            compose_content="services:\n  web:\n    image: nginx:alpine\n",
+            credential_refs={},
+            remote_path="/mnt/data/compose",
+            status=DeploymentStatus.DRAFT,
+        )
+        db_session.add_all([job, deployment])
+        await db_session.flush()
+
+        target = DeploymentTarget(
+            deployment_id=deployment.id,
+            server_id=server.id,
+            remote_path="/mnt/data/compose",
+            status=DeploymentStatus.DRAFT,
+            last_job_id=job.id,
+        )
+        revision = DeploymentRevision(
+            deployment_id=deployment.id,
+            server_id=server.id,
+            revision_number=1,
+            operation="deploy",
+            compose_content=deployment.compose_content,
+            job_id=job.id,
+            status=DeploymentStatus.FAILED,
+        )
+        execution = DeploymentExecution(
+            deployment_id=deployment.id,
+            operation="deploy",
+            status=DeploymentStatus.FAILED,
+            result_summary={},
+        )
+        db_session.add_all([target, revision, execution])
+        await db_session.flush()
+
+        db_session.add_all(
+            [
+                DeploymentTargetExecution(
+                    execution_id=execution.id,
+                    deployment_id=deployment.id,
+                    target_id=target.id,
+                    server_id=server.id,
+                    status=DeploymentStatus.FAILED,
+                    job_id=job.id,
+                    revision_id=revision.id,
+                ),
+                ProvisioningRequest(
+                    vm_name="delete-vm-01",
+                    target_node="hellgate",
+                    template_id=9000,
+                    new_vm_id=910,
+                    cpu_cores=2,
+                    memory_mb=2048,
+                    disk_gb=20,
+                    network_bridge="vmbr0",
+                    environment="development",
+                    tags=[],
+                    start_on_boot=False,
+                    cloud_init_username="ubuntu",
+                    static_ip_cidr="10.0.0.91/24",
+                    gateway="10.0.0.1",
+                    dns_servers=[],
+                    status=ProvisioningStatus.COMPLETED,
+                    proxmox_task_ids=[],
+                    server_id=server.id,
+                    bootstrap_job_ids=[str(job.id)],
+                ),
+                VirtualMachine(
+                    name="delete-vm-01",
+                    provider_vm_id="910",
+                    node_name="hellgate",
+                    cpu_cores=2,
+                    memory_mb=2048,
+                    disk_gb=20,
+                    status=VmStatus.RUNNING,
+                    server_id=server.id,
+                ),
+                WorkflowRun(
+                    workflow_type=WorkflowType.PROFILE_EXECUTION,
+                    status=WorkflowStatus.SUCCESS,
+                    trigger_source=WorkflowTriggerSource.MANUAL,
+                    target_server_id=server.id,
+                    context_json={},
+                    result_summary={},
+                ),
+                IdentityExecution(
+                    operation_type="user_sync",
+                    target_server_id=server.id,
+                    job_id=job.id,
+                    status=IdentityExecutionStatus.FAILED,
+                ),
+                PackageInstallation(
+                    server_id=server.id,
+                    package_name="docker",
+                    package_manager="apt",
+                    status=PackageInstallStatus.FAILED,
+                ),
+                CommandExecution(
+                    server_id=server.id,
+                    command="uptime",
+                    user="ubuntu",
+                    status=CommandStatus.FAILED,
+                ),
+                MetricSample(
+                    server_id=server.id,
+                    metric_name="up",
+                    value=1,
+                    unit="bool",
+                    collected_at=now,
+                ),
+                RuntimeRefreshEvent(
+                    scope="inventory",
+                    node_id=server.id,
+                    status="success",
+                    metadata_json={},
+                ),
+                Automation(
+                    name="delete-vm-automation",
+                    enabled=True,
+                    schedule_type=AutomationScheduleType.INTERVAL,
+                    interval_seconds=300,
+                    target_mode=AutomationTargetMode.SINGLE_HOST,
+                    target_server_ids=[str(server.id)],
+                    operation_type=AutomationOperationType.ACTION,
+                    reference_id="uptime",
+                ),
+            ]
+        )
+        snapshot = MonitoringSnapshot(
+            server_id=server.id,
+            monitoring_state=MonitoringState.UNKNOWN,
+            node_exporter_status=MonitoringComponentStatus.UNKNOWN,
+            promtail_status=MonitoringComponentStatus.UNKNOWN,
+            cadvisor_status=MonitoringComponentStatus.UNKNOWN,
+            prometheus_target_health=MonitoringComponentStatus.UNKNOWN,
+            details={},
+        )
+        db_session.add(snapshot)
+        await db_session.flush()
+        db_session.add(
+            MonitoringValidationAttempt(
+                server_id=server.id,
+                monitoring_snapshot_id=snapshot.id,
+                validation_method="manual",
+                component_results={},
+                monitoring_state=MonitoringState.UNKNOWN,
+                result="failed",
+                started_at=now,
+                finished_at=now,
+                details={},
+            )
+        )
+        await db_session.commit()
+
+        await service.delete_server(server.id)
+
+        assert await ServerRepository(db_session).get_by_id(server.id) is None
+        automations = (await db_session.execute(select(Automation))).scalars().all()
+        assert automations[0].target_server_ids == []
+        trash = await TrashService(db_session).list_trash()
+        inventory_group = next((group for group in trash.groups if group.item_type == "inventory_server"), None)
+        assert inventory_group is None
 
 
 def test_inventory_rejects_duplicate_hostname(client) -> None:

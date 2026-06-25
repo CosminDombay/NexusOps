@@ -54,6 +54,7 @@ from backend.app.modules.provisioning.schemas import (
     ProvisioningBlueprintCreate,
     ProvisioningBlueprintRead,
     ProvisioningBlueprintUpdate,
+    ProvisioningBootstrapJobRead,
     ProvisioningBootstrapTemplateCreate,
     ProvisioningBootstrapTemplateRead,
     ProvisioningBootstrapTemplateUpdate,
@@ -127,13 +128,13 @@ class ProvisioningService:
         self.ssh_adapter = ssh_adapter
 
     async def list_requests(self) -> list[ProvisioningRead]:
-        return [ProvisioningRead.model_validate(item) for item in await self.repository.list()]
+        return [await self._request_read(item) for item in await self.repository.list()]
 
     async def get_request(self, request_id: UUID) -> ProvisioningRead:
         request = await self.repository.get_by_id(request_id)
         if request is None:
             raise ProvisioningNotFoundError("Provisioning request not found")
-        return ProvisioningRead.model_validate(request)
+        return await self._request_read(request)
 
     async def delete_request(self, request_id: UUID) -> None:
         request = await self.repository.get_by_id(request_id)
@@ -467,7 +468,7 @@ class ProvisioningService:
             logger.warning("provisioning_failed", request_id=str(request.id), reason=str(exc))
 
         await self.repository.session.refresh(request)
-        return ProvisioningRead.model_validate(request)
+        return await self._request_read(request)
 
     async def _active_inventory_exists(self, *, hostname: str, ip_address: str) -> bool:
         for server in (
@@ -757,7 +758,23 @@ class ProvisioningService:
         return ProvisioningBatchRead(
             **{
                 **ProvisioningBatchRead.model_validate(batch).model_dump(exclude={"requests"}),
-                "requests": [ProvisioningRead.model_validate(request) for request in requests],
+                "requests": [await self._request_read(request) for request in requests],
+            }
+        )
+
+    async def _request_read(self, request: ProvisioningRequest) -> ProvisioningRead:
+        jobs = []
+        for job_id in request.bootstrap_job_ids:
+            try:
+                job = await self.job_repository.get_by_id(UUID(job_id))
+            except ValueError:
+                continue
+            if job is not None:
+                jobs.append(ProvisioningBootstrapJobRead.model_validate(job))
+        return ProvisioningRead.model_validate(
+            {
+                **request.__dict__,
+                "bootstrap_jobs": jobs,
             }
         )
 

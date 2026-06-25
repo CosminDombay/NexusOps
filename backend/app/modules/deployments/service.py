@@ -270,6 +270,7 @@ class DockerComposeDeploymentService:
                 env_content=payload.env_content,
                 credential_refs=payload.credential_refs,
                 execution_credential_ref=payload.execution_credential_ref,
+                remote_path=payload.remote_path,
                 status=DeploymentStatus.DRAFT,
             )
         )
@@ -309,6 +310,7 @@ class DockerComposeDeploymentService:
         deployment.env_content = payload.env_content
         deployment.credential_refs = payload.credential_refs
         deployment.execution_credential_ref = payload.execution_credential_ref
+        deployment.remote_path = payload.remote_path
         deployment.status = DeploymentStatus.DRAFT
         await self._sync_deployment_targets(deployment, [server.id for server in servers], payload.remote_path)
 
@@ -339,7 +341,7 @@ class DockerComposeDeploymentService:
         await self._managed_server(target_server_id)
         targets = await self.target_repository.list_for_deployment(deployment.id)
         if target_server_id not in {target.server_id for target in targets}:
-            remote_path = targets[0].remote_path if targets else "/opt/nexusops/deployments"
+            remote_path = targets[0].remote_path if targets else deployment.remote_path
             await self.target_repository.create(
                 DeploymentTarget(
                     deployment_id=deployment.id,
@@ -691,7 +693,7 @@ class DockerComposeDeploymentService:
             targets=target_reads,
             latest_execution=executions[0] if executions else None,
             execution_history=executions[:5],
-            remote_path=first_target.remote_path if first_target else None,
+            remote_path=first_target.remote_path if first_target else deployment.remote_path,
             ports=self._extract_ports(deployment.compose_content),
             compose_source="inline",
             uptime_seconds=self._uptime_seconds(deployment) if deployment.status == DeploymentStatus.RUNNING else None,

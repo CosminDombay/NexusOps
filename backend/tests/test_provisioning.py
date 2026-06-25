@@ -22,6 +22,7 @@ from backend.app.modules.deployments.schemas import DeploymentCreate
 from backend.app.modules.deployments.service import DockerComposeDeploymentService
 from backend.app.modules.jobs.repository import JobRepository
 from backend.app.modules.jobs.service import JobService
+from backend.app.modules.jobs.models import JobStatus
 from backend.app.modules.packages.repository import PackageDefinitionRepository
 from backend.app.modules.profiles.repository import InfrastructureProfileRepository
 from backend.app.modules.provisioning.repository import (
@@ -308,6 +309,13 @@ async def test_provisioning_runs_bootstrap_profile_after_inventory_registration(
         assert result.status == "completed"
         assert result.server_id is not None
         assert len(result.bootstrap_job_ids) == 3
+        assert len(result.bootstrap_jobs) == 3
+        assert [job.operation_type for job in result.bootstrap_jobs] == [
+            "profile:docker-host:install-docker",
+            "profile:docker-host:docker-status",
+            "profile:docker-host:check-docker-containers",
+        ]
+        assert all(job.status == JobStatus.SUCCESS for job in result.bootstrap_jobs)
 
         servers = await ServerRepository(db_session).list(search="10.3.0.51")
         assert len(servers) == 1
@@ -373,6 +381,10 @@ async def test_provisioning_runs_ordered_bootstrap_items_with_deployment(client)
         assert result.bootstrap_package_ids == ["docker-engine"]
         assert [item.kind for item in result.bootstrap_items] == ["package", "deployment"]
         assert len(result.bootstrap_job_ids) == 2
+        assert [job.operation_type for job in result.bootstrap_jobs] == [
+            "package:install:docker-engine",
+            f"deployment:{deployment.id}:deploy",
+        ]
 
         jobs = await JobRepository(db_session).list_for_target(result.server_id)
         bootstrap_jobs = [job for job in reversed(jobs) if str(job.id) in result.bootstrap_job_ids]

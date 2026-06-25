@@ -206,6 +206,7 @@ The implemented system is focused on foundations, visibility, narrowly scoped pr
   - credential-backed environment variables resolved server-side at deploy time
   - redacted deployment command history when secrets are injected into `.env`
   - configurable remote base path for deployment project directories
+  - remote base path persists on the deployment definition and is applied to deployment targets
   - generated remote compose file name is `docker-compose.yaml`
   - deployment target and revision persistence
   - multi-target deploy/redeploy/restart/stop/status/log operations through Jobs
@@ -365,7 +366,7 @@ Inventory records survive integration failures. If a Proxmox integration disconn
 
 Existing Proxmox inventory created before integration ownership is adopted during sync when it matches the discovered host or guest and has no `integration_id`. This preserves the old inventory identity while moving it under the persisted integration authority model.
 
-Inventory deletion now performs reference cleanup before removing the active server record. It clears provisioning request links, virtual machine links, workflow target links, and deployment target rows where applicable. If historical constraints prevent a hard delete, NexusOps archives the inventory record instead of destroying history.
+Inventory deletion performs reference cleanup before removing the active server record. It clears or removes Jobs-backed runtime links, provisioning request links, virtual machine links, workflow target links, deployment target rows, monitoring/runtime records, and other server-owned execution records. Archive and decommission remain the retained-history lifecycle paths.
 
 Inventory also now has a managed-node lifecycle foundation:
 

@@ -3,6 +3,7 @@ import { ArrowDown, ArrowUp, Plus, Trash2 } from 'lucide-react';
 
 import { ContextDrawer } from '../../components/ContextDrawer';
 import { PageHeader } from '../../components/layout/PageHeader';
+import { JobFailureDetails } from '../../components/operations/JobFailureDetails';
 import { CollapsibleSection, PageActionButton } from '../../components/operations/OperationalComponents';
 import { SearchField } from '../../components/search/SearchField';
 import { getApiErrorMessage } from '../../lib/api/client';
@@ -1816,10 +1817,11 @@ function ProvisioningHistory({
               <p className="mt-3 text-sm text-rose-700">{request.error_message}</p>
             ) : null}
             <p className="mt-3 text-xs text-zinc-500">
-              Tasks: {request.proxmox_task_ids.length} | Bootstrap jobs:{' '}
-              {request.bootstrap_job_ids.length}
+              Tasks: {request.proxmox_task_ids.length} | Bootstrap items:{' '}
+              {request.bootstrap_items.length} | Bootstrap jobs: {request.bootstrap_job_ids.length}
             </p>
             <ProvisioningTimeline request={request} />
+            <BootstrapSummary request={request} />
           </article>
         ))}
         {requests.length === 0 ? (
@@ -1829,6 +1831,84 @@ function ProvisioningHistory({
         ) : null}
       </div>
     </section>
+  );
+}
+
+function BootstrapSummary({ request }: { request: ProvisioningRequest }) {
+  const jobs = request.bootstrap_jobs ?? [];
+  const items = normalizeBootstrapItems(
+    request.bootstrap_items,
+    request.bootstrap_profile_ids,
+    request.bootstrap_package_ids,
+  );
+  if (!items.length && !jobs.length) {
+    return null;
+  }
+
+  const failedJobs = jobs.filter((job) => isBootstrapJobFailed(job.status));
+  const successfulJobs = jobs.filter((job) => isBootstrapJobSuccessful(job.status));
+  const title = failedJobs.length
+    ? `Bootstrap has ${failedJobs.length} failed job(s)`
+    : jobs.length
+      ? `Bootstrap jobs: ${successfulJobs.length}/${jobs.length} completed`
+      : 'Bootstrap selected, no jobs recorded yet';
+  const tone = failedJobs.length ? 'rose' : jobs.length ? 'emerald' : 'amber';
+  const toneClasses =
+    tone === 'rose'
+      ? 'border-rose-400/30 bg-rose-950/30 text-rose-100'
+      : tone === 'emerald'
+        ? 'border-emerald-400/30 bg-emerald-950/30 text-emerald-100'
+        : 'border-amber-400/30 bg-amber-950/30 text-amber-100';
+
+  return (
+    <div className={`mt-3 rounded-md border p-3 ${toneClasses}`}>
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+        <div>
+          <p className="text-sm font-semibold">{title}</p>
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {items.map((item, index) => (
+              <span
+                key={`${bootstrapItemKey(item)}-${index}`}
+                className="rounded border border-white/20 bg-black/20 px-2 py-1 text-xs"
+              >
+                {item.kind}: {item.reference_id}
+              </span>
+            ))}
+          </div>
+        </div>
+        {request.server_id ? (
+          <a
+            className="rounded-md border border-white/20 px-2.5 py-1 text-xs font-semibold text-white transition hover:bg-white/10"
+            href={`/inventory/${request.server_id}`}
+          >
+            Open host
+          </a>
+        ) : null}
+      </div>
+      {jobs.length ? (
+        <div className="mt-3 grid gap-2">
+          {jobs.map((job) => (
+            <div
+              key={job.id}
+              className="grid gap-2 rounded border border-white/15 bg-black/20 px-3 py-2 text-xs md:grid-cols-[minmax(0,1fr)_auto_auto]"
+            >
+              <span className="min-w-0 truncate font-mono">{job.operation_type}</span>
+              <span className={`font-semibold ${isBootstrapJobFailed(job.status) ? 'text-rose-200' : 'text-emerald-200'}`}>
+                {job.status}
+              </span>
+              <span className="text-white/70">
+                {job.exit_code === null || job.exit_code === undefined ? 'exit n/a' : `exit ${job.exit_code}`}
+              </span>
+            </div>
+          ))}
+        </div>
+      ) : null}
+      {failedJobs.length ? (
+        <div className="mt-3 rounded-md border border-white/15 bg-white p-3 text-zinc-950">
+          <JobFailureDetails jobs={failedJobs} title="Bootstrap failed job output" />
+        </div>
+      ) : null}
+    </div>
   );
 }
 
@@ -2096,6 +2176,7 @@ function provisioningTimelineItems(request: ProvisioningRequest): Array<{
     ['completed', 'Complete'],
   ] as const;
   const currentIndex = order.findIndex(([status]) => status === request.status);
+  const bootstrapFailed = (request.bootstrap_jobs ?? []).some((job) => isBootstrapJobFailed(job.status));
   return order.map(([status, label], index) => {
     let state: 'pending' | 'active' | 'done' | 'failed' = 'pending';
     if (request.status === 'failed') {
@@ -2105,16 +2186,44 @@ function provisioningTimelineItems(request: ProvisioningRequest): Array<{
     } else if (currentIndex >= 0 && index === currentIndex) {
       state = status === 'completed' ? 'done' : 'active';
     }
+    if (status === 'bootstrap_running' && bootstrapFailed) {
+      state = 'failed';
+    }
     const detail =
       status === 'cloning'
         ? request.proxmox_task_ids[0]
         : status === 'configuring'
           ? request.proxmox_task_ids.slice(1, -1).join(', ')
           : status === 'bootstrap_running'
-            ? request.bootstrap_job_ids.join(', ')
+            ? bootstrapTimelineDetail(request)
             : undefined;
     return { label, state, detail };
   });
+}
+
+function bootstrapTimelineDetail(request: ProvisioningRequest): string | undefined {
+  const jobs = request.bootstrap_jobs ?? [];
+  if (jobs.length) {
+    const failed = jobs.filter((job) => isBootstrapJobFailed(job.status)).length;
+    return failed ? `${failed}/${jobs.length} failed` : `${jobs.length} job(s)`;
+  }
+  if (request.bootstrap_job_ids.length) {
+    return `${request.bootstrap_job_ids.length} job id(s)`;
+  }
+  const items = normalizeBootstrapItems(
+    request.bootstrap_items,
+    request.bootstrap_profile_ids,
+    request.bootstrap_package_ids,
+  );
+  return items.length ? `${items.length} selected, no jobs` : undefined;
+}
+
+function isBootstrapJobFailed(status: string): boolean {
+  return ['failed', 'cancelled', 'stale'].includes(status);
+}
+
+function isBootstrapJobSuccessful(status: string): boolean {
+  return ['completed', 'success'].includes(status);
 }
 
 function normalizeBootstrapItems(

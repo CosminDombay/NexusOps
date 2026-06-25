@@ -6,6 +6,7 @@ from typing import Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from backend.app.modules.jobs.models import JobStatus
 from backend.app.modules.inventory.models import ServerEnvironment
 from backend.app.modules.provisioning.models import ProvisioningBatchStatus, ProvisioningStatus
 
@@ -342,6 +343,21 @@ class ProvisioningBootstrapTemplateRead(ProvisioningBootstrapTemplateBase):
     model_config = ConfigDict(from_attributes=True)
 
 
+class ProvisioningBootstrapJobRead(BaseModel):
+    id: UUID
+    operation_type: str
+    command: str
+    status: JobStatus
+    stdout: str | None = None
+    stderr: str | None = None
+    exit_code: int | None = None
+    target_hostname: str | None = None
+    created_at: datetime
+    completed_at: datetime | None = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 class ProvisioningRead(BaseModel):
     id: UUID
     vm_name: str
@@ -372,6 +388,7 @@ class ProvisioningRead(BaseModel):
     bootstrap_package_ids: list[str]
     bootstrap_items: list[ProvisioningBootstrapItem] = Field(default_factory=list)
     bootstrap_job_ids: list[str]
+    bootstrap_jobs: list[ProvisioningBootstrapJobRead] = Field(default_factory=list)
     batch_id: UUID | None = None
     batch_index: int | None = None
     created_at: datetime

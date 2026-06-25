@@ -12,7 +12,7 @@ NexusOps uses a soft-delete lifecycle for operator-managed configuration records
 - Integrations
 - Provisioning blueprints and requests
 - Custom operational actions
-- Archived, decommissioned, and deleted inventory records are shown in Trash through the existing inventory lifecycle.
+- Archived and decommissioned inventory records are shown in Trash through the existing inventory lifecycle. Hard-deleted inventory records are removed after reference cleanup and do not appear in Trash.
 
 Runtime and audit history, such as Jobs and workflow runs, remain historical records and are not treated as Trash items.
 
@@ -27,7 +27,7 @@ Trash actions are:
 - `POST /api/v1/trash/{item_type}/{item_id}/restore`: restore a deleted record to normal lists.
 - `DELETE /api/v1/trash/{item_type}/{item_id}/purge`: permanently delete a trashed record when no active references remain.
 
-Permanent deletion is blocked when active references still exist. Operators should change or remove the referencing profiles, automations, provisioning bootstrap lists, deployment targets, inventory links, or credential consumers first.
+Permanent deletion is blocked when active references still exist. Operators should change or remove the referencing profiles, automations, provisioning bootstrap lists, deployment targets, inventory lifecycle links, or credential consumers first.
 
 ## Normal Runtime Behavior
 
