@@ -16,6 +16,7 @@ class VariableDefinitionRead(BaseModel):
     required: bool = False
     sensitive: bool = False
     credential_type: CredentialType | None = None
+    credential_ref: str | None = Field(default=None, max_length=255)
 
 
 class PackageDefinitionRead(BaseModel):

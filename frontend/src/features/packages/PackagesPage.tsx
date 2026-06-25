@@ -340,6 +340,7 @@ export function PackagesPage() {
         onClose={resetEditor}
       >
         <PackageBuilder
+          credentials={credentials}
           formState={formState}
           editingPackageId={editingPackageId}
           isCreating={isCreating}
@@ -443,6 +444,7 @@ function BulkResultPanel({ result }: { result: BulkExecutionResponse }) {
 }
 
 function PackageBuilder({
+  credentials,
   formState,
   editingPackageId,
   isCreating,
@@ -451,6 +453,7 @@ function PackageBuilder({
   onFieldChange,
   onVariablesChange,
 }: {
+  credentials: Credential[];
   formState: FormState;
   editingPackageId: string | null;
   isCreating: boolean;
@@ -525,7 +528,7 @@ function PackageBuilder({
           value={formState.validation_command}
           onChange={onFieldChange}
         />
-        <VariableDefinitionEditor variables={formState.variables} onChange={onVariablesChange} />
+        <VariableDefinitionEditor credentials={credentials} variables={formState.variables} onChange={onVariablesChange} />
       </div>
       <div className="mt-4 flex justify-end gap-2">
         {editingPackageId ? (

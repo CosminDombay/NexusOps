@@ -10,6 +10,7 @@ export type ExecutionVariable = {
   required: boolean;
   sensitive: boolean;
   credential_type?: string | null;
+  credential_ref?: string | null;
 };
 
 export type ExecutionVariableValues = {
@@ -65,12 +66,15 @@ export function ExecutionVariablesModal({
     );
     setCredentialRefs(
       Object.fromEntries(
-        runtimeVariables.map((variable) => [variable.name, '']),
+        runtimeVariables.map((variable) => [variable.name, variable.credential_ref ?? '']),
       ),
     );
     setInputModes(
       Object.fromEntries(
-        runtimeVariables.map((variable) => [variable.name, variable.sensitive ? 'credential' : 'value']),
+        runtimeVariables.map((variable) => [
+          variable.name,
+          (variable.credential_ref || (variable.sensitive && variable.credential_type)) ? 'credential' : 'value',
+        ]),
       ),
     );
     setExecutionCredentialRef('');
@@ -116,9 +120,6 @@ export function ExecutionVariablesModal({
   }
 
   function setVariableMode(variable: ExecutionVariable, mode: VariableInputMode) {
-    if (variable.sensitive && mode === 'value') {
-      return;
-    }
     setInputModes((current) => ({ ...current, [variable.name]: mode }));
     setError(null);
   }
@@ -186,30 +187,23 @@ export function ExecutionVariablesModal({
                       </p>
                       {variable.description ? <p className="mt-1 text-xs text-zinc-500">{variable.description}</p> : null}
                     </div>
-                    {!variable.sensitive ? (
-                      <div className="inline-flex h-9 overflow-hidden rounded-md border border-zinc-300 bg-white text-xs font-semibold">
-                        <button
-                          className={`px-3 ${inputModes[variable.name] !== 'credential' ? 'bg-zinc-950 text-white' : 'text-zinc-600 hover:bg-zinc-50'}`}
-                          type="button"
-                          onClick={() => setVariableMode(variable, 'value')}
-                        >
-                          Value
-                        </button>
-                        <button
-                          className={`inline-flex items-center gap-1 border-l border-zinc-300 px-3 ${inputModes[variable.name] === 'credential' ? 'bg-zinc-950 text-white' : 'text-zinc-600 hover:bg-zinc-50'}`}
-                          type="button"
-                          onClick={() => setVariableMode(variable, 'credential')}
-                        >
-                          <KeyRound className="h-3.5 w-3.5" aria-hidden="true" />
-                          Credential
-                        </button>
-                      </div>
-                    ) : (
-                      <span className="inline-flex h-8 items-center gap-1 rounded-md border border-zinc-300 bg-white px-2 text-xs font-semibold text-zinc-600">
+                    <div className="inline-flex h-9 overflow-hidden rounded-md border border-zinc-300 bg-white text-xs font-semibold">
+                      <button
+                        className={`px-3 ${inputModes[variable.name] !== 'credential' ? 'bg-zinc-950 text-white' : 'text-zinc-600 hover:bg-zinc-50'}`}
+                        type="button"
+                        onClick={() => setVariableMode(variable, 'value')}
+                      >
+                        {variable.sensitive ? 'Sensitive value' : 'Value'}
+                      </button>
+                      <button
+                        className={`inline-flex items-center gap-1 border-l border-zinc-300 px-3 ${inputModes[variable.name] === 'credential' ? 'bg-zinc-950 text-white' : 'text-zinc-600 hover:bg-zinc-50'}`}
+                        type="button"
+                        onClick={() => setVariableMode(variable, 'credential')}
+                      >
                         <KeyRound className="h-3.5 w-3.5" aria-hidden="true" />
                         Credential
-                      </span>
-                    )}
+                      </button>
+                    </div>
                   </div>
 
                   {(inputModes[variable.name] ?? (variable.sensitive ? 'credential' : 'value')) === 'credential' ? (
@@ -228,6 +222,7 @@ export function ExecutionVariablesModal({
                   ) : (
                     <input
                       className="mt-3 w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-950"
+                      type={variable.sensitive ? 'password' : 'text'}
                       value={values[variable.name] ?? ''}
                       onChange={(event) => setValues((current) => ({ ...current, [variable.name]: event.target.value }))}
                     />

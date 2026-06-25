@@ -267,6 +267,8 @@ class PackageAutomationService:
             credential_type = item.get("credential_type")
             if credential_type and credential_type not in VALID_CREDENTIAL_TYPES:
                 item["credential_type"] = None
+            if item.get("credential_ref"):
+                item["sensitive"] = True
             sanitized.append(item)
         return sanitized
 
@@ -323,7 +325,7 @@ class PackageAutomationService:
         operation: str = "install",
     ) -> tuple[str, str]:
         definitions = [variable.model_dump() for variable in definition.variables]
-        secret_values = await self._resolve_credential_variables(definitions, credential_refs)
+        secret_values = await self._resolve_secret_variables(definitions, variables, credential_refs)
         safe_variables = self._without_sensitive_plaintext(definitions, variables, credential_refs)
         runtime_variables = {**safe_variables, **secret_values}
         redacted_variables = {**safe_variables, **{name: "********" for name in secret_values}}
@@ -361,9 +363,10 @@ class PackageAutomationService:
         )
         return f"{command} && {validation}", f"{redacted_command} && {redacted_validation}"
 
-    async def _resolve_credential_variables(
+    async def _resolve_secret_variables(
         self,
         definitions: list[dict],
+        variables: dict[str, str],
         credential_refs: dict[str, str],
     ) -> dict[str, str]:
         secret_values: dict[str, str] = {}
@@ -373,11 +376,15 @@ class PackageAutomationService:
             if item.get("name")
         }
         for name, definition in definition_by_name.items():
-            credential_ref = credential_refs.get(name)
+            credential_ref = credential_refs.get(name) or definition.get("credential_ref")
             if not credential_ref:
-                if definition.get("required"):
-                    if definition.get("sensitive"):
-                        raise VariableResolutionError(f"Sensitive variable {name} requires a credential reference")
+                if definition.get("sensitive") and variables.get(name):
+                    secret_values[name] = variables[name]
+                    continue
+                if definition.get("required") and definition.get("sensitive"):
+                    raise VariableResolutionError(
+                        f"Sensitive variable {name} requires a credential reference or sensitive runtime value"
+                    )
                 continue
             if self.credential_service is None:
                 raise VariableResolutionError("Credential service is required for credential-backed package variables")
@@ -395,11 +402,9 @@ class PackageAutomationService:
         credential_refs: dict[str, str],
     ) -> dict[str, str]:
         sensitive_names = {str(item["name"]) for item in definitions if item.get("name") and item.get("sensitive")}
-        unsafe = sorted(name for name in sensitive_names if variables.get(name) and not credential_refs.get(name))
-        if unsafe:
-            raise VariableResolutionError(
-                "Sensitive variable(s) must use credential references: " + ", ".join(unsafe)
-            )
         credential_backed_names = {name for name, value in credential_refs.items() if value}
+        credential_backed_names.update(
+            str(item["name"]) for item in definitions if item.get("name") and item.get("credential_ref")
+        )
         excluded_names = sensitive_names | credential_backed_names
         return {name: value for name, value in variables.items() if name not in excluded_names}

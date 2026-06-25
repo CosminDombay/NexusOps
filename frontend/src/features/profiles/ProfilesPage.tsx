@@ -839,7 +839,7 @@ function ProfileBuilder({
             ))}
           </ol>
         </div>
-        <VariableDefinitionEditor variables={formState.variables} onChange={onVariablesChange} />
+        <VariableDefinitionEditor credentials={credentials} variables={formState.variables} onChange={onVariablesChange} />
       </div>
       <div className="mt-4 grid gap-4 text-xs text-zinc-500 lg:grid-cols-2">
         <ReferenceList

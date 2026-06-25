@@ -19,6 +19,7 @@ export type TemplateVariable = {
   required: boolean;
   sensitive: boolean;
   credential_type?: string | null;
+  credential_ref?: string | null;
 };
 
 export type InfrastructureProfile = {
