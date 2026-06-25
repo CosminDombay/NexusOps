@@ -1,5 +1,7 @@
 import { Plus, Trash2 } from 'lucide-react';
 
+import type { CredentialType } from '../features/credentials/types/credential';
+
 export type VariableDefinition = {
   name: string;
   description: string;
@@ -13,6 +15,15 @@ type VariableDefinitionEditorProps = {
   variables: VariableDefinition[];
   onChange: (variables: VariableDefinition[]) => void;
 };
+
+const credentialTypeOptions: Array<{ value: '' | CredentialType; label: string }> = [
+  { value: '', label: 'Any credential type' },
+  { value: 'env_secret', label: 'Environment secret' },
+  { value: 'api_token', label: 'API token' },
+  { value: 'password', label: 'Password' },
+  { value: 'ssh_password', label: 'SSH password' },
+  { value: 'ssh_key', label: 'SSH key' },
+];
 
 export function VariableDefinitionEditor({ variables, onChange }: VariableDefinitionEditorProps) {
   function addVariable() {
@@ -66,19 +77,26 @@ export function VariableDefinitionEditor({ variables, onChange }: VariableDefini
                   <input className="mt-1 w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm" value={variable.description} onChange={(event) => updateVariable(index, { description: event.target.value })} />
                 </label>
                 <label className="text-xs font-medium text-zinc-700">
-                  {variable.sensitive ? 'Credential type hint' : 'Default value'}
-                  <input
-                    className="mt-1 w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm"
-                    value={variable.sensitive ? variable.credential_type ?? '' : variable.default_value ?? ''}
-                    onChange={(event) =>
-                      updateVariable(
-                        index,
-                        variable.sensitive
-                          ? { credential_type: event.target.value || null }
-                          : { default_value: event.target.value || null },
-                      )
-                    }
-                  />
+                  {variable.sensitive ? 'Credential type' : 'Default value'}
+                  {variable.sensitive ? (
+                    <select
+                      className="mt-1 w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm"
+                      value={variable.credential_type ?? ''}
+                      onChange={(event) => updateVariable(index, { credential_type: event.target.value || null })}
+                    >
+                      {credentialTypeOptions.map((option) => (
+                        <option key={option.value || 'any'} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <input
+                      className="mt-1 w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm"
+                      value={variable.default_value ?? ''}
+                      onChange={(event) => updateVariable(index, { default_value: event.target.value || null })}
+                    />
+                  )}
                 </label>
                 <button className="self-end rounded-md border border-rose-300 p-2 text-rose-700 hover:bg-rose-50" type="button" onClick={() => removeVariable(index)}>
                   <Trash2 className="h-4 w-4" aria-hidden="true" />
@@ -97,6 +115,7 @@ export function VariableDefinitionEditor({ variables, onChange }: VariableDefini
                       updateVariable(index, {
                         sensitive: event.target.checked,
                         default_value: event.target.checked ? null : variable.default_value,
+                        credential_type: event.target.checked ? variable.credential_type ?? null : null,
                       })
                     }
                   />

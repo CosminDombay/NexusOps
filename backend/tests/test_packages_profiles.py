@@ -1,6 +1,7 @@
 from typing import Any
 
 import pytest
+from pydantic import ValidationError
 
 from backend.app.adapters.ssh import SshAdapter, SshExecutionResult
 from backend.app.modules.credentials.schemas import ResolvedCredential
@@ -129,6 +130,30 @@ async def test_package_service_lists_definitions() -> None:
 
     assert any(package.id == "docker-engine" for package in packages)
     assert any(package.id == "fail2ban" for package in packages)
+
+
+def test_package_variable_rejects_unknown_credential_type() -> None:
+    with pytest.raises(ValidationError):
+        PackageDefinitionCreate(
+            id="bad-credential-type-package",
+            name="Bad Credential Type Package",
+            category="Test",
+            supported_os=["ubuntu"],
+            install_command="echo {{ tailscale_auth_key }}",
+            validation_command="true",
+            variables=[
+                {
+                    "name": "tailscale_auth_key",
+                    "description": "Tailscale reusable auth key",
+                    "default_value": None,
+                    "required": True,
+                    "sensitive": True,
+                    "credential_type": "ssss",
+                }
+            ],
+            tags=["test"],
+            description="Test package.",
+        )
 
 
 @pytest.mark.asyncio

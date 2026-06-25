@@ -4,6 +4,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from backend.app.modules.credentials.schemas import CredentialType
+
 
 class VariableDefinitionRead(BaseModel):
     name: str
@@ -11,7 +13,7 @@ class VariableDefinitionRead(BaseModel):
     default_value: str | None = None
     required: bool = False
     sensitive: bool = False
-    credential_type: str | None = None
+    credential_type: CredentialType | None = None
 
 
 class PackageDefinitionRead(BaseModel):
