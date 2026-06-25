@@ -159,10 +159,12 @@ class CommandPolicyResult:
 class CommandPolicyEngine:
     """Small policy layer for shell execution governance."""
 
-    DENIED_PATTERNS = (
+    HARD_DENIED_PATTERNS = (
         re.compile(r"\brm\s+-rf\s+/(?:\s|$)"),
-        re.compile(r"\bmkfs(?:\.[a-z0-9]+)?\b"),
         re.compile(r"\bdd\s+.*\bof=/dev/"),
+    )
+    INTENTIONAL_DESTRUCTIVE_PATTERNS = (
+        re.compile(r"\bmkfs(?:\.[a-z0-9]+)?\b"),
     )
     APPROVAL_PATTERNS = (
         re.compile(r"\bshutdown\b"),
@@ -172,10 +174,15 @@ class CommandPolicyEngine:
         re.compile(r"\brm\s+-rf\b"),
     )
 
-    def evaluate(self, command: str) -> CommandPolicyResult:
+    def evaluate(self, command: str, *, allow_destructive: bool = False) -> CommandPolicyResult:
         lowered = command.lower()
-        for pattern in self.DENIED_PATTERNS:
+        for pattern in self.HARD_DENIED_PATTERNS:
             if pattern.search(lowered):
+                return CommandPolicyResult("denied", pattern.pattern)
+        for pattern in self.INTENTIONAL_DESTRUCTIVE_PATTERNS:
+            if pattern.search(lowered):
+                if allow_destructive:
+                    return CommandPolicyResult("approval_required", pattern.pattern)
                 return CommandPolicyResult("denied", pattern.pattern)
         for pattern in self.APPROVAL_PATTERNS:
             if pattern.search(lowered):

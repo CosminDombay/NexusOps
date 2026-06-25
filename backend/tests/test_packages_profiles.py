@@ -30,8 +30,9 @@ from backend.app.modules.identity.service import (
     LinuxPermissionService,
     LinuxUserService,
 )
-from backend.app.modules.jobs.repository import JobRepository
+from backend.app.modules.jobs.repository import CustomOperationalActionRepository, JobRepository
 from backend.app.modules.jobs.service import JobService
+from backend.app.modules.jobs.schemas import OperationalActionCreate
 from backend.app.modules.packages.repository import PackageDefinitionRepository
 from backend.app.modules.packages.models import PackageDefinitionRecord
 from backend.app.modules.packages.service import PackageAutomationService
@@ -568,6 +569,63 @@ async def test_profile_service_uses_definition_credential_ref_for_unattended_var
         assert "deploy-sudo-secret" in adapter.calls[0]["command"]
         assert "deploy-sudo-secret" not in result.jobs[0].command
         assert "********" in result.jobs[0].command
+
+
+@pytest.mark.asyncio
+async def test_profile_service_allows_mkfs_for_destructive_action_step(client) -> None:
+    session = next(iter(client.app.dependency_overrides.values()))
+    async for db_session in session():
+        server = await InventoryService(ServerRepository(db_session)).create_server(
+            ServerCreate(**server_payload(hostname="profile-disk-action-01", ip_address="10.2.0.24"))
+        )
+        adapter = FakeSshAdapter()
+        job_service = JobService(
+            job_repository=JobRepository(db_session),
+            server_repository=ServerRepository(db_session),
+            ssh_adapter=adapter,
+            action_repository=CustomOperationalActionRepository(db_session),
+        )
+        action = await job_service.create_action(
+            OperationalActionCreate(
+                id="profile-format-data-disk",
+                name="Profile Format Data Disk",
+                category="Storage",
+                description="Formats the data disk partition.",
+                command="sudo mkfs.ext4 -F /dev/sdb1",
+                destructive=True,
+            )
+        )
+        profile_service = ProfileService(
+            repository=InfrastructureProfileRepository(db_session),
+            job_service=job_service,
+        )
+        profile = await profile_service.create_profile(
+            InfrastructureProfileCreate(
+                id="profile-disk-action",
+                name="Profile Disk Action",
+                category="Storage",
+                description="Applies storage action.",
+                tags=["storage"],
+                steps=[
+                    {
+                        "id": "data-disk-configuration",
+                        "name": "Data disk configuration",
+                        "kind": "action",
+                        "reference_id": action.id,
+                    }
+                ],
+            )
+        )
+
+        result = await profile_service.apply_profile(
+            profile.id,
+            ProfileApplyRequest(target_server_id=server.id),
+        )
+
+        assert result.status == "success"
+        assert len(result.jobs) == 1
+        assert result.jobs[0].operation_type == f"profile:{profile.id}:data-disk-configuration"
+        assert adapter.calls[0]["command"] == "sudo mkfs.ext4 -F /dev/sdb1"
 
 
 @pytest.mark.asyncio

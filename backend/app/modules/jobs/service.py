@@ -180,16 +180,23 @@ class JobService:
                 operation_type=f"action:{payload.action_id}",
                 command=action.command,
                 credential_ref=payload.credential_ref,
-            )
+            ),
+            allow_destructive_policy=bool(action.destructive),
         )
 
-    async def execute(self, payload: JobExecuteRequest, *, initiated_by: User | None = None) -> JobRead:
+    async def execute(
+        self,
+        payload: JobExecuteRequest,
+        *,
+        initiated_by: User | None = None,
+        allow_destructive_policy: bool = False,
+    ) -> JobRead:
         self.command_builder.validate_command(
             payload.command,
             source=payload.operation_type,
             allow_shell_operators=True,
         )
-        policy = self.command_policy.evaluate(payload.command)
+        policy = self.command_policy.evaluate(payload.command, allow_destructive=allow_destructive_policy)
         if policy.policy == "denied":
             raise CommandValidationError(f"Command denied by policy: {policy.reason}")
         server = await self.server_repository.get_by_id(payload.target_server_id)

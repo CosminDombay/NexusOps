@@ -419,9 +419,18 @@ class ProfileService:
                 command=command,
                 redacted_command=redacted_command,
                 credential_ref=credential_ref,
-            )
+            ),
+            allow_destructive_policy=await self._step_allows_destructive_policy(step),
         )
         return [job]
+
+    async def _step_allows_destructive_policy(self, step) -> bool:
+        if step.kind != "action":
+            return False
+        action = get_action(step.reference_id)
+        if action is None and self.job_service.action_repository is not None:
+            action = await self.job_service.action_repository.get_by_slug(step.reference_id)
+        return bool(action and action.destructive)
 
     async def _start_profile_workflow(
         self,

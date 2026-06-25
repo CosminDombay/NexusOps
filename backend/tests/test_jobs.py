@@ -20,6 +20,7 @@ from backend.app.modules.jobs.service import (
     JobTargetNotFoundError,
     OperationalActionNotFoundError,
 )
+from backend.app.modules.orchestration.security import CommandValidationError
 
 
 class FakeSshAdapter(SshAdapter):
@@ -209,6 +210,28 @@ async def test_job_service_marks_nonzero_exit_as_failed(client) -> None:
 
 
 @pytest.mark.asyncio
+async def test_job_service_denies_mkfs_in_raw_command(client) -> None:
+    session = next(iter(client.app.dependency_overrides.values()))
+    async for db_session in session():
+        server = await InventoryService(ServerRepository(db_session)).create_server(
+            ServerCreate(**server_payload(hostname="raw-policy-target-01", ip_address="10.1.0.31"))
+        )
+        adapter = FakeSshAdapter()
+        service = JobService(
+            job_repository=JobRepository(db_session),
+            server_repository=ServerRepository(db_session),
+            ssh_adapter=adapter,
+        )
+
+        with pytest.raises(CommandValidationError, match="Command denied by policy"):
+            await service.execute(
+                JobExecuteRequest(target_server_id=server.id, command="sudo mkfs.ext4 /dev/sdb1")
+            )
+
+        assert adapter.calls == []
+
+
+@pytest.mark.asyncio
 async def test_bulk_job_request_dedupes_target_ids(client) -> None:
     session = next(iter(client.app.dependency_overrides.values()))
     async for db_session in session():
@@ -374,6 +397,72 @@ async def test_job_service_creates_and_executes_custom_action(client) -> None:
         assert action.is_builtin is False
         assert job.operation_type == "action:enable-docker-user"
         assert adapter.calls[0]["command"] == "sudo usermod -aG docker $USER\nid"
+
+
+@pytest.mark.asyncio
+async def test_job_service_allows_mkfs_for_destructive_custom_action(client) -> None:
+    session = next(iter(client.app.dependency_overrides.values()))
+    async for db_session in session():
+        server = await InventoryService(ServerRepository(db_session)).create_server(
+            ServerCreate(**server_payload(hostname="disk-action-target-01", ip_address="10.1.0.32"))
+        )
+        adapter = FakeSshAdapter()
+        service = JobService(
+            job_repository=JobRepository(db_session),
+            server_repository=ServerRepository(db_session),
+            ssh_adapter=adapter,
+            action_repository=CustomOperationalActionRepository(db_session),
+        )
+        action = await service.create_action(
+            OperationalActionCreate(
+                id="format-data-disk",
+                name="Format Data Disk",
+                category="Storage",
+                description="Create a filesystem on the data disk partition.",
+                command="sudo mkfs.ext4 -F /dev/sdb1",
+                destructive=True,
+            )
+        )
+
+        job = await service.execute_action(
+            JobActionExecuteRequest(target_server_id=server.id, action_id=action.id)
+        )
+
+        assert job.status == JobStatus.SUCCESS
+        assert adapter.calls[0]["command"] == "sudo mkfs.ext4 -F /dev/sdb1"
+
+
+@pytest.mark.asyncio
+async def test_job_service_denies_mkfs_for_non_destructive_custom_action(client) -> None:
+    session = next(iter(client.app.dependency_overrides.values()))
+    async for db_session in session():
+        server = await InventoryService(ServerRepository(db_session)).create_server(
+            ServerCreate(**server_payload(hostname="disk-action-target-02", ip_address="10.1.0.33"))
+        )
+        adapter = FakeSshAdapter()
+        service = JobService(
+            job_repository=JobRepository(db_session),
+            server_repository=ServerRepository(db_session),
+            ssh_adapter=adapter,
+            action_repository=CustomOperationalActionRepository(db_session),
+        )
+        action = await service.create_action(
+            OperationalActionCreate(
+                id="unsafe-format-data-disk",
+                name="Unsafe Format Data Disk",
+                category="Storage",
+                description="Missing destructive intent.",
+                command="sudo mkfs.ext4 -F /dev/sdb1",
+                destructive=False,
+            )
+        )
+
+        with pytest.raises(CommandValidationError, match="Command denied by policy"):
+            await service.execute_action(
+                JobActionExecuteRequest(target_server_id=server.id, action_id=action.id)
+            )
+
+        assert adapter.calls == []
 
 
 @pytest.mark.asyncio
