@@ -21,6 +21,7 @@ from backend.app.modules.packages.schemas import (
     PackageBulkApplyRequest,
     PackageCloneRequest,
     PackageExecuteRequest,
+    VALID_CREDENTIAL_TYPES,
 )
 
 
@@ -246,7 +247,7 @@ class PackageAutomationService:
             install_command=record.install_command,
             uninstall_command=record.uninstall_command,
             validation_command=record.validation_command,
-            variables=record.variables,
+            variables=PackageAutomationService._sanitize_variable_definitions(record.variables),
             tags=record.tags,
             description=record.description,
             is_builtin=record.is_builtin,
@@ -257,6 +258,17 @@ class PackageAutomationService:
             created_at=record.created_at,
             updated_at=record.updated_at,
         )
+
+    @staticmethod
+    def _sanitize_variable_definitions(variables: list[dict]) -> list[dict]:
+        sanitized = []
+        for variable in variables:
+            item = dict(variable)
+            credential_type = item.get("credential_type")
+            if credential_type and credential_type not in VALID_CREDENTIAL_TYPES:
+                item["credential_type"] = None
+            sanitized.append(item)
+        return sanitized
 
     async def _create_builtin_override(self, definition: PackageDefinition) -> PackageDefinitionRecord:
         assert self.repository is not None

@@ -33,6 +33,7 @@ from backend.app.modules.identity.service import (
 from backend.app.modules.jobs.repository import JobRepository
 from backend.app.modules.jobs.service import JobService
 from backend.app.modules.packages.repository import PackageDefinitionRepository
+from backend.app.modules.packages.models import PackageDefinitionRecord
 from backend.app.modules.packages.service import PackageAutomationService
 from backend.app.modules.packages.schemas import PackageDefinitionCreate, PackageExecuteRequest
 from backend.app.modules.profiles.schemas import ProfileApplyRequest
@@ -154,6 +155,36 @@ def test_package_variable_rejects_unknown_credential_type() -> None:
             tags=["test"],
             description="Test package.",
         )
+
+
+def test_package_record_read_scrubs_legacy_invalid_credential_type() -> None:
+    record = PackageDefinitionRecord(
+        slug="legacy-secret-hint-package",
+        name="Legacy Secret Hint Package",
+        category="Test",
+        supported_os=["ubuntu"],
+        install_command="echo {{ tailscale_auth_key }}",
+        uninstall_command="",
+        validation_command="true",
+        variables=[
+            {
+                "name": "tailscale_auth_key",
+                "description": "Tailscale reusable auth key",
+                "default_value": None,
+                "required": True,
+                "sensitive": True,
+                "credential_type": "legacy-pasted-secret-value",
+            }
+        ],
+        tags=["test"],
+        description="Test package.",
+        is_builtin=False,
+        is_modified=False,
+    )
+
+    package = PackageAutomationService._record_to_read(record)
+
+    assert package.variables[0].credential_type is None
 
 
 @pytest.mark.asyncio

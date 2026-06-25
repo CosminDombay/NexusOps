@@ -1,10 +1,12 @@
 from datetime import datetime
-from typing import Literal, Self
+from typing import Literal, Self, get_args
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from backend.app.modules.credentials.schemas import CredentialType
+
+VALID_CREDENTIAL_TYPES = set(get_args(CredentialType))
 
 
 class VariableDefinitionRead(BaseModel):
