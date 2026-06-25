@@ -114,6 +114,7 @@ The implemented system is focused on foundations, visibility, narrowly scoped pr
   - append-only execution intent events, command hashes, command policy results, initiator metadata, and correlation IDs
   - support key-based, password-based, shared-credential, and explicit credential-ref execution
   - expose reusable operational actions backed by the jobs pipeline
+  - built-in validation action for SSH/sudo readiness checks through the selected execution credential
   - admin-managed custom operational actions with create/update/delete support
   - custom actions can be executed directly from Jobs and referenced by Profiles and Automations
   - frontend Jobs page with shared target selection, action runner, raw command runner, history, and tabbed stdout/stderr/command/metadata result viewer

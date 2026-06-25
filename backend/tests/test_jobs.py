@@ -280,6 +280,12 @@ async def test_job_service_lists_predefined_actions(client) -> None:
 
         assert any(action.id == "check-uptime" for action in actions)
         assert any(action.id == "restart-docker" and action.destructive for action in actions)
+        assert any(
+            action.id == "validation:sudo-ready"
+            and action.category == "Validation"
+            and not action.destructive
+            for action in actions
+        )
 
 
 @pytest.mark.asyncio
@@ -306,6 +312,32 @@ async def test_job_service_executes_predefined_action_through_jobs(client) -> No
         assert job.command == "uptime"
         assert job.status == JobStatus.SUCCESS
         assert adapter.calls[0]["command"] == "uptime"
+
+
+@pytest.mark.asyncio
+async def test_job_service_executes_sudo_readiness_validation_action(client) -> None:
+    session = next(iter(client.app.dependency_overrides.values()))
+    async for db_session in session():
+        server = await InventoryService(ServerRepository(db_session)).create_server(
+            ServerCreate(
+                **server_payload(hostname="sudo-validation-target-01", ip_address="10.1.0.30")
+            )
+        )
+        adapter = FakeSshAdapter()
+        service = JobService(
+            job_repository=JobRepository(db_session),
+            server_repository=ServerRepository(db_session),
+            ssh_adapter=adapter,
+        )
+
+        job = await service.execute_action(
+            JobActionExecuteRequest(target_server_id=server.id, action_id="validation:sudo-ready")
+        )
+
+        assert job.operation_type == "action:validation:sudo-ready"
+        assert job.command == "sudo true && echo sudo-ready"
+        assert job.status == JobStatus.SUCCESS
+        assert adapter.calls[0]["command"] == "sudo true && echo sudo-ready"
 
 
 @pytest.mark.asyncio

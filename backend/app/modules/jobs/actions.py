@@ -41,6 +41,13 @@ ACTION_REGISTRY: tuple[OperationalAction, ...] = (
         command="docker ps",
     ),
     OperationalAction(
+        id="validation:sudo-ready",
+        name="Validate Sudo Readiness",
+        category="Validation",
+        description="Confirm the SSH user can run sudo through the selected execution credential.",
+        command="sudo true && echo sudo-ready",
+    ),
+    OperationalAction(
         id="docker-status",
         name="Check Docker Service",
         category="Service Operations",
