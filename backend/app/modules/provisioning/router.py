@@ -34,6 +34,7 @@ from backend.app.modules.provisioning.schemas import (
     ProvisioningBootstrapTemplateUpdate,
     ProvisioningBatchCreate,
     ProvisioningBatchRead,
+    ProvisioningCleanupRead,
     ProvisioningCreate,
     ProvisioningRead,
 )
@@ -199,6 +200,18 @@ async def get_batch(
         return await service.get_batch(batch_id)
     except ProvisioningBatchNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+
+@router.post(
+    "/sanitize-stale",
+    response_model=ProvisioningCleanupRead,
+    dependencies=[Depends(require_operator)],
+)
+async def sanitize_stale_provisioning_requests(
+    service: Annotated[ProvisioningService, Depends(get_provisioning_service)],
+    dry_run: bool = False,
+) -> ProvisioningCleanupRead:
+    return await service.sanitize_stale_requests(dry_run=dry_run)
 
 
 @router.post("/blueprints", response_model=ProvisioningBlueprintRead, status_code=status.HTTP_201_CREATED)

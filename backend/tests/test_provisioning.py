@@ -43,8 +43,9 @@ from backend.app.modules.provisioning.service import ProvisioningService
 
 
 class FakeProxmoxAdapter(ProxmoxAdapter):
-    def __init__(self) -> None:
+    def __init__(self, vms: list[dict[str, Any]] | None = None) -> None:
         self.calls: list[dict[str, Any]] = []
+        self.vms = vms or []
 
     @property
     def name(self) -> str:
@@ -54,7 +55,7 @@ class FakeProxmoxAdapter(ProxmoxAdapter):
         return []
 
     async def list_vms(self) -> list[dict[str, Any]]:
-        return []
+        return self.vms
 
     async def list_vm_templates(self) -> list[dict[str, Any]]:
         return [{"vmid": 9000, "name": "ubuntu-template", "node": "hellgate", "type": "qemu", "template": 1}]
@@ -512,6 +513,107 @@ async def test_delete_provisioning_request_removes_history_record(client) -> Non
 
     assert response.status_code == 204
     assert client.get("/api/v1/vms").json() == []
+    async for db_session in session():
+        assert await ProvisioningRequestRepository(db_session).get_by_id(request_id, include_deleted=True) is None
+
+
+@pytest.mark.asyncio
+async def test_sanitize_stale_provisioning_requests_purges_failed_orphan_history(client) -> None:
+    session = next(iter(client.app.dependency_overrides.values()))
+    async for db_session in session():
+        stale = ProvisioningRequest(
+            vm_name="stale-test",
+            target_node="hellgate",
+            template_id=9000,
+            new_vm_id=210,
+            cpu_cores=2,
+            memory_mb=2048,
+            disk_gb=32,
+            additional_disks=[],
+            network_bridge="vmbr0",
+            environment="lab",
+            tags=["test"],
+            description=None,
+            start_on_boot=False,
+            cloud_init_username="ubuntu",
+            cloud_init_password=None,
+            ssh_public_key=None,
+            static_ip_cidr="192.168.50.88/24",
+            gateway="192.168.50.1",
+            dns_servers=["1.1.1.1"],
+            status=ProvisioningStatus.FAILED,
+            error_message="Requested static IP or hostname already exists in inventory",
+            proxmox_task_ids=[],
+            bootstrap_profile_ids=[],
+            bootstrap_package_ids=[],
+            bootstrap_job_ids=[],
+        )
+        db_session.add(stale)
+        await db_session.commit()
+        await db_session.refresh(stale)
+        stale_id = stale.id
+
+        result = await service(db_session).sanitize_stale_requests()
+
+        assert result.deleted_count == 1
+        assert result.deleted == ["stale-test (hellgate/qemu:210)"]
+        assert await ProvisioningRequestRepository(db_session).get_by_id(stale_id, include_deleted=True) is None
+
+
+@pytest.mark.asyncio
+async def test_sanitize_stale_provisioning_requests_skips_existing_inventory_host(client) -> None:
+    session = next(iter(client.app.dependency_overrides.values()))
+    async for db_session in session():
+        server = Server(
+            hostname="stale-test",
+            ip_address="192.168.50.88",
+            operating_system="Ubuntu",
+            vmid="210",
+            environment=ServerEnvironment.LAB,
+            tags=["test"],
+            ssh_port=22,
+            ssh_username="ubuntu",
+            ssh_auth_method=ServerSshAuthMethod.KEY,
+            status=ServerStatus.UNKNOWN,
+            provider="proxmox",
+            external_id="210",
+        )
+        request = ProvisioningRequest(
+            vm_name="stale-test",
+            target_node="hellgate",
+            template_id=9000,
+            new_vm_id=210,
+            cpu_cores=2,
+            memory_mb=2048,
+            disk_gb=32,
+            additional_disks=[],
+            network_bridge="vmbr0",
+            environment="lab",
+            tags=["test"],
+            description=None,
+            start_on_boot=False,
+            cloud_init_username="ubuntu",
+            cloud_init_password=None,
+            ssh_public_key=None,
+            static_ip_cidr="192.168.50.88/24",
+            gateway="192.168.50.1",
+            dns_servers=["1.1.1.1"],
+            status=ProvisioningStatus.FAILED,
+            error_message="failed after inventory registration",
+            proxmox_task_ids=[],
+            bootstrap_profile_ids=[],
+            bootstrap_package_ids=[],
+            bootstrap_job_ids=[],
+        )
+        db_session.add_all([server, request])
+        await db_session.commit()
+        await db_session.refresh(request)
+
+        result = await service(db_session).sanitize_stale_requests()
+
+        assert result.deleted_count == 0
+        assert result.skipped == ["stale-test: inventory host still references VMID"]
+        assert await ProvisioningRequestRepository(db_session).get_by_id(request.id) is not None
 
 
 @pytest.mark.asyncio

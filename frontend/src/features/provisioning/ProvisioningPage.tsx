@@ -28,6 +28,7 @@ import {
   listProvisioningBatches,
   listProvisioningBlueprints,
   listProvisioningRequests,
+  sanitizeStaleProvisioningRequests,
   updateProvisioningBootstrapTemplate,
   updateProvisioningBlueprint,
 } from './api/provisioningApi';
@@ -641,6 +642,35 @@ export function ProvisioningPage() {
     }
   }
 
+  async function handleSanitizeStaleRequests() {
+    setError(null);
+    setNotice(null);
+    try {
+      const preview = await sanitizeStaleProvisioningRequests(true);
+      const previewMessage = [
+        `${preview.deleted_count} stale failed provisioning request(s) would be purged.`,
+        preview.deleted.length ? `Candidates: ${preview.deleted.join(', ')}` : '',
+        preview.skipped.length ? `Skipped: ${preview.skipped.slice(0, 5).join('; ')}${preview.skipped.length > 5 ? '...' : ''}` : '',
+      ].filter(Boolean).join('\n');
+      const confirmed = window.confirm(`${previewMessage}\n\nApply cleanup now?`);
+      if (!confirmed) {
+        setNotice({
+          tone: 'success',
+          message: `Stale provisioning preview complete: ${preview.deleted_count} candidate(s), ${preview.skipped_count} skipped.`,
+        });
+        return;
+      }
+      const result = await sanitizeStaleProvisioningRequests(false);
+      setRequests(await listProvisioningRequests());
+      setNotice({
+        tone: 'success',
+        message: `${result.deleted_count} stale failed provisioning request(s) purged.`,
+      });
+    } catch (caughtError) {
+      setError(getApiErrorMessage(caughtError));
+    }
+  }
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -1239,6 +1269,7 @@ export function ProvisioningPage() {
         search={requestSearch}
         totalCount={requests.length}
         onDelete={handleDeleteRequest}
+        onSanitizeStale={handleSanitizeStaleRequests}
         onSearchChange={setRequestSearch}
       />
     </div>
@@ -1772,19 +1803,32 @@ function ProvisioningHistory({
   search,
   totalCount,
   onDelete,
+  onSanitizeStale,
   onSearchChange,
 }: {
   requests: ProvisioningRequest[];
   search: string;
   totalCount: number;
   onDelete: (request: ProvisioningRequest) => void;
+  onSanitizeStale: () => void;
   onSearchChange: (value: string) => void;
 }) {
   return (
     <section className="rounded-lg border border-zinc-200 bg-white shadow-sm">
       <div className="border-b border-zinc-200 px-5 py-4">
-        <h3 className="text-base font-semibold text-zinc-950">Provisioning history</h3>
-        <p className="mt-1 text-sm text-zinc-500">{totalCount} requests tracked.</p>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <h3 className="text-base font-semibold text-zinc-950">Provisioning history</h3>
+            <p className="mt-1 text-sm text-zinc-500">{totalCount} requests tracked.</p>
+          </div>
+          <button
+            className="inline-flex items-center justify-center rounded-md border border-amber-300 px-3 py-2 text-sm font-semibold text-amber-700 transition hover:bg-amber-50"
+            type="button"
+            onClick={onSanitizeStale}
+          >
+            Clean stale failures
+          </button>
+        </div>
         <SearchField
           className="mt-3"
           placeholder="Search provisioning requests, VMIDs, IPs..."

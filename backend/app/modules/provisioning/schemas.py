@@ -397,6 +397,14 @@ class ProvisioningRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class ProvisioningCleanupRead(BaseModel):
+    dry_run: bool = False
+    deleted_count: int
+    skipped_count: int
+    deleted: list[str] = Field(default_factory=list)
+    skipped: list[str] = Field(default_factory=list)
+
+
 class ProvisioningBatchCreate(BaseModel):
     name: str = Field(min_length=1, max_length=255)
     blueprint_id: UUID

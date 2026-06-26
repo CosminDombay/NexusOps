@@ -9,6 +9,7 @@ import type {
   ProvisioningBlueprint,
   ProvisioningBootstrapTemplate,
   ProvisioningBatch,
+  ProvisioningCleanupResult,
   ProvisioningRequest,
   UpdateProvisioningBlueprintPayload,
   UpdateProvisioningBootstrapTemplatePayload,
@@ -52,6 +53,13 @@ export async function createProvisioningRequest(
 
 export async function deleteProvisioningRequest(requestId: string): Promise<void> {
   await apiClient.delete(`/vms/${requestId}`);
+}
+
+export async function sanitizeStaleProvisioningRequests(dryRun = false): Promise<ProvisioningCleanupResult> {
+  const response = await apiClient.post<ProvisioningCleanupResult>('/vms/sanitize-stale', null, {
+    params: { dry_run: dryRun },
+  });
+  return response.data;
 }
 
 export async function listProvisioningBlueprints(): Promise<ProvisioningBlueprint[]> {

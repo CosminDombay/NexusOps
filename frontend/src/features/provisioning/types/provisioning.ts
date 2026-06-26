@@ -69,6 +69,14 @@ export type ProvisioningRequest = {
   updated_at: string;
 };
 
+export type ProvisioningCleanupResult = {
+  dry_run: boolean;
+  deleted_count: number;
+  skipped_count: number;
+  deleted: string[];
+  skipped: string[];
+};
+
 export type ProvisioningBootstrapJob = {
   id: string;
   operation_type: string;

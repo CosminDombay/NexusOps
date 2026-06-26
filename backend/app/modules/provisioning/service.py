@@ -61,6 +61,7 @@ from backend.app.modules.provisioning.schemas import (
     ProvisioningBatchCreate,
     ProvisioningBatchRead,
     ProvisioningCreate,
+    ProvisioningCleanupRead,
     ProvisioningRead,
 )
 
@@ -140,8 +141,44 @@ class ProvisioningService:
         request = await self.repository.get_by_id(request_id)
         if request is None:
             raise ProvisioningNotFoundError("Provisioning request not found")
+        if request.status == ProvisioningStatus.FAILED:
+            await self.repository.delete(request)
+            await self.repository.session.commit()
+            return
         request.deleted_at = datetime.now(UTC)
         await self.repository.session.commit()
+
+    async def sanitize_stale_requests(self, *, dry_run: bool = False) -> ProvisioningCleanupRead:
+        existing_guests = {
+            (
+                str(guest.get("node") or ""),
+                str(guest.get("type") or "qemu"),
+                str(guest.get("vmid") or guest.get("vm_id") or ""),
+            )
+            for guest in await self.proxmox_adapter.list_vms()
+        }
+        deleted: list[str] = []
+        skipped: list[str] = []
+
+        for request in await self.repository.list():
+            reason = await self._stale_request_skip_reason(request, existing_guests)
+            if reason is not None:
+                skipped.append(f"{request.vm_name}: {reason}")
+                continue
+            deleted.append(f"{request.vm_name} ({request.target_node}/{request.provisioning_type}:{request.new_vm_id})")
+            if not dry_run:
+                await self.repository.delete(request)
+
+        if not dry_run and deleted:
+            await self.repository.session.commit()
+
+        return ProvisioningCleanupRead(
+            dry_run=dry_run,
+            deleted_count=len(deleted),
+            skipped_count=len(skipped),
+            deleted=deleted,
+            skipped=skipped,
+        )
 
     async def list_batches(self) -> list[ProvisioningBatchRead]:
         batches = await self.batch_repository.list()
@@ -777,6 +814,37 @@ class ProvisioningService:
                 "bootstrap_jobs": jobs,
             }
         )
+
+    async def _stale_request_skip_reason(
+        self,
+        request: ProvisioningRequest,
+        existing_guests: set[tuple[str, str, str]],
+    ) -> str | None:
+        if request.status != ProvisioningStatus.FAILED:
+            return "not failed"
+        if request.server_id is not None and await self.server_repository.get_by_id(request.server_id) is not None:
+            return "inventory host is linked"
+        if (
+            request.target_node,
+            request.provisioning_type or "qemu",
+            str(request.new_vm_id),
+        ) in existing_guests:
+            return "Proxmox guest still exists"
+        if await self.server_repository.get_by_provider_external_id("proxmox", str(request.new_vm_id)) is not None:
+            return "inventory host still references VMID"
+        if await self.server_repository.get_by_hostname(request.vm_name) is not None:
+            return "inventory host still uses hostname"
+        request_ip = self._static_ip_address(request.static_ip_cidr)
+        if request_ip and await self.server_repository.get_by_ip_address(request_ip) is not None:
+            return "inventory host still uses IP"
+        return None
+
+    @staticmethod
+    def _static_ip_address(static_ip_cidr: str) -> str | None:
+        try:
+            return str(ip_interface(static_ip_cidr).ip)
+        except ValueError:
+            return static_ip_cidr.split("/", 1)[0].strip() or None
 
     @staticmethod
     def _render_batch_pattern(pattern: str, number: int) -> str:
