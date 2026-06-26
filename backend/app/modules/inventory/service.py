@@ -557,12 +557,12 @@ class InventoryService:
             .where(ProvisioningRequest.server_id == server_id)
             .values(server_id=None)
         )
-        if await self._table_exists(VirtualMachine.__tablename__):
-            await self.repository.session.execute(
-                update(VirtualMachine)
-                .where(VirtualMachine.server_id == server_id)
-                .values(server_id=None)
-            )
+        await self._execute_if_table_exists(
+            VirtualMachine.__tablename__,
+            update(VirtualMachine)
+            .where(VirtualMachine.server_id == server_id)
+            .values(server_id=None),
+        )
         await self.repository.session.execute(
             update(WorkflowRun)
             .where(WorkflowRun.target_server_id == server_id)
@@ -577,8 +577,14 @@ class InventoryService:
         await self.repository.session.execute(delete(DeploymentRevision).where(DeploymentRevision.server_id == server_id))
         await self.repository.session.execute(delete(DeploymentTarget).where(DeploymentTarget.server_id == server_id))
         await self.repository.session.execute(delete(IdentityExecution).where(IdentityExecution.target_server_id == server_id))
-        await self.repository.session.execute(delete(PackageInstallation).where(PackageInstallation.server_id == server_id))
-        await self.repository.session.execute(delete(CommandExecution).where(CommandExecution.server_id == server_id))
+        await self._execute_if_table_exists(
+            PackageInstallation.__tablename__,
+            delete(PackageInstallation).where(PackageInstallation.server_id == server_id),
+        )
+        await self._execute_if_table_exists(
+            CommandExecution.__tablename__,
+            delete(CommandExecution).where(CommandExecution.server_id == server_id),
+        )
         await self.repository.session.execute(delete(MonitoringValidationAttempt).where(MonitoringValidationAttempt.server_id == server_id))
         await self.repository.session.execute(delete(MonitoringSnapshot).where(MonitoringSnapshot.server_id == server_id))
         await self.repository.session.execute(delete(MetricSample).where(MetricSample.server_id == server_id))
@@ -595,6 +601,15 @@ class InventoryService:
     async def _table_exists(self, table_name: str) -> bool:
         connection = await self.repository.session.connection()
         return await connection.run_sync(lambda sync_connection: inspect(sync_connection).has_table(table_name))
+
+    async def _execute_if_table_exists(self, table_name: str, statement: Any) -> None:
+        if not await self._table_exists(table_name):
+            logger.warning(
+                "server_reference_cleanup_skipped_missing_table",
+                table_name=table_name,
+            )
+            return
+        await self.repository.session.execute(statement)
 
     async def _archive_existing_server(self, server: Server) -> None:
         server.managed = False
