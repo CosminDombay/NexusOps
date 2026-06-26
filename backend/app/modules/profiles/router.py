@@ -30,6 +30,7 @@ from backend.app.modules.identity.service import (
 )
 from backend.app.modules.jobs.repository import CustomOperationalActionRepository, JobRepository
 from backend.app.modules.jobs.service import JobService, JobTargetNotFoundError, JobTargetNotManagedError
+from backend.app.modules.orchestration.security import CommandValidationError
 from backend.app.modules.packages.repository import PackageDefinitionRepository
 from backend.app.modules.profiles.repository import InfrastructureProfileRepository
 from backend.app.modules.profiles.schemas import (
@@ -120,7 +121,10 @@ async def apply_profile_bulk(
     payload: ProfileBulkApplyRequest,
     service: Annotated[ProfileService, Depends(get_profile_service)],
 ) -> ProfileBulkApplyRead:
-    return await service.apply_profile_bulk(payload)
+    try:
+        return await service.apply_profile_bulk(payload)
+    except CommandValidationError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
 
 
 @router.post("", response_model=InfrastructureProfileRead, status_code=status.HTTP_201_CREATED)
@@ -211,6 +215,8 @@ async def apply_profile(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     except (ProfileStepResolutionError, DeploymentValidationError) as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    except CommandValidationError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
     except DeploymentNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except VariableResolutionError as exc:

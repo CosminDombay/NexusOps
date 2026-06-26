@@ -36,9 +36,18 @@ PACKAGE_REGISTRY: tuple[PackageDefinition, ...] = (
         name="Tailscale",
         category="Networking",
         supported_os=["ubuntu", "debian", "rocky", "fedora"],
-        install_command="curl -fsSL https://tailscale.com/install.sh | sh && sudo tailscale up --auth-key {{ tailscale_auth_key }}",
+        install_command=(
+            "if ! command -v tailscale >/dev/null 2>&1; then "
+            "curl -fsSL https://tailscale.com/install.sh | sh; "
+            "fi && "
+            "if tailscale status --json >/dev/null 2>&1; then "
+            "tailscale version; "
+            "else "
+            "sudo tailscale up --auth-key {{ tailscale_auth_key }}; "
+            "fi"
+        ),
         uninstall_command="sudo tailscale down || true",
-        validation_command="tailscale version",
+        validation_command="tailscale version && tailscale status --json >/dev/null",
         variables=[{"name": "tailscale_auth_key", "description": "Tailscale reusable auth key", "default_value": None, "required": True, "sensitive": True}],
         tags=["vpn", "mesh", "networking"],
         description="Tailscale mesh networking client.",

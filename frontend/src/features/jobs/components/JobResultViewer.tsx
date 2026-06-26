@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Copy, Expand, WrapText } from 'lucide-react';
 
+import { JobFailureDetails } from '../../../components/operations/JobFailureDetails';
 import { OperationalTimeline } from '../../../components/operations/OperationalTimeline';
 import { formatDurationSeconds } from '../../../components/operations/runtimeFormat';
 import type { Job } from '../types/job';
@@ -45,13 +46,20 @@ export function JobResultViewer({ job }: { job: Job | null }) {
       </div>
 
       <div className="grid gap-5 p-5 xl:grid-cols-[minmax(0,1fr)_22rem]">
-        <OutputInspector
-          activeTab={activeTab}
-          job={job}
-          wrapOutput={wrapOutput}
-          onTabChange={setActiveTab}
-          onToggleWrap={() => setWrapOutput((current) => !current)}
-        />
+        <div className="space-y-4">
+          <JobFailureDetails
+            jobs={[job]}
+            emptyMessage="No failure diagnostics for this job."
+            title="Execution diagnostics"
+          />
+          <OutputInspector
+            activeTab={activeTab}
+            job={job}
+            wrapOutput={wrapOutput}
+            onTabChange={setActiveTab}
+            onToggleWrap={() => setWrapOutput((current) => !current)}
+          />
+        </div>
         <div>
           <h4 className="mb-3 text-sm font-semibold text-zinc-950">Runtime timeline</h4>
           <OperationalTimeline activities={job.activity_timeline} />

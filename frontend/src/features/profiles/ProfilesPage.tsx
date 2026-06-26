@@ -103,7 +103,8 @@ export function ProfilesPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isApplying, setIsApplying] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [operationError, setOperationError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [editingProfileId, setEditingProfileId] = useState<string | null>(null);
   const [isBuilderOpen, setIsBuilderOpen] = useState(false);
@@ -132,7 +133,7 @@ export function ProfilesPage() {
 
   const load = useCallback(async () => {
     setIsLoading(true);
-    setError(null);
+    setLoadError(null);
 
     try {
       const [
@@ -168,7 +169,7 @@ export function ProfilesPage() {
       setSelectedProfileId((current) => current || nextProfiles[0]?.id || '');
       setSelectedServerId((current) => current || nextServers[0]?.id || '');
     } catch (caughtError) {
-      setError(getApiErrorMessage(caughtError));
+      setLoadError(getApiErrorMessage(caughtError));
     } finally {
       setIsLoading(false);
     }
@@ -176,7 +177,7 @@ export function ProfilesPage() {
 
   function updateField(name: keyof ProfileFormState, value: string) {
     setFormState((current) => ({ ...current, [name]: value }));
-    setError(null);
+    setOperationError(null);
     setSuccess(null);
   }
 
@@ -192,7 +193,7 @@ export function ProfilesPage() {
       steps: normalizeProfileSteps(profile.steps),
       variables: profile.variables,
     });
-    setError(null);
+    setOperationError(null);
     setSuccess(null);
   }
 
@@ -204,18 +205,18 @@ export function ProfilesPage() {
 
   async function handleCreateProfile() {
     if (!formState.id.trim() || !formState.name.trim()) {
-      setError('Profile id and name are required.');
+      setOperationError('Profile id and name are required.');
       return;
     }
 
     const steps = normalizeProfileSteps(formState.steps);
     if (steps.length === 0) {
-      setError('Add at least one profile step.');
+      setOperationError('Add at least one profile step.');
       return;
     }
 
     setIsCreating(true);
-    setError(null);
+    setOperationError(null);
     setSuccess(null);
 
     try {
@@ -248,7 +249,7 @@ export function ProfilesPage() {
       }
       resetEditor();
     } catch (caughtError) {
-      setError(
+      setOperationError(
         caughtError instanceof SyntaxError
           ? 'Variables must be valid JSON.'
           : getApiErrorMessage(caughtError),
@@ -272,7 +273,7 @@ export function ProfilesPage() {
       setSelectedProfileId(cloned.id);
       setSuccess(`Cloned profile ${cloned.name}.`);
     } catch (caughtError) {
-      setError(getApiErrorMessage(caughtError));
+      setOperationError(getApiErrorMessage(caughtError));
     }
   }
 
@@ -289,7 +290,7 @@ export function ProfilesPage() {
       setSelectedProfileId(restored.id);
       setSuccess(`Restored profile ${restored.name} to default.`);
     } catch (caughtError) {
-      setError(getApiErrorMessage(caughtError));
+      setOperationError(getApiErrorMessage(caughtError));
     }
   }
 
@@ -305,7 +306,7 @@ export function ProfilesPage() {
       setSelectedProfileId((current) => (current === profileId ? '' : current));
       setSuccess(`Deleted profile ${profileId}.`);
     } catch (caughtError) {
-      setError(getApiErrorMessage(caughtError));
+      setOperationError(getApiErrorMessage(caughtError));
     }
   }
 
@@ -323,7 +324,7 @@ export function ProfilesPage() {
       return;
     }
     setIsApplying(true);
-    setError(null);
+    setOperationError(null);
     setResult(null);
     setBulkResult(null);
 
@@ -352,7 +353,7 @@ export function ProfilesPage() {
       }
       setIsExecutionModalOpen(false);
     } catch (caughtError) {
-      setError(getApiErrorMessage(caughtError));
+      setOperationError(getApiErrorMessage(caughtError));
     } finally {
       setIsApplying(false);
     }
@@ -374,9 +375,14 @@ export function ProfilesPage() {
         }
       />
 
-      {error ? (
+      {loadError ? (
         <p className="rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">
-          {error}
+          {loadError}
+        </p>
+      ) : null}
+      {operationError ? (
+        <p className="rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">
+          {operationError}
         </p>
       ) : null}
       {success ? (
@@ -386,7 +392,7 @@ export function ProfilesPage() {
       ) : null}
       {isLoading ? <LoadingGrid /> : null}
 
-      {!isLoading && !error ? (
+      {!isLoading && !loadError ? (
         <>
           <section className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm">
             <div className="grid gap-4 lg:grid-cols-[minmax(220px,0.8fr)_minmax(260px,1fr)_auto] lg:items-end">
@@ -905,7 +911,7 @@ function ReferenceList({ label, values }: { label: string; values: string[] }) {
   );
 }
 
-type StepOption = { id: string; name: string };
+type StepOption = { id: string; name: string; destructive?: boolean };
 
 function stepOptions(
   stepType: string,
@@ -925,7 +931,12 @@ function stepOptions(
     packages: PackageDefinition[];
   },
 ): StepOption[] {
-  if (stepType === 'action') return actions.map((action) => ({ id: action.id, name: action.name }));
+  if (stepType === 'action')
+    return actions.map((action) => ({
+      id: action.id,
+      name: action.name,
+      destructive: action.destructive,
+    }));
   if (stepType === 'deployment') return deployments.map((deployment) => ({ id: deployment.id, name: deployment.name }));
   if (stepType === 'identity_user') return identityUsers.map((user) => ({ id: user.id, name: user.username }));
   if (stepType === 'identity_group') return identityGroups.map((group) => ({ id: group.id, name: group.name }));
@@ -980,6 +991,9 @@ function ProfileStepCard({
           ? ShieldCheck
           : UsersRound
         : Terminal;
+  const selectedAction = stepType === 'action'
+    ? actions.find((action) => action.id === step.reference_id)
+    : null;
 
   function handleTypeChange(value: string) {
     const nextKind = value === 'script' ? 'command' : (value as ProfileStep['kind']);
@@ -1077,10 +1091,15 @@ function ProfileStepCard({
               >
                 {options.map((option) => (
                   <option key={option.id} value={option.id}>
-                    {option.name}
+                    {option.name}{option.destructive ? ' - changes host' : ''}
                   </option>
                 ))}
               </select>
+              {selectedAction ? (
+                <span className={`mt-1 inline-flex w-fit rounded px-2 py-0.5 text-[11px] font-semibold ${selectedAction.destructive ? 'bg-amber-50 text-amber-700 ring-1 ring-amber-200' : 'bg-zinc-100 text-zinc-600 ring-1 ring-zinc-200'}`}>
+                  {selectedAction.destructive ? 'Changes host' : 'Read-only action'}
+                </span>
+              ) : null}
             </label>
           )}
 

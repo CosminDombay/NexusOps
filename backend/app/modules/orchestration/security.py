@@ -160,11 +160,20 @@ class CommandPolicyEngine:
     """Small policy layer for shell execution governance."""
 
     HARD_DENIED_PATTERNS = (
-        re.compile(r"\brm\s+-rf\s+/(?:\s|$)"),
-        re.compile(r"\bdd\s+.*\bof=/dev/"),
+        (
+            re.compile(r"\brm\s+-rf\s+/(?:\s|$)"),
+            "Refusing to recursively remove the filesystem root.",
+        ),
+        (
+            re.compile(r"\bdd\s+.*\bof=/dev/"),
+            "Refusing raw block-device writes with dd.",
+        ),
     )
     INTENTIONAL_DESTRUCTIVE_PATTERNS = (
-        re.compile(r"\bmkfs(?:\.[a-z0-9]+)?\b"),
+        (
+            re.compile(r"\bmkfs(?:\.[a-z0-9]+)?\b"),
+            "mkfs is allowed only from a saved operational action marked as changing the host.",
+        ),
     )
     APPROVAL_PATTERNS = (
         re.compile(r"\bshutdown\b"),
@@ -176,14 +185,14 @@ class CommandPolicyEngine:
 
     def evaluate(self, command: str, *, allow_destructive: bool = False) -> CommandPolicyResult:
         lowered = command.lower()
-        for pattern in self.HARD_DENIED_PATTERNS:
+        for pattern, reason in self.HARD_DENIED_PATTERNS:
             if pattern.search(lowered):
-                return CommandPolicyResult("denied", pattern.pattern)
-        for pattern in self.INTENTIONAL_DESTRUCTIVE_PATTERNS:
+                return CommandPolicyResult("denied", reason)
+        for pattern, reason in self.INTENTIONAL_DESTRUCTIVE_PATTERNS:
             if pattern.search(lowered):
                 if allow_destructive:
                     return CommandPolicyResult("approval_required", pattern.pattern)
-                return CommandPolicyResult("denied", pattern.pattern)
+                return CommandPolicyResult("denied", reason)
         for pattern in self.APPROVAL_PATTERNS:
             if pattern.search(lowered):
                 return CommandPolicyResult("approval_required", pattern.pattern)

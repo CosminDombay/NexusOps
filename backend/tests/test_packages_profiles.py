@@ -134,6 +134,19 @@ async def test_package_service_lists_definitions() -> None:
     assert any(package.id == "fail2ban" for package in packages)
 
 
+@pytest.mark.asyncio
+async def test_builtin_tailscale_package_is_terminal_command_style() -> None:
+    packages = await PackageAutomationService().list_definitions()
+    tailscale = next(package for package in packages if package.id == "tailscale")
+
+    assert "<<" not in tailscale.install_command
+    assert "NEXUSOPS_TAILSCALE" not in tailscale.install_command
+    assert "command -v tailscale" in tailscale.install_command
+    assert "tailscale status --json" in tailscale.install_command
+    assert "sudo tailscale up --auth-key {{ tailscale_auth_key }}" in tailscale.install_command
+    assert "tailscale status --json >/dev/null" in tailscale.validation_command
+
+
 def test_package_variable_rejects_unknown_credential_type() -> None:
     with pytest.raises(ValidationError):
         PackageDefinitionCreate(
@@ -737,6 +750,70 @@ async def test_profile_apply_runs_deployment_step(client) -> None:
 
 
 @pytest.mark.asyncio
+async def test_profile_apply_deployment_step_inherits_profile_target(client) -> None:
+    session = next(iter(client.app.dependency_overrides.values()))
+    async for db_session in session():
+        server = await InventoryService(ServerRepository(db_session)).create_server(
+            ServerCreate(**server_payload(hostname="deploy-profile-inherit-01", ip_address="10.2.0.32"))
+        )
+        adapter = FakeSshAdapter()
+        server_repository = ServerRepository(db_session)
+        job_service = JobService(
+            job_repository=JobRepository(db_session),
+            server_repository=server_repository,
+            ssh_adapter=adapter,
+        )
+        deployment_service = DockerComposeDeploymentService(
+            repository=DeploymentRepository(db_session),
+            target_repository=DeploymentTargetRepository(db_session),
+            revision_repository=DeploymentRevisionRepository(db_session),
+            server_repository=server_repository,
+            job_service=job_service,
+        )
+        deployment = await deployment_service.create_deployment(
+            DeploymentCreate(
+                name="profile-planned-web",
+                target_server_ids=[],
+                compose_content="services:\n  web:\n    image: nginx:alpine\n",
+                remote_path="/mnt/data/compose",
+            )
+        )
+        profile_service = ProfileService(
+            job_service=job_service,
+            repository=InfrastructureProfileRepository(db_session),
+            deployment_service=deployment_service,
+        )
+        profile = await profile_service.create_profile(
+            InfrastructureProfileCreate(
+                id="deploy-profile-inherits-target",
+                name="Deploy Profile Inherits Target",
+                category="Custom",
+                description="Runs a planned deployment against the profile target.",
+                tags=[],
+                steps=[
+                    {
+                        "kind": "deployment",
+                        "reference_id": str(deployment.id),
+                        "name": "Deploy planned web",
+                    }
+                ],
+            )
+        )
+
+        result = await profile_service.apply_profile(
+            profile.id,
+            ProfileApplyRequest(target_server_id=server.id),
+        )
+
+        targets = await deployment_service.target_repository.list_for_deployment(deployment.id)
+        assert result.status == "success"
+        assert len(result.jobs) == 1
+        assert result.jobs[0].target_server_id == server.id
+        assert [target.server_id for target in targets] == [server.id]
+        assert targets[0].remote_path == "/mnt/data/compose"
+
+
+@pytest.mark.asyncio
 async def test_profile_apply_runs_identity_steps_from_managed_records(client) -> None:
     session = next(iter(client.app.dependency_overrides.values()))
     async for db_session in session():
@@ -1308,6 +1385,46 @@ def test_profiles_router_lists_profiles(client) -> None:
 
     assert response.status_code == 200
     assert any(profile["id"] == "monitoring-node" for profile in response.json())
+
+
+def test_profiles_router_returns_policy_error_for_denied_profile_command(client) -> None:
+    server_response = client.post(
+        "/api/v1/servers",
+        json=server_payload(hostname="profile-policy-denied-01", ip_address="10.2.0.40"),
+    )
+    assert server_response.status_code == 201
+    server_id = server_response.json()["id"]
+
+    create_response = client.post(
+        "/api/v1/profiles",
+        json={
+            "id": "policy-denied-profile",
+            "name": "Policy Denied Profile",
+            "category": "Test",
+            "description": "Exercises profile command policy errors.",
+            "tags": ["test"],
+            "steps": [
+                {
+                    "id": "unsafe-command",
+                    "name": "Unsafe command",
+                    "kind": "command",
+                    "type": "script",
+                    "reference_id": "unsafe-command",
+                    "command": "rm -rf /",
+                }
+            ],
+            "variables": [],
+        },
+    )
+    assert create_response.status_code == 201
+
+    apply_response = client.post(
+        "/api/v1/profiles/policy-denied-profile/apply",
+        json={"target_server_id": server_id, "stop_on_failure": True},
+    )
+
+    assert apply_response.status_code == 403
+    assert apply_response.json()["detail"].startswith("Command denied by policy")
 
 
 def test_packages_router_lists_packages(client) -> None:
