@@ -7,7 +7,8 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy import delete, inspect, select, update
 
 from backend.app.modules.automations.models import Automation
-from backend.app.modules.deployments.models import DeploymentRevision, DeploymentTarget, DeploymentTargetExecution
+from backend.app.modules.auth.models import RemoteAccessToken
+from backend.app.modules.deployments.models import Deployment, DeploymentRevision, DeploymentStatus, DeploymentTarget, DeploymentTargetExecution
 from backend.app.modules.execution.models import CommandExecution
 from backend.app.modules.identity.models import IdentityExecution
 from backend.app.modules.inventory.models import (
@@ -543,6 +544,14 @@ class InventoryService:
             .where(IdentityExecution.job_id.in_(job_ids))
             .values(job_id=None)
         )
+        affected_deployment_ids = [
+            deployment_id
+            for deployment_id in (
+                await self.repository.session.execute(
+                    select(DeploymentTarget.deployment_id).where(DeploymentTarget.server_id == server_id)
+                )
+            ).scalars().all()
+        ]
         await self.repository.session.execute(
             update(ProvisioningRequest)
             .where(ProvisioningRequest.server_id == server_id)
@@ -574,7 +583,14 @@ class InventoryService:
         await self.repository.session.execute(delete(MonitoringSnapshot).where(MonitoringSnapshot.server_id == server_id))
         await self.repository.session.execute(delete(MetricSample).where(MetricSample.server_id == server_id))
         await self.repository.session.execute(delete(NodeRuntimeSnapshot).where(NodeRuntimeSnapshot.node_id == server_id))
+        await self.repository.session.execute(delete(RemoteAccessToken).where(RemoteAccessToken.server_id == server_id))
         await self.repository.session.execute(delete(Job).where(Job.target_server_id == server_id))
+        if affected_deployment_ids:
+            await self.repository.session.execute(
+                update(Deployment)
+                .where(Deployment.id.in_(affected_deployment_ids))
+                .values(status=DeploymentStatus.DRAFT)
+            )
 
     async def _table_exists(self, table_name: str) -> bool:
         connection = await self.repository.session.connection()

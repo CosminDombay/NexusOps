@@ -1016,6 +1016,46 @@ async def test_deployment_service_updates_record_and_marks_draft(client) -> None
 
 
 @pytest.mark.asyncio
+async def test_deployment_service_can_mark_executed_deployment_planned(client) -> None:
+    session = next(iter(client.app.dependency_overrides.values()))
+    async for db_session in session():
+        server = await InventoryService(ServerRepository(db_session)).create_server(
+            ServerCreate(**server_payload(hostname="planned-reset-01", ip_address="10.2.0.24"))
+        )
+        server_repository = ServerRepository(db_session)
+        service = DockerComposeDeploymentService(
+            repository=DeploymentRepository(db_session),
+            target_repository=DeploymentTargetRepository(db_session),
+            revision_repository=DeploymentRevisionRepository(db_session),
+            server_repository=server_repository,
+            job_service=JobService(
+                job_repository=JobRepository(db_session),
+                server_repository=server_repository,
+                ssh_adapter=FakeSshAdapter(),
+            ),
+        )
+        deployment = await service.create_deployment(
+            DeploymentCreate(
+                name="reset-to-planned",
+                target_server_id=server.id,
+                compose_content="services:\n  web:\n    image: nginx:alpine\n",
+            )
+        )
+        deployed = await service.deploy(deployment.id)
+        assert deployed.deployment.status == "running"
+
+        planned = await service.mark_planned(deployment.id)
+
+        assert planned.status == "draft"
+        assert planned.runtime_state == "unknown"
+        assert planned.sync_status == "pending-deploy"
+        assert planned.targets[0].status == "draft"
+        assert planned.targets[0].runtime_state == "unknown"
+        assert planned.targets[0].runtime_checked_at is None
+        assert planned.targets[0].containers == []
+
+
+@pytest.mark.asyncio
 async def test_deployment_service_allows_planned_draft_without_targets(client) -> None:
     session = next(iter(client.app.dependency_overrides.values()))
     async for db_session in session():

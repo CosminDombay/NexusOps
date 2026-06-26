@@ -39,6 +39,7 @@ import {
   getDeploymentLogs,
   getDeploymentStatus,
   listDeployments,
+  markDeploymentPlanned,
   refreshDeploymentRuntime,
   runDeploymentOperation,
   updateDeployment,
@@ -331,6 +332,27 @@ export function DeploymentsPage() {
     }
   }
 
+  async function markPlanned(deployment: Deployment) {
+    const confirmed = window.confirm(
+      `Mark ${deployment.name} as planned? This only resets the NexusOps deployment state; it does not stop containers or remove files from the host.`,
+    );
+    if (!confirmed) return;
+    setSelectedDeploymentId(deployment.id);
+    setIsWorking(true);
+    setError(null);
+    try {
+      const planned = await markDeploymentPlanned(deployment.id);
+      setDeployments((current) =>
+        current.map((item) => (item.id === planned.id ? planned : item)),
+      );
+      setInspectOutput(selectedDeploymentSummary(planned));
+    } catch (caughtError) {
+      setError(getApiErrorMessage(caughtError));
+    } finally {
+      setIsWorking(false);
+    }
+  }
+
   async function loadLogs(deployment: Deployment) {
     setSelectedDeploymentId(deployment.id);
     setIsWorking(true);
@@ -457,6 +479,7 @@ export function DeploymentsPage() {
             onRun={run}
             onInspect={inspect}
             onRefreshRuntime={refreshRuntime}
+            onMarkPlanned={markPlanned}
             onLogs={loadLogs}
             onPreview={previewSavedDeployment}
             onEdit={openEditDrawer}
@@ -523,6 +546,7 @@ function DeploymentCard({
   onRun,
   onInspect,
   onRefreshRuntime,
+  onMarkPlanned,
   onLogs,
   onPreview,
   onEdit,
@@ -535,6 +559,7 @@ function DeploymentCard({
   onRun: (deployment: Deployment, operation: DeploymentOperationName) => Promise<void>;
   onInspect: (deployment: Deployment) => Promise<void>;
   onRefreshRuntime: (deployment: Deployment) => Promise<void>;
+  onMarkPlanned: (deployment: Deployment) => Promise<void>;
   onLogs: (deployment: Deployment) => Promise<void>;
   onPreview: (deployment: Deployment) => Promise<void>;
   onEdit: (deployment: Deployment) => void;
@@ -634,6 +659,12 @@ function DeploymentCard({
           label="Check runtime"
           disabled={isWorking}
           onClick={() => void onRefreshRuntime(deployment)}
+        />
+        <ActionButton
+          icon={FileText}
+          label="Mark planned"
+          disabled={isWorking || normalizeStatus(deployment.status) === 'draft'}
+          onClick={() => void onMarkPlanned(deployment)}
         />
         <ActionButton
           icon={Terminal}
@@ -1162,7 +1193,7 @@ function deploymentPathPreview(deployment: Deployment): string {
 }
 
 function statusLabel(status: DeploymentStatus | 'all'): string {
-  if (status === 'draft') return 'created';
+  if (status === 'draft') return 'planned';
   return formatLabel(status);
 }
 

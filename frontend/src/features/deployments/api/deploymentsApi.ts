@@ -47,6 +47,11 @@ export async function runDeploymentOperation(
   return response.data;
 }
 
+export async function markDeploymentPlanned(deploymentId: string): Promise<Deployment> {
+  const response = await apiClient.post<Deployment>(`/deployments/${deploymentId}/mark-planned`);
+  return response.data;
+}
+
 export async function getDeploymentLogs(deploymentId: string): Promise<DeploymentLogs> {
   const response = await apiClient.get<DeploymentLogs>(`/deployments/${deploymentId}/logs`);
   return response.data;

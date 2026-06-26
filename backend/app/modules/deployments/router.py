@@ -151,6 +151,14 @@ async def stop(
     return await _run(lambda: service.stop(deployment_id))
 
 
+@router.post("/{deployment_id}/mark-planned", response_model=DeploymentRead)
+async def mark_planned(
+    deployment_id: UUID,
+    service: Annotated[DockerComposeDeploymentService, Depends(get_deployment_service)],
+) -> DeploymentRead:
+    return await _run(lambda: service.mark_planned(deployment_id))
+
+
 @router.get("/{deployment_id}/status", response_model=DeploymentStatusRead)
 async def get_status(
     deployment_id: UUID,

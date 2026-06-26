@@ -318,6 +318,20 @@ class DockerComposeDeploymentService:
         await self.repository.session.refresh(deployment)
         return await self._to_read(deployment)
 
+    async def mark_planned(self, deployment_id: UUID) -> DeploymentRead:
+        deployment = await self.repository.get_by_id(deployment_id)
+        if deployment is None:
+            raise DeploymentNotFoundError("Deployment not found")
+
+        deployment.status = DeploymentStatus.DRAFT
+        targets = await self.target_repository.list_for_deployment(deployment.id)
+        for target in targets:
+            self._reset_target_runtime_state(target)
+
+        await self.repository.session.commit()
+        await self.repository.session.refresh(deployment)
+        return await self._to_read(deployment)
+
     async def deploy(self, deployment_id: UUID) -> DeploymentOperationRead:
         return await self._run_operation(deployment_id, "deploy")
 
@@ -834,6 +848,17 @@ class DockerComposeDeploymentService:
             for container in state.containers
         ]
         target.missing_services = list(state.missing_services)
+
+    @staticmethod
+    def _reset_target_runtime_state(target: DeploymentTarget) -> None:
+        target.status = DeploymentStatus.DRAFT
+        target.runtime_state = "unknown"
+        target.health_state = "unknown"
+        target.sync_status = "unknown"
+        target.runtime_checked_at = None
+        target.runtime_error = None
+        target.runtime_containers = []
+        target.missing_services = []
 
     async def _operation_commands(self, deployment: Deployment, target: DeploymentTarget, operation: str) -> tuple[str, str]:
         deployment_path = self._deployment_path(target, deployment)

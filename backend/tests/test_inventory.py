@@ -16,6 +16,7 @@ from backend.app.common.constants import (
     ServerStatus,
 )
 from backend.app.modules.automations.models import Automation, AutomationOperationType, AutomationScheduleType, AutomationTargetMode
+from backend.app.modules.auth.models import RemoteAccessToken, User, UserRole
 from backend.app.modules.credentials.schemas import ResolvedCredential
 from backend.app.modules.deployments.models import (
     Deployment,
@@ -191,6 +192,14 @@ async def test_inventory_delete_removes_vm_record_with_operational_references(cl
             status=JobStatus.FAILED,
             stderr="failed",
         )
+        user = User(
+            username="delete-vm-admin",
+            email="delete-vm-admin@example.com",
+            password_hash="not-used",
+            role=UserRole.ADMIN,
+            is_active=True,
+            is_superuser=True,
+        )
         deployment = Deployment(
             name="delete-vm-deployment",
             compose_content="services:\n  web:\n    image: nginx:alpine\n",
@@ -198,7 +207,7 @@ async def test_inventory_delete_removes_vm_record_with_operational_references(cl
             remote_path="/mnt/data/compose",
             status=DeploymentStatus.DRAFT,
         )
-        db_session.add_all([job, deployment])
+        db_session.add_all([job, user, deployment])
         await db_session.flush()
 
         target = DeploymentTarget(
@@ -307,6 +316,16 @@ async def test_inventory_delete_removes_vm_record_with_operational_references(cl
                     status="success",
                     metadata_json={},
                 ),
+                RemoteAccessToken(
+                    token_id="delete-vm-token",
+                    token_hash="hashed-token",
+                    user_id=user.id,
+                    server_id=server.id,
+                    operation="shell",
+                    role=UserRole.ADMIN.value,
+                    issued_at=now,
+                    expires_at=now,
+                ),
                 Automation(
                     name="delete-vm-automation",
                     enabled=True,
@@ -348,6 +367,10 @@ async def test_inventory_delete_removes_vm_record_with_operational_references(cl
         await service.delete_server(server.id)
 
         assert await ServerRepository(db_session).get_by_id(server.id) is None
+        deployments = (await db_session.execute(select(Deployment))).scalars().all()
+        assert deployments[0].status == DeploymentStatus.DRAFT
+        targets = (await db_session.execute(select(DeploymentTarget))).scalars().all()
+        assert targets == []
         automations = (await db_session.execute(select(Automation))).scalars().all()
         assert automations[0].target_server_ids == []
         trash = await TrashService(db_session).list_trash()
