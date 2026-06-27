@@ -367,7 +367,7 @@ Inventory records survive integration failures. If a Proxmox integration disconn
 
 Existing Proxmox inventory created before integration ownership is adopted during sync when it matches the discovered host or guest and has no `integration_id`. This preserves the old inventory identity while moving it under the persisted integration authority model.
 
-Inventory deletion performs reference cleanup before removing the active server record. It clears or removes Jobs-backed runtime links, provisioning request links and stale bootstrap job IDs, virtual machine links, workflow target links, deployment target rows, monitoring/runtime records, and other server-owned execution records. Archive and decommission remain the retained-history lifecycle paths.
+Inventory deletion performs reference cleanup before removing the active server record. It clears or removes Jobs-backed runtime links, provisioning request links and stale bootstrap job IDs, virtual machine links, workflow target links, automation target lists, deployment target rows, monitoring/runtime records, and other server-owned execution records. Archive and decommission remain the retained-history lifecycle paths.
 
 Inventory also now has a managed-node lifecycle foundation:
 

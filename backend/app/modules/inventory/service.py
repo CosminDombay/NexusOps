@@ -513,14 +513,13 @@ class InventoryService:
             )
 
     async def _cleanup_server_references(self, server_id: UUID) -> None:
-        automations = (
-            await self.repository.session.execute(
-                select(Automation).where(Automation.target_server_ids.contains(str(server_id)))
-            )
-        ).scalars().all()
+        server_key = str(server_id)
+        automations = (await self.repository.session.execute(select(Automation))).scalars().all()
         for automation in automations:
+            if server_key not in {str(item) for item in automation.target_server_ids}:
+                continue
             automation.target_server_ids = [
-                item for item in automation.target_server_ids if str(item) != str(server_id)
+                item for item in automation.target_server_ids if str(item) != server_key
             ]
 
         job_ids = select(Job.id).where(Job.target_server_id == server_id)

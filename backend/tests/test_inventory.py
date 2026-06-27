@@ -332,7 +332,7 @@ async def test_inventory_delete_removes_vm_record_with_operational_references(cl
                     schedule_type=AutomationScheduleType.INTERVAL,
                     interval_seconds=300,
                     target_mode=AutomationTargetMode.SINGLE_HOST,
-                    target_server_ids=[str(server.id)],
+                    target_server_ids=[str(server.id), str(uuid4())],
                     operation_type=AutomationOperationType.ACTION,
                     reference_id="uptime",
                 ),
@@ -374,7 +374,8 @@ async def test_inventory_delete_removes_vm_record_with_operational_references(cl
         assert (await db_session.execute(select(DeploymentTargetExecution))).scalars().all() == []
         assert (await db_session.execute(select(DeploymentRevision))).scalars().all() == []
         automations = (await db_session.execute(select(Automation))).scalars().all()
-        assert automations[0].target_server_ids == []
+        assert str(server.id) not in automations[0].target_server_ids
+        assert len(automations[0].target_server_ids) == 1
         provisioning_requests = (await db_session.execute(select(ProvisioningRequest))).scalars().all()
         assert provisioning_requests[0].server_id is None
         assert provisioning_requests[0].bootstrap_job_ids == []
