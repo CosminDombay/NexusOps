@@ -48,6 +48,43 @@ ACTION_REGISTRY: tuple[OperationalAction, ...] = (
         command="sudo true && echo sudo-ready",
     ),
     OperationalAction(
+        id="storage:configure-data-disk",
+        name="Configure Data Disk",
+        category="Storage",
+        description="Partition, format, mount, and prepare the standard NexusOps data disk layout.",
+        command=(
+            "set -euo pipefail\n\n"
+            'DATA_DEVICE="/dev/sdb"\n'
+            'DATA_PARTITION="${DATA_DEVICE}1"\n'
+            'DATA_MOUNT="/mnt/data"\n'
+            'DATA_LABEL="NEXUSOPS_DATA"\n\n'
+            'if [ ! -b "$DATA_DEVICE" ]; then\n'
+            '  echo "Data device not found: $DATA_DEVICE" >&2\n'
+            "  lsblk\n"
+            "  exit 1\n"
+            "fi\n\n"
+            'if [ ! -b "$DATA_PARTITION" ]; then\n'
+            '  sudo parted -s "$DATA_DEVICE" mklabel gpt\n'
+            '  sudo parted -s "$DATA_DEVICE" mkpart primary ext4 0% 100%\n'
+            '  sudo partprobe "$DATA_DEVICE" || true\n'
+            "  sleep 2\n"
+            "fi\n\n"
+            'if ! blkid "$DATA_PARTITION" >/dev/null 2>&1; then\n'
+            '  sudo mkfs.ext4 -F -L "$DATA_LABEL" "$DATA_PARTITION"\n'
+            "fi\n\n"
+            'sudo mkdir -p "$DATA_MOUNT" "$DATA_MOUNT/docker" "$DATA_MOUNT/appdata" '
+            '"$DATA_MOUNT/compose" "$DATA_MOUNT/share"\n'
+            'UUID_VALUE="$(blkid -s UUID -o value "$DATA_PARTITION")"\n'
+            'FSTAB_LINE="UUID=$UUID_VALUE $DATA_MOUNT ext4 defaults,nofail 0 2"\n'
+            'if ! grep -q "$UUID_VALUE" /etc/fstab; then\n'
+            '  echo "$FSTAB_LINE" | sudo tee -a /etc/fstab >/dev/null\n'
+            "fi\n"
+            "sudo mount -a\n"
+            'df -h "$DATA_MOUNT"'
+        ),
+        destructive=True,
+    ),
+    OperationalAction(
         id="docker-status",
         name="Check Docker Service",
         category="Service Operations",

@@ -642,6 +642,54 @@ async def test_profile_service_allows_mkfs_for_destructive_action_step(client) -
 
 
 @pytest.mark.asyncio
+async def test_profile_service_resolves_builtin_storage_data_disk_action(client) -> None:
+    session = next(iter(client.app.dependency_overrides.values()))
+    async for db_session in session():
+        server = await InventoryService(ServerRepository(db_session)).create_server(
+            ServerCreate(**server_payload(hostname="profile-storage-action-01", ip_address="10.2.0.25"))
+        )
+        adapter = FakeSshAdapter()
+        job_service = JobService(
+            job_repository=JobRepository(db_session),
+            server_repository=ServerRepository(db_session),
+            ssh_adapter=adapter,
+            action_repository=CustomOperationalActionRepository(db_session),
+        )
+        profile_service = ProfileService(
+            repository=InfrastructureProfileRepository(db_session),
+            job_service=job_service,
+        )
+        profile = await profile_service.create_profile(
+            InfrastructureProfileCreate(
+                id="profile-builtin-storage-action",
+                name="Profile Built-in Storage Action",
+                category="Storage",
+                description="Applies built-in storage action.",
+                tags=["storage"],
+                steps=[
+                    {
+                        "id": "data-disk-configuration",
+                        "name": "Data disk configuration",
+                        "kind": "action",
+                        "reference_id": "storage:configure-data-disk",
+                    }
+                ],
+            )
+        )
+
+        result = await profile_service.apply_profile(
+            profile.id,
+            ProfileApplyRequest(target_server_id=server.id),
+        )
+
+        assert result.status == "success"
+        assert len(result.jobs) == 1
+        assert result.jobs[0].operation_type == f"profile:{profile.id}:data-disk-configuration"
+        assert "sudo mkfs.ext4 -F -L" in adapter.calls[0]["command"]
+        assert 'DATA_MOUNT="/mnt/data"' in adapter.calls[0]["command"]
+
+
+@pytest.mark.asyncio
 async def test_profile_apply_records_workflow_trace_when_available(client) -> None:
     session = next(iter(client.app.dependency_overrides.values()))
     async for db_session in session():

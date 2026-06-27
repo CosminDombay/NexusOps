@@ -309,6 +309,12 @@ async def test_job_service_lists_predefined_actions(client) -> None:
             and not action.destructive
             for action in actions
         )
+        assert any(
+            action.id == "storage:configure-data-disk"
+            and action.category == "Storage"
+            and action.destructive
+            for action in actions
+        )
 
 
 @pytest.mark.asyncio
@@ -361,6 +367,35 @@ async def test_job_service_executes_sudo_readiness_validation_action(client) -> 
         assert job.command == "sudo true && echo sudo-ready"
         assert job.status == JobStatus.SUCCESS
         assert adapter.calls[0]["command"] == "sudo true && echo sudo-ready"
+
+
+@pytest.mark.asyncio
+async def test_job_service_executes_storage_data_disk_action(client) -> None:
+    session = next(iter(client.app.dependency_overrides.values()))
+    async for db_session in session():
+        server = await InventoryService(ServerRepository(db_session)).create_server(
+            ServerCreate(
+                **server_payload(hostname="storage-action-target-01", ip_address="10.1.0.34")
+            )
+        )
+        adapter = FakeSshAdapter()
+        service = JobService(
+            job_repository=JobRepository(db_session),
+            server_repository=ServerRepository(db_session),
+            ssh_adapter=adapter,
+        )
+
+        job = await service.execute_action(
+            JobActionExecuteRequest(
+                target_server_id=server.id,
+                action_id="storage:configure-data-disk",
+            )
+        )
+
+        assert job.operation_type == "action:storage:configure-data-disk"
+        assert "sudo mkfs.ext4 -F -L" in job.command
+        assert job.status == JobStatus.SUCCESS
+        assert "sudo mkfs.ext4 -F -L" in adapter.calls[0]["command"]
 
 
 @pytest.mark.asyncio

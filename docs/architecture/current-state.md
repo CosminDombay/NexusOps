@@ -295,7 +295,7 @@ Jobs established the first orchestration backbone:
 Inventory -> Jobs -> SSH adapter -> managed Linux host
 ```
 
-Inventory remains the source of managed execution targets. Jobs persist every command execution and operational action result. Operational actions provide reusable workflows such as uptime checks, disk and memory diagnostics, Docker status/restart, and simple installation commands while reusing the Jobs execution path.
+Inventory remains the source of managed execution targets. Jobs persist every command execution and operational action result. Operational actions provide reusable workflows such as uptime checks, disk and memory diagnostics, Docker status/restart, simple installation commands, and approved storage setup while reusing the Jobs execution path.
 
 ### Package Definitions and Profiles
 
