@@ -274,6 +274,11 @@ class ProxmoxService:
         updated = 0
         skipped: list[str] = []
         now = datetime.now(UTC)
+        seen_guest_keys = {
+            (str(guest.vm_id), guest.name)
+            for guest in guests
+            if not guest.template
+        }
 
         for guest in guests:
             if guest.template:
@@ -368,6 +373,9 @@ class ProxmoxService:
                     existing.sync_state = InventorySyncStatus.SYNCED
                 updated += 1
 
+        stale_count = await self._mark_missing_guests_stale(seen_guest_keys, now=now)
+        updated += stale_count
+
         await self.server_repository.session.commit()
         enriched = await self._add_inventory_context(guests)
         return ProxmoxGuestSyncRead(
@@ -378,6 +386,55 @@ class ProxmoxService:
             guests=enriched,
             skipped=skipped,
         )
+
+    async def _mark_missing_guests_stale(
+        self,
+        seen_guest_keys: set[tuple[str, str]],
+        *,
+        now: datetime,
+    ) -> int:
+        if self.server_repository is None:
+            return 0
+
+        seen_ids = {vm_id for vm_id, _ in seen_guest_keys}
+        seen_names = {name for _, name in seen_guest_keys}
+        stale_count = 0
+        for server in await self.server_repository.list_by_provider_integration("proxmox", self.integration_uuid):
+            if server.node_type not in {ManagedNodeType.VM, ManagedNodeType.LXC}:
+                continue
+            if server.lifecycle_state in {
+                InventoryLifecycleState.ARCHIVED,
+                InventoryLifecycleState.DECOMMISSIONED,
+                InventoryLifecycleState.DELETED,
+            }:
+                continue
+            provider_id = str(server.external_id or server.vmid or "")
+            if provider_id in seen_ids or server.hostname in seen_names:
+                continue
+            if server.sync_state == InventorySyncStatus.STALE and server.stale_since is not None:
+                continue
+
+            server.sync_status = InventorySyncStatus.STALE
+            server.sync_state = InventorySyncStatus.STALE
+            server.stale_since = server.stale_since or now
+            server.last_sync_at = now
+            server.sync_metadata = {
+                **server.sync_metadata,
+                "source_type": "proxmox",
+                "last_sync_reason": "guest_missing_from_provider",
+                "provider_node": server.provider_node,
+                "provider_type": server.provider_type,
+            }
+            if self.runtime_snapshots is not None:
+                await self.runtime_snapshots.refresh_provider_snapshot(
+                    server,
+                    provider_state="missing",
+                    provider_reachable=True,
+                    provider_guest_exists=False,
+                    commit=False,
+                )
+            stale_count += 1
+        return stale_count
 
     async def start_vm(self, vm_id: int) -> ProxmoxVmActionRead:
         return await self._run_vm_action(vm_id=vm_id, action="start")

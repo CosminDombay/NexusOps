@@ -361,7 +361,7 @@ Inventory now reconciles provider discovery with orchestration ownership:
 Proxmox discovery -> synchronization status -> optional import -> Inventory authority -> Jobs / Profiles / Packages
 ```
 
-Discovered VMs are shown as unmanaged until an operator imports them. Import creates an Inventory record with Proxmox provider linkage, `integration_id`, source type, SSH metadata, lifecycle state, sync metadata, and synchronization status. Reconciliation is scoped per integration and updates linked inventory records as synced, mismatched, stale, disconnected, or archived without destroying provider-side infrastructure.
+Discovered VMs are shown as unmanaged until an operator imports them. Import creates an Inventory record with Proxmox provider linkage, `integration_id`, source type, SSH metadata, lifecycle state, sync metadata, and synchronization status. Reconciliation is scoped per integration and updates linked inventory records as synced, mismatched, stale, disconnected, or archived without destroying provider-side infrastructure. Guest sync also marks linked VM/LXC inventory records stale when the provider guest no longer appears in Proxmox, which leaves operator history visible while making the stale state explicit before cleanup.
 
 Inventory records survive integration failures. If a Proxmox integration disconnects or a sync fails, NexusOps marks owned resources stale or disconnected, records timestamps/errors, and keeps the records visible for future resync or operator recovery.
 
@@ -501,7 +501,7 @@ The 2026-06-04 stabilization update tightened execution credentials, deployment 
 - Deployment dry-run previews show Compose validation, service names, target hosts, remote paths, env keys, credential-backed env keys, and redacted generated commands.
 - Deployment runtime reads include stale state, runtime age, concise failure reason, per-target container state, missing services, health, and sync drift.
 - Host Detail / Node Management includes credential readiness signals for managed state, SSH metadata, credential references, sudo fallback, and Docker operation readiness.
-- Proxmox discovered-record self-sanitize supports dry-run preview before deletion.
+- Proxmox guest sync marks missing linked guests stale, and discovered-record self-sanitize supports dry-run preview before deletion.
 - Manual testing is still required before these are moved from `Needs testing` to fixed/tested in the local backlog.
 
 ### Stabilization Update on 2026-06-18

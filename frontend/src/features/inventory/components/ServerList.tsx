@@ -225,7 +225,7 @@ export function ServerList({
         </div>
       ) : null}
 
-      <div className="hidden overflow-x-auto lg:block">
+      <div className="hidden overflow-x-auto 2xl:block">
         <table className="min-w-full divide-y divide-zinc-200">
           <thead className="bg-zinc-50">
             <tr>
@@ -328,7 +328,7 @@ export function ServerList({
         </table>
       </div>
 
-      <div className="grid gap-3 p-4 lg:hidden">
+      <div className="grid gap-3 p-4 2xl:hidden">
         {servers.map((server) => (
           <article key={server.id} className="rounded-lg border border-zinc-200 p-4">
             <div className="flex items-start justify-between gap-3">
@@ -377,7 +377,7 @@ export function ServerList({
             </div>
             <p className="mt-3 text-sm text-zinc-500">{server.operating_system}</p>
             <p className="mt-1 text-xs text-zinc-500">Last checked: {formatTimestamp(server.last_health_check_at)}</p>
-            <div className="mt-4">
+            <div className="mt-4 border-t border-zinc-100 pt-4">
               <ServerActions
                 server={server}
                 onOpenEdit={() => {

@@ -371,6 +371,55 @@ async def test_proxmox_guest_sync_is_scoped_per_integration(client) -> None:
 
 
 @pytest.mark.asyncio
+async def test_proxmox_guest_sync_marks_missing_managed_guest_stale(client) -> None:
+    session = next(iter(client.app.dependency_overrides.values()))
+    async for db_session in session():
+        integration_id = UUID("11111111-1111-1111-1111-111111111111")
+        repository = ServerRepository(db_session)
+        server = await repository.create(
+            Server(
+                hostname="deleted-vm",
+                ip_address="10.0.0.210",
+                operating_system="Linux guest",
+                vmid="210",
+                node_type=ManagedNodeType.VM,
+                environment=ServerEnvironment.LAB,
+                tags=["source:proxmox"],
+                ssh_port=22,
+                ssh_username="ubuntu",
+                ssh_auth_method=ServerSshAuthMethod.KEY,
+                status=ServerStatus.ONLINE,
+                provider="proxmox",
+                external_id="210",
+                source="imported",
+                integration_id=integration_id,
+                source_type="proxmox",
+                managed=True,
+                management_state=ManagementState.MANAGED,
+                lifecycle_state=InventoryLifecycleState.MANAGED,
+                sync_status=InventorySyncStatus.SYNCED,
+                sync_state=InventorySyncStatus.SYNCED,
+                provider_node="pve-01",
+                provider_type="qemu",
+            )
+        )
+
+        result = await ProxmoxService(
+            FakeProxmoxAdapter(),
+            server_repository=repository,
+            integration_id=integration_id,
+        ).sync_guests()
+        stale = await repository.get_by_id(server.id)
+
+        assert result.updated_count == 1
+        assert stale is not None
+        assert stale.sync_state == InventorySyncStatus.STALE
+        assert stale.sync_status == InventorySyncStatus.STALE
+        assert stale.stale_since is not None
+        assert stale.sync_metadata["last_sync_reason"] == "guest_missing_from_provider"
+
+
+@pytest.mark.asyncio
 async def test_proxmox_host_sync_reconnects_decommissioned_hypervisor(client) -> None:
     session = next(iter(client.app.dependency_overrides.values()))
     async for db_session in session():
