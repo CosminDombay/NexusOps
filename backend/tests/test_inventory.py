@@ -371,8 +371,27 @@ async def test_inventory_delete_removes_vm_record_with_operational_references(cl
         assert deployments[0].status == DeploymentStatus.DRAFT
         targets = (await db_session.execute(select(DeploymentTarget))).scalars().all()
         assert targets == []
+        assert (await db_session.execute(select(DeploymentTargetExecution))).scalars().all() == []
+        assert (await db_session.execute(select(DeploymentRevision))).scalars().all() == []
         automations = (await db_session.execute(select(Automation))).scalars().all()
         assert automations[0].target_server_ids == []
+        provisioning_requests = (await db_session.execute(select(ProvisioningRequest))).scalars().all()
+        assert provisioning_requests[0].server_id is None
+        assert provisioning_requests[0].bootstrap_job_ids == []
+        vms = (await db_session.execute(select(VirtualMachine))).scalars().all()
+        assert vms[0].server_id is None
+        workflows = (await db_session.execute(select(WorkflowRun))).scalars().all()
+        assert workflows[0].target_server_id is None
+        assert (await db_session.execute(select(Job))).scalars().all() == []
+        assert (await db_session.execute(select(IdentityExecution))).scalars().all() == []
+        assert (await db_session.execute(select(PackageInstallation))).scalars().all() == []
+        assert (await db_session.execute(select(CommandExecution))).scalars().all() == []
+        assert (await db_session.execute(select(MetricSample))).scalars().all() == []
+        assert (await db_session.execute(select(MonitoringSnapshot))).scalars().all() == []
+        assert (await db_session.execute(select(MonitoringValidationAttempt))).scalars().all() == []
+        runtime_events = (await db_session.execute(select(RuntimeRefreshEvent))).scalars().all()
+        assert runtime_events[0].node_id is None
+        assert (await db_session.execute(select(RemoteAccessToken))).scalars().all() == []
         trash = await TrashService(db_session).list_trash()
         inventory_group = next((group for group in trash.groups if group.item_type == "inventory_server"), None)
         assert inventory_group is None

@@ -555,7 +555,7 @@ class InventoryService:
         await self.repository.session.execute(
             update(ProvisioningRequest)
             .where(ProvisioningRequest.server_id == server_id)
-            .values(server_id=None)
+            .values(server_id=None, bootstrap_job_ids=[])
         )
         await self._execute_if_table_exists(
             VirtualMachine.__tablename__,

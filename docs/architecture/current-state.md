@@ -367,7 +367,7 @@ Inventory records survive integration failures. If a Proxmox integration disconn
 
 Existing Proxmox inventory created before integration ownership is adopted during sync when it matches the discovered host or guest and has no `integration_id`. This preserves the old inventory identity while moving it under the persisted integration authority model.
 
-Inventory deletion performs reference cleanup before removing the active server record. It clears or removes Jobs-backed runtime links, provisioning request links, virtual machine links, workflow target links, deployment target rows, monitoring/runtime records, and other server-owned execution records. Archive and decommission remain the retained-history lifecycle paths.
+Inventory deletion performs reference cleanup before removing the active server record. It clears or removes Jobs-backed runtime links, provisioning request links and stale bootstrap job IDs, virtual machine links, workflow target links, deployment target rows, monitoring/runtime records, and other server-owned execution records. Archive and decommission remain the retained-history lifecycle paths.
 
 Inventory also now has a managed-node lifecycle foundation:
 
@@ -554,7 +554,7 @@ The 2026-06-21 review aligned the living documentation and local thesis use-case
 - Production startup validates unsafe configuration and emits structured warnings or errors based on environment.
 - Baseline security middleware adds rate limiting and security headers for public-exposure readiness.
 - RBAC user management is implemented under the auth module and remains admin-only through backend route dependencies. Users & RBAC includes per-user session inactivity policy controls for system default, 30 minutes, 60 minutes, 90 minutes, and no inactivity timeout.
-- Inventory deletion cleanup is owned by `InventoryService`; it clears active references without hard-deleting historical job logs.
+- Inventory deletion cleanup is owned by `InventoryService`; it clears active server references and stale provisioning bootstrap job links without turning reusable configuration records into machine-owned data.
 - Adapter packages are canonicalized under `backend/app/adapters/`.
 - SSH has a concrete Paramiko adapter for key/password command execution.
 - Frontend is feature-based under `frontend/src/features/`.
