@@ -334,10 +334,10 @@ Runtime consumption of persisted integrations is active for the primary provider
 Provisioning uses only Proxmox VM templates and cloud-init customization:
 
 ```text
-Provisioning request -> Proxmox clone/config/start -> SSH readiness -> Inventory registration -> optional bootstrap Jobs
+Provisioning request -> Proxmox clone/config/start -> SSH readiness -> cloud-init/package-manager bootstrap readiness when bootstrap items exist -> Inventory registration -> optional bootstrap Jobs
 ```
 
-Provisioned VMs become Inventory records before any bootstrap profile/package execution. This preserves Inventory as the orchestration source of truth.
+Provisioned VMs become Inventory records before any bootstrap profile/package execution. When a provisioning request includes bootstrap items, NexusOps waits over SSH for cloud-init to finish and for common apt/dpkg locks to clear before starting the Jobs-backed bootstrap. This prevents newly booted Ubuntu/Debian templates from racing package installs while cloud-init or unattended apt work is still active. Readiness results are stored in provider metadata so operators can distinguish SSH reachability from bootstrap readiness.
 
 NexusOps provisioning blueprints are UI/API-side presets for repeatable VM creation. The actual base image remains a Proxmox template; the blueprint stores the fixed operational defaults around that template:
 

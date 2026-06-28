@@ -142,6 +142,8 @@ async def test_builtin_tailscale_package_is_terminal_command_style() -> None:
     assert "<<" not in tailscale.install_command
     assert "NEXUSOPS_TAILSCALE" not in tailscale.install_command
     assert "command -v tailscale" in tailscale.install_command
+    assert "/var/lib/apt/lists/lock" in tailscale.install_command
+    assert "Waiting for apt lock" in tailscale.install_command
     assert "tailscale status --json" in tailscale.install_command
     assert "sudo tailscale up --auth-key {{ tailscale_auth_key }}" in tailscale.install_command
     assert "tailscale status --json >/dev/null" in tailscale.validation_command

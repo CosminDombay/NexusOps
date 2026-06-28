@@ -171,6 +171,39 @@ class FakeSshAdapter(SshAdapter):
         raise NotImplementedError
 
 
+class BootstrapReadinessFailingSshAdapter(FakeSshAdapter):
+    async def run_command(
+        self,
+        *,
+        host: str,
+        port: int,
+        command: str,
+        user: str,
+        password: str | None = None,
+        private_key_path: str | None = None,
+        private_key: str | None = None,
+        passphrase: str | None = None,
+        input_data: str | None = None,
+    ) -> SshExecutionResult:
+        self.calls.append(
+            {
+                "host": host,
+                "port": port,
+                "command": command,
+                "user": user,
+                "password": password,
+                "input_data": input_data,
+            }
+        )
+        if "cloud-init status --wait" in command:
+            return SshExecutionResult(
+                exit_code=124,
+                stdout="",
+                stderr="Timed out waiting for apt lock /var/lib/apt/lists/lock",
+            )
+        return SshExecutionResult(exit_code=0, stdout="ok\n", stderr="")
+
+
 def payload(**overrides):
     data = {
         "vm_name": "test-vm",
@@ -335,6 +368,49 @@ async def test_provisioning_runs_bootstrap_profile_after_inventory_registration(
         assert "get.docker.com" in commands
         assert "systemctl status docker --no-pager" in commands
         assert "docker ps" in commands
+
+        readiness_index = next(
+            index for index, call in enumerate(ssh.calls) if "cloud-init status --wait" in call["command"]
+        )
+        docker_install_index = next(index for index, call in enumerate(ssh.calls) if "get.docker.com" in call["command"])
+        assert readiness_index < docker_install_index
+
+        assert servers[0].provider_metadata["bootstrap_readiness_required"] is True
+        assert servers[0].provider_metadata["bootstrap_ready"] is True
+        assert servers[0].provider_metadata["bootstrap_error"] is None
+
+
+@pytest.mark.asyncio
+async def test_provisioning_stops_bootstrap_when_bootstrap_readiness_times_out(client) -> None:
+    session = next(iter(client.app.dependency_overrides.values()))
+    async for db_session in session():
+        ssh = BootstrapReadinessFailingSshAdapter()
+        result = await service(db_session, FakeProxmoxAdapter(), ssh).provision(
+            ProvisioningCreate(
+                **payload(
+                    vm_name="bootstrap-not-ready-vm",
+                    cloud_init_hostname="bootstrap-not-ready-vm",
+                    new_vm_id=153,
+                    static_ip_cidr="10.3.0.53/24",
+                    bootstrap_package_ids=["docker-engine"],
+                )
+            )
+        )
+
+        assert result.status == "failed"
+        assert "Timed out waiting for apt lock" in (result.error_message or "")
+        assert result.server_id is not None
+        assert result.bootstrap_job_ids == []
+
+        servers = await ServerRepository(db_session).list(search="10.3.0.53")
+        assert len(servers) == 1
+        assert servers[0].provider_metadata["bootstrap_readiness_required"] is True
+        assert servers[0].provider_metadata["bootstrap_ready"] is False
+        assert "Timed out waiting for apt lock" in servers[0].provider_metadata["bootstrap_error"]
+
+        commands = "\n".join(call["command"] for call in ssh.calls)
+        assert "cloud-init status --wait" in commands
+        assert "get.docker.com" not in commands
 
 
 @pytest.mark.asyncio

@@ -65,6 +65,7 @@ Provisioning
   -> cloud-init static networking
   -> VM start
   -> SSH readiness polling
+  -> cloud-init/package-manager bootstrap readiness
   -> Inventory registration
   -> optional Profiles/Packages
   -> Jobs
@@ -72,6 +73,8 @@ Provisioning
 ```
 
 Inventory remains the orchestration source of truth. Provisioning does not run bootstrap commands directly against raw Proxmox VM records.
+
+For requests with bootstrap items, SSH reachability is necessary but not sufficient. The backend also waits for `cloud-init status --wait` when available and for common apt/dpkg locks to clear before starting package/profile bootstrap Jobs, reducing races against first-boot package work on cloud-init templates.
 
 ## Frontend Implementation
 

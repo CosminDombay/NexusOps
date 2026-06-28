@@ -38,6 +38,12 @@ PACKAGE_REGISTRY: tuple[PackageDefinition, ...] = (
         supported_os=["ubuntu", "debian", "rocky", "fedora"],
         install_command=(
             "if ! command -v tailscale >/dev/null 2>&1; then "
+            "for lock in /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock /var/lib/apt/lists/lock /var/cache/apt/archives/lock; do "
+            "while sudo fuser \"$lock\" >/dev/null 2>&1; do "
+            "echo \"Waiting for apt lock $lock\"; "
+            "sleep 5; "
+            "done; "
+            "done; "
             "curl -fsSL https://tailscale.com/install.sh | sh; "
             "fi && "
             "if tailscale status --json >/dev/null 2>&1; then "

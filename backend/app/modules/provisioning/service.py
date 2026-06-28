@@ -446,6 +446,16 @@ class ProvisioningService:
                 username=payload.cloud_init_username,
                 password=payload.cloud_init_password,
             )
+            bootstrap_readiness_required = ssh_ready and bool(payload.bootstrap_items)
+            bootstrap_ready: bool | None = None
+            bootstrap_error: str | None = None
+            if bootstrap_readiness_required:
+                bootstrap_ready, bootstrap_error = await self._wait_for_bootstrap_readiness(
+                    host=static_ip,
+                    port=22,
+                    username=payload.cloud_init_username,
+                    password=payload.cloud_init_password,
+                )
 
             await self._set_status(request, ProvisioningStatus.INVENTORY_REGISTRATION)
             server_payload = ServerCreate(
@@ -483,6 +493,9 @@ class ProvisioningService:
                     "operational_readiness": "partially_managed" if ssh_ready else "ssh_unreachable",
                     "ssh_ready": ssh_ready,
                     "ssh_error": ssh_error,
+                    "bootstrap_readiness_required": bootstrap_readiness_required,
+                    "bootstrap_ready": bootstrap_ready,
+                    "bootstrap_error": bootstrap_error,
                 },
             )
             server = (
@@ -492,6 +505,11 @@ class ProvisioningService:
             )
             request.server_id = server.id
             await self.repository.session.commit()
+
+            if bootstrap_readiness_required and not bootstrap_ready:
+                raise ProvisioningValidationError(
+                    bootstrap_error or "Provisioned host did not become ready for bootstrap"
+                )
 
             if ssh_ready and payload.bootstrap_items:
                 await self._set_status(request, ProvisioningStatus.BOOTSTRAP_RUNNING)
@@ -703,6 +721,50 @@ class ProvisioningService:
                 last_error = exc
                 await asyncio.sleep(5)
         return False, f"SSH did not become ready: {last_error}"
+
+    async def _wait_for_bootstrap_readiness(
+        self,
+        *,
+        host: str,
+        port: int,
+        username: str,
+        password: str | None,
+    ) -> tuple[bool, str | None]:
+        command = (
+            "if command -v cloud-init >/dev/null 2>&1; then "
+            "cloud-init status --wait || sudo cloud-init status --wait || true; "
+            "fi; "
+            "for lock in /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock /var/lib/apt/lists/lock /var/cache/apt/archives/lock; do "
+            "attempt=0; "
+            "while fuser \"$lock\" >/dev/null 2>&1 || sudo fuser \"$lock\" >/dev/null 2>&1; do "
+            "if [ \"$attempt\" -ge 60 ]; then "
+            "echo \"Timed out waiting for apt lock $lock\" >&2; "
+            "exit 124; "
+            "fi; "
+            "echo \"Waiting for apt lock $lock\"; "
+            "attempt=$((attempt + 1)); "
+            "sleep 5; "
+            "done; "
+            "done"
+        )
+        try:
+            result = await self.ssh_adapter.run_command(
+                host=host,
+                port=port,
+                user=username,
+                password=password,
+                command=command,
+            )
+        except Exception as exc:
+            return False, f"Bootstrap readiness check failed: {exc}"
+
+        if result.exit_code == 0:
+            return True, None
+
+        detail = (result.stderr or result.stdout or "").strip()
+        if detail:
+            return False, f"Bootstrap readiness check failed with exit {result.exit_code}: {detail}"
+        return False, f"Bootstrap readiness check failed with exit {result.exit_code}"
 
     async def _wait_for_proxmox_task(self, node: str, task_id: object) -> None:
         if not task_id:
