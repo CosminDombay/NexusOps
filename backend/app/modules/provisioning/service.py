@@ -27,6 +27,18 @@ from backend.app.modules.deployments.repository import (
 from backend.app.modules.deployments.service import DockerComposeDeploymentService
 from backend.app.modules.inventory.schemas import ServerCreate
 from backend.app.modules.inventory.service import InventoryConflictError, InventoryService
+from backend.app.modules.identity.repository import (
+    IdentityExecutionRepository,
+    LinuxGroupRepository,
+    LinuxUserRepository,
+    PermissionTemplateRepository,
+)
+from backend.app.modules.identity.service import (
+    IdentityReplicationService,
+    LinuxGroupService,
+    LinuxPermissionService,
+    LinuxUserService,
+)
 from backend.app.modules.jobs.repository import JobRepository
 from backend.app.modules.jobs.service import JobService
 from backend.app.modules.packages.repository import PackageDefinitionRepository
@@ -792,6 +804,10 @@ class ProvisioningService:
             ssh_adapter=self.ssh_adapter,
             credential_service=self.credential_service,
         )
+        identity_replication_service = IdentityReplicationService(
+            job_service=job_service,
+            execution_repository=IdentityExecutionRepository(self.repository.session),
+        )
         profile_service = ProfileService(
             job_service=job_service,
             repository=self.profile_repository,
@@ -803,6 +819,19 @@ class ProvisioningService:
                 server_repository=self.server_repository,
                 job_service=job_service,
                 credential_service=self.credential_service,
+            ),
+            identity_user_service=LinuxUserService(
+                repository=LinuxUserRepository(self.repository.session),
+                replication_service=identity_replication_service,
+                credential_service=self.credential_service,
+            ),
+            identity_group_service=LinuxGroupService(
+                repository=LinuxGroupRepository(self.repository.session),
+                replication_service=identity_replication_service,
+            ),
+            identity_permission_service=LinuxPermissionService(
+                repository=PermissionTemplateRepository(self.repository.session),
+                replication_service=identity_replication_service,
             ),
         )
         package_service = PackageAutomationService(

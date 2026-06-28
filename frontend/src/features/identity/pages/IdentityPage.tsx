@@ -296,6 +296,7 @@ export function IdentityPage() {
           isWorking={isWorking}
           onEdit={() => {
             setModalIntent('edit');
+            setGroupMemberOperation('add');
             setModalMode(kindToMode(selectedEntity));
           }}
           onReplicate={() => setModalMode('replication')}
@@ -448,7 +449,9 @@ export function IdentityPage() {
   async function createOrUpdateOrAdoptGroup() {
     const requestedMembers = splitCsv(form.memberNames);
     const existingMembers = selectedGroup?.members ?? [];
-    const plannedMembers = groupMemberOperation === 'remove'
+    const plannedMembers = !targetsReady
+      ? requestedMembers
+      : groupMemberOperation === 'remove'
       ? existingMembers.filter((member) => !requestedMembers.includes(member))
       : [...new Set([...existingMembers, ...requestedMembers])];
     const payload = {
@@ -943,14 +946,16 @@ function ActionModal({
             {selectedEntity ? (
               <div className="grid grid-cols-2 gap-2 rounded-md border border-slate-700 bg-slate-950/50 p-2">
                 <button
-                  className={`h-9 rounded-md border text-sm font-semibold transition ${groupMemberOperation === 'add' ? 'border-cyan-300 bg-cyan-400 text-slate-950' : 'border-slate-700 bg-slate-900 text-slate-300 hover:border-slate-500 hover:text-white'}`}
+                  className={`h-9 rounded-md border text-sm font-semibold transition ${!targetsReady || groupMemberOperation === 'add' ? 'border-cyan-300 bg-cyan-400 text-slate-950' : 'border-slate-700 bg-slate-900 text-slate-300 hover:border-slate-500 hover:text-white'}`}
+                  disabled={!targetsReady}
                   type="button"
                   onClick={() => onGroupMemberOperationChange('add')}
                 >
-                  Add members
+                  {targetsReady ? 'Add members' : 'Edit planned members'}
                 </button>
                 <button
                   className={`h-9 rounded-md border text-sm font-semibold transition ${groupMemberOperation === 'remove' ? 'border-cyan-300 bg-cyan-400 text-slate-950' : 'border-slate-700 bg-slate-900 text-slate-300 hover:border-slate-500 hover:text-white'}`}
+                  disabled={!targetsReady}
                   type="button"
                   onClick={() => onGroupMemberOperationChange('remove')}
                 >
@@ -959,7 +964,7 @@ function ActionModal({
               </div>
             ) : null}
             <TextInput
-              label={selectedEntity ? `Members to ${groupMemberOperation}` : 'Members to add'}
+              label={selectedEntity && targetsReady ? `Members to ${groupMemberOperation}` : 'Planned members'}
               value={form.memberNames}
               onChange={(value) => onFormChange({ memberNames: value })}
               placeholder="deploy,cerberus"

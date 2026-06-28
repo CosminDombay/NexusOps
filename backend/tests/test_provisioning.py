@@ -13,6 +13,12 @@ from backend.app.common.constants import (
 )
 from backend.app.modules.inventory.models import Server
 from backend.app.modules.inventory.repository import ServerRepository
+from backend.app.modules.identity.repository import (
+    IdentityExecutionRepository,
+    LinuxGroupRepository,
+)
+from backend.app.modules.identity.schemas import LinuxGroupCreate
+from backend.app.modules.identity.service import IdentityReplicationService, LinuxGroupService
 from backend.app.modules.deployments.repository import (
     DeploymentRepository,
     DeploymentRevisionRepository,
@@ -25,6 +31,8 @@ from backend.app.modules.jobs.service import JobService
 from backend.app.modules.jobs.models import JobStatus
 from backend.app.modules.packages.repository import PackageDefinitionRepository
 from backend.app.modules.profiles.repository import InfrastructureProfileRepository
+from backend.app.modules.profiles.schemas import InfrastructureProfileCreate
+from backend.app.modules.profiles.service import ProfileService
 from backend.app.modules.provisioning.repository import (
     ProvisioningBlueprintRepository,
     ProvisioningBootstrapTemplateRepository,
@@ -411,6 +419,69 @@ async def test_provisioning_stops_bootstrap_when_bootstrap_readiness_times_out(c
         commands = "\n".join(call["command"] for call in ssh.calls)
         assert "cloud-init status --wait" in commands
         assert "get.docker.com" not in commands
+
+
+@pytest.mark.asyncio
+async def test_provisioning_bootstrap_profile_can_apply_identity_group_steps(client) -> None:
+    session = next(iter(client.app.dependency_overrides.values()))
+    async for db_session in session():
+        ssh = FakeSshAdapter()
+        job_service = JobService(
+            job_repository=JobRepository(db_session),
+            server_repository=ServerRepository(db_session),
+            ssh_adapter=ssh,
+        )
+        identity_replication = IdentityReplicationService(
+            job_service=job_service,
+            execution_repository=IdentityExecutionRepository(db_session),
+        )
+        group_service = LinuxGroupService(
+            repository=LinuxGroupRepository(db_session),
+            replication_service=identity_replication,
+        )
+        group = await group_service.create_group(
+            LinuxGroupCreate(name="infra", members=["cerberus"], target_server_ids=[])
+        )
+        await ProfileService(
+            job_service=job_service,
+            repository=InfrastructureProfileRepository(db_session),
+        ).create_profile(
+            InfrastructureProfileCreate(
+                id="identity-bootstrap-profile",
+                name="Identity Bootstrap Profile",
+                category="Identity",
+                description="Applies Linux identity records during provisioning bootstrap.",
+                tags=["identity"],
+                steps=[
+                    {
+                        "kind": "identity_group",
+                        "reference_id": str(group.item.id),
+                        "name": "Apply infra group",
+                    }
+                ],
+            )
+        )
+
+        result = await service(db_session, FakeProxmoxAdapter(), ssh).provision(
+            ProvisioningCreate(
+                **payload(
+                    vm_name="identity-bootstrap-vm",
+                    cloud_init_hostname="identity-bootstrap-vm",
+                    new_vm_id=154,
+                    static_ip_cidr="10.3.0.54/24",
+                    bootstrap_profile_ids=["identity-bootstrap-profile"],
+                )
+            )
+        )
+
+        assert result.status == "completed"
+        assert len(result.bootstrap_job_ids) == 1
+        assert result.bootstrap_jobs[0].operation_type == "identity:group:infra:replicate"
+
+        commands = "\n".join(call["command"] for call in ssh.calls)
+        assert "cloud-init status --wait" in commands
+        assert "groupadd infra" in commands
+        assert "usermod -aG infra cerberus" in commands
 
 
 @pytest.mark.asyncio
