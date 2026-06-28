@@ -29,7 +29,6 @@ import { useTargetSelection } from '../../inventory/hooks/useTargetSelection';
 import type { Server } from '../../inventory/types/server';
 import type { BulkExecutionResponse } from '../../jobs/types/job';
 import {
-  addGroupMembers,
   adoptLinuxGroup,
   adoptLinuxUser,
   applyPermission,
@@ -52,7 +51,6 @@ import {
   listPermissionTemplates,
   listSSHKeys,
   lockLinuxUser,
-  removeGroupMembers,
   replicateLinuxGroup,
   replicateLinuxUser,
   replicatePermissionTemplate,
@@ -121,7 +119,6 @@ export function IdentityPage() {
   const [form, setForm] = useState<IdentityActionForm>(initialForm);
   const [modalMode, setModalMode] = useState<ModalMode>(null);
   const [modalIntent, setModalIntent] = useState<'create' | 'edit'>('edit');
-  const [groupMemberOperation, setGroupMemberOperation] = useState<'add' | 'remove'>('add');
   const [result, setResult] = useState<BulkExecutionResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -296,7 +293,6 @@ export function IdentityPage() {
           isWorking={isWorking}
           onEdit={() => {
             setModalIntent('edit');
-            setGroupMemberOperation('add');
             setModalMode(kindToMode(selectedEntity));
           }}
           onReplicate={() => setModalMode('replication')}
@@ -319,12 +315,10 @@ export function IdentityPage() {
           selectedEntity={modalIntent === 'edit' ? selectedEntity : null}
           permissionPresets={permissionPresets}
           passwordCredentials={passwordCredentials}
-          groupMemberOperation={groupMemberOperation}
           isWorking={isWorking}
           targetsReady={targetsReady}
           onClose={() => setModalMode(null)}
           onFormChange={(patch) => setForm((current) => ({ ...current, ...patch }))}
-          onGroupMemberOperationChange={setGroupMemberOperation}
           onPresetSelect={applyPermissionPreset}
           onSubmit={() => void submitActionModal(modalMode)}
         />
@@ -366,7 +360,6 @@ export function IdentityPage() {
       executionCredentialId: current.executionCredentialId,
     }));
     setModalIntent('create');
-    setGroupMemberOperation('add');
     setModalMode(mode);
   }
 
@@ -448,42 +441,32 @@ export function IdentityPage() {
 
   async function createOrUpdateOrAdoptGroup() {
     const requestedMembers = splitCsv(form.memberNames);
-    const existingMembers = selectedGroup?.members ?? [];
-    const plannedMembers = !targetsReady
-      ? requestedMembers
-      : groupMemberOperation === 'remove'
-      ? existingMembers.filter((member) => !requestedMembers.includes(member))
-      : [...new Set([...existingMembers, ...requestedMembers])];
     const payload = {
       name: form.groupName,
       description: form.groupDescription || null,
-      members: plannedMembers,
+      members: requestedMembers,
       managed: true,
       target_server_ids: selectedTargetIds,
       credential_ref: executionCredentialRef(),
     };
     if (modalIntent === 'edit' && selectedGroup) {
       const response = await updateLinuxGroup(selectedGroup.id, payload);
-      return await addMembersIfRequested(selectedGroup.id, response.replication);
+      setGroups((current) => current.map((group) => (group.id === response.item.id ? response.item : group)));
+      return response.replication;
     }
     const response = modalIntent === 'edit' && selectedEntity?.kind === 'discovered-group'
       ? await adoptLinuxGroup({ ...payload, target_server_ids: [] })
       : await createLinuxGroup(payload);
+    setGroups((current) => [
+      response.item,
+      ...current.filter((group) => group.id !== response.item.id),
+    ]);
     setSelectedEntityId(`group:${response.item.id}`);
     if (modalIntent === 'edit' && selectedEntity?.kind === 'discovered-group' && selectedTargetIds.length) {
       const replication = await replicateLinuxGroup(response.item.id, selectedTargetIds, executionCredentialRef());
-      return await addMembersIfRequested(response.item.id, replication);
+      return replication;
     }
-    return await addMembersIfRequested(response.item.id, response.replication);
-  }
-
-  async function addMembersIfRequested(groupId: string, fallback: BulkExecutionResponse | null) {
-    const members = splitCsv(form.memberNames);
-    if (!members.length || !targetsReady || groupMemberOperation === 'add') return fallback;
-    if (groupMemberOperation === 'remove') {
-      return removeGroupMembers(groupId, members, selectedTargetIds, executionCredentialRef());
-    }
-    return addGroupMembers(groupId, members, selectedTargetIds, executionCredentialRef());
+    return response.replication;
   }
 
   async function saveOrDeployKey() {
@@ -884,12 +867,10 @@ function ActionModal({
   selectedEntity,
   permissionPresets,
   passwordCredentials,
-  groupMemberOperation,
   isWorking,
   targetsReady,
   onClose,
   onFormChange,
-  onGroupMemberOperationChange,
   onPresetSelect,
   onSubmit,
 }: {
@@ -900,12 +881,10 @@ function ActionModal({
   selectedEntity: IdentityEntity | null;
   permissionPresets: PermissionPreset[];
   passwordCredentials: Credential[];
-  groupMemberOperation: 'add' | 'remove';
   isWorking: boolean;
   targetsReady: boolean;
   onClose: () => void;
   onFormChange: (patch: Partial<IdentityActionForm>) => void;
-  onGroupMemberOperationChange: (operation: 'add' | 'remove') => void;
   onPresetSelect: (presetId: string) => void;
   onSubmit: () => void;
 }) {
@@ -943,28 +922,8 @@ function ActionModal({
           <div className="space-y-3">
             <TextInput label="Group name" value={form.groupName} onChange={(value) => onFormChange({ groupName: value })} />
             <TextInput label="Description" value={form.groupDescription} onChange={(value) => onFormChange({ groupDescription: value })} />
-            {selectedEntity ? (
-              <div className="grid grid-cols-2 gap-2 rounded-md border border-slate-700 bg-slate-950/50 p-2">
-                <button
-                  className={`h-9 rounded-md border text-sm font-semibold transition ${!targetsReady || groupMemberOperation === 'add' ? 'border-cyan-300 bg-cyan-400 text-slate-950' : 'border-slate-700 bg-slate-900 text-slate-300 hover:border-slate-500 hover:text-white'}`}
-                  disabled={!targetsReady}
-                  type="button"
-                  onClick={() => onGroupMemberOperationChange('add')}
-                >
-                  {targetsReady ? 'Add members' : 'Edit planned members'}
-                </button>
-                <button
-                  className={`h-9 rounded-md border text-sm font-semibold transition ${groupMemberOperation === 'remove' ? 'border-cyan-300 bg-cyan-400 text-slate-950' : 'border-slate-700 bg-slate-900 text-slate-300 hover:border-slate-500 hover:text-white'}`}
-                  disabled={!targetsReady}
-                  type="button"
-                  onClick={() => onGroupMemberOperationChange('remove')}
-                >
-                  Remove members
-                </button>
-              </div>
-            ) : null}
             <TextInput
-              label={selectedEntity && targetsReady ? `Members to ${groupMemberOperation}` : 'Planned members'}
+              label="Planned members"
               value={form.memberNames}
               onChange={(value) => onFormChange({ memberNames: value })}
               placeholder="deploy,cerberus"
