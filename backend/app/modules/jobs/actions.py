@@ -48,6 +48,21 @@ ACTION_REGISTRY: tuple[OperationalAction, ...] = (
         command="sudo true && echo sudo-ready",
     ),
     OperationalAction(
+        id="validation:validate-host-baseline",
+        name="Validate Host Baseline",
+        category="Validation",
+        description="Confirm basic host, sudo, disk, and memory readiness before bootstrap steps run.",
+        command=(
+            "set -e\n"
+            "hostnamectl || hostname\n"
+            "uptime\n"
+            "df -h /\n"
+            "free -m\n"
+            "sudo true\n"
+            "echo host-baseline-ready"
+        ),
+    ),
+    OperationalAction(
         id="storage:configure-data-disk",
         name="Configure Data Disk",
         category="Storage",

@@ -692,6 +692,53 @@ async def test_profile_service_resolves_builtin_storage_data_disk_action(client)
 
 
 @pytest.mark.asyncio
+async def test_profile_service_resolves_builtin_host_baseline_validation_action(client) -> None:
+    session = next(iter(client.app.dependency_overrides.values()))
+    async for db_session in session():
+        server = await InventoryService(ServerRepository(db_session)).create_server(
+            ServerCreate(**server_payload(hostname="profile-host-baseline-01", ip_address="10.2.0.26"))
+        )
+        adapter = FakeSshAdapter()
+        profile_service = ProfileService(
+            repository=InfrastructureProfileRepository(db_session),
+            job_service=JobService(
+                job_repository=JobRepository(db_session),
+                server_repository=ServerRepository(db_session),
+                ssh_adapter=adapter,
+                action_repository=CustomOperationalActionRepository(db_session),
+            ),
+        )
+        profile = await profile_service.create_profile(
+            InfrastructureProfileCreate(
+                id="profile-host-baseline-validation",
+                name="Profile Host Baseline Validation",
+                category="Validation",
+                description="Validates host baseline readiness.",
+                tags=["validation"],
+                steps=[
+                    {
+                        "id": "host-baseline-validation",
+                        "name": "Validate host baseline",
+                        "kind": "action",
+                        "reference_id": "validation:validate-host-baseline",
+                    }
+                ],
+            )
+        )
+
+        result = await profile_service.apply_profile(
+            profile.id,
+            ProfileApplyRequest(target_server_id=server.id),
+        )
+
+        assert result.status == "success"
+        assert len(result.jobs) == 1
+        assert result.jobs[0].operation_type == f"profile:{profile.id}:host-baseline-validation"
+        assert "host-baseline-ready" in adapter.calls[0]["command"]
+        assert "sudo true" in adapter.calls[0]["command"]
+
+
+@pytest.mark.asyncio
 async def test_profile_apply_records_workflow_trace_when_available(client) -> None:
     session = next(iter(client.app.dependency_overrides.values()))
     async for db_session in session():

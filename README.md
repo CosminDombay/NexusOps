@@ -178,7 +178,7 @@ For a self-hosted runner deployment job on the LXC host:
 - Credential deletion uses a recoverable Trash lifecycle. Trashed credentials stop resolving for runtime use, can be restored from the UI, and can only be permanently purged after active references are cleared.
 - Production startup fails if required security settings are unsafe, including default `SECRET_KEY`, missing `NEXUSOPS_MASTER_KEY`, disabled Proxmox TLS verification, `DEBUG=true`, or default-looking bootstrap admin credentials.
 - Inventory records can reference a shared `credential_id` for SSH execution while retaining inline SSH metadata for backward-compatible local MVP use.
-- Operational actions provide predefined workflows such as uptime, disk usage, memory usage, Docker checks, Docker restart, simple installation actions, and approved storage setup actions.
+- Operational actions provide predefined workflows such as uptime, disk usage, memory usage, Docker checks, Docker restart, sudo/host-baseline validation, simple installation actions, and approved storage setup actions.
 - Package definitions describe reusable install/validation commands for common infrastructure packages and can be extended with custom definitions.
 - Built-in package definitions can be edited as persisted working copies, cloned into custom templates, or restored to the system default.
 - Package variables use simple `{{ variable_name }}` placeholders and are resolved before execution from defaults, runtime inputs, and credential references for sensitive values.
