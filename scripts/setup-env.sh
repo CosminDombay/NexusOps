@@ -7,6 +7,8 @@ FRONTEND_DIR="$REPO_ROOT/frontend"
 PYTHON_BIN="${PYTHON_BIN:-python3}"
 ENV_FILE="$REPO_ROOT/.env"
 
+export PUPPETEER_SKIP_DOWNLOAD="${PUPPETEER_SKIP_DOWNLOAD:-true}"
+
 dotenv_escape() {
   local value="$1"
   value="${value//\'/\'\\\'\'}"

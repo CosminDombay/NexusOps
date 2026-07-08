@@ -16,6 +16,9 @@ on:
 permissions:
   contents: read
 
+env:
+  PUPPETEER_SKIP_DOWNLOAD: "true"
+
 concurrency:
   group: staging-deploy
   cancel-in-progress: false

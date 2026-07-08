@@ -8,6 +8,8 @@ VENV_DIR="${VENV_DIR:-$REPO_ROOT/.venv}"
 FRONTEND_DIR="$REPO_ROOT/frontend"
 CACHE_DIR="$REPO_ROOT/.runner-cache"
 
+export PUPPETEER_SKIP_DOWNLOAD="${PUPPETEER_SKIP_DOWNLOAD:-true}"
+
 mkdir -p "$CACHE_DIR"
 
 file_hash() {
