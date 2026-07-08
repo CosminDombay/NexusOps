@@ -84,13 +84,13 @@ Self-hosted deployment entrypoints:
 ./scripts/healthcheck.sh
 ```
 
-### 2026-06-21 Thesis Documentation Readiness Status
+### 2026-06-21 Documentation Readiness Status
 
 Latest documentation/readiness review from the current checkout:
 
 - confirmed the active workspace path is `/home/cerberus/Projects/NexusOps-project`
-- checked the registered backend router tree, frontend route tree, backend module surface, migrations, tests, and local thesis use-case files
-- refreshed README pointers, API overview date/surface, development path notes, current-state review notes, architecture route notes, next-step priorities, and the local thesis use-case narrative
+- checked the registered backend router tree, frontend route tree, backend module surface, migrations, tests, and local demo planning files
+- refreshed README pointers, API overview date/surface, development path notes, current-state review notes, architecture route notes, next-step priorities, and the local demo-use-case narrative
 - no Word `.doc` or `.docx` files were present in the repository at review time
 - validation after the documentation refresh:
   - `cd frontend && npm run lint`: passed

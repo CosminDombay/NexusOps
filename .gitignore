@@ -25,6 +25,19 @@ debug-bundles/
 deployment-reports/
 backlog.md
 
+# Local thesis/presentation archives and generated artifacts
+Dombay_Cosmin_Aplicatie_Practica_Spec_Licenta.txt
+docs/thesis/
+docs/thessis support/
+docs/diagrams/**
+!docs/diagrams/
+!docs/diagrams/.gitkeep
+review/screenshots/
+review/*.pptx
+review/*prezentare*
+review/*thesis*
+*.docx
+
 # Environment
 .env
 .env.*

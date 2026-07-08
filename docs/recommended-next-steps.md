@@ -91,9 +91,9 @@ Updated: 2026-06-21
 
 24. Add runtime event filtering by correlation ID and target for deployment, job, workflow, and scheduler diagnostics.
 
-25. Completed on 2026-06-18: stabilize deployment drafts, package uninstall execution, sidebar scrolling, credential/search/manual Trash validation, and profile builder ergonomics for thesis validation.
+25. Completed on 2026-06-18: stabilize deployment drafts, package uninstall execution, sidebar scrolling, credential/search/manual Trash validation, and profile builder ergonomics for validation.
 
-26. Completed on 2026-06-21: simplify the first thesis/demo use case to a Docker demo host:
+26. Completed on 2026-06-21: simplify the first demo use case to a Docker demo host:
    - base utilities
    - optional secondary disk
    - Docker Engine
@@ -101,7 +101,7 @@ Updated: 2026-06-21
    - Portainer, cAdvisor, and demo Nginx deployment
    - final Jobs-backed validation
 
-27. Before thesis screenshots, run one full remote development/test-server pass of `USECASE-001 Demo Bootstrap` and record:
+27. Before any release/demo capture, run one full remote development/test-server pass of `USECASE-001 Demo Bootstrap` and record:
    - provisioning completion
    - profile step Jobs
    - deployment runtime state
@@ -112,7 +112,7 @@ Updated: 2026-06-21
 
 These items came from the project review performed on 2026-05-23. They are intended as future hardening and delivery priorities before broadening destructive infrastructure capabilities.
 
-The 2026-05-26 hardening pass intentionally stayed practical for a bachelor-project homelab orchestrator. Remaining future work is mostly depth rather than foundation: httpOnly refresh-cookie migration, a fuller command approval UI, expired-token cleanup jobs, distributed runtime leases, and frontend tests.
+The 2026-05-26 hardening pass intentionally stayed practical for a homelab/on-prem orchestrator. Remaining future work is mostly depth rather than foundation: httpOnly refresh-cookie migration, a fuller command approval UI, expired-token cleanup jobs, distributed runtime leases, and frontend tests.
 
 The 2026-05-27 preparation pass adds deployment guidance and keeps automated container updates intentionally operator-triggered until backup, rollback, and smoke-test automation are in place.
 
@@ -120,9 +120,9 @@ The 2026-06-03 stabilization pass prioritizes manual findings over new feature b
 
 The 2026-06-04 stabilization pass added execution/sudo credential consistency, deployment validation/dry-run previews, runtime stale/failure diagnostics, Host Detail credential readiness, and self-sanitize dry-run preview. These improvements are implementation-complete but remain in manual `Needs testing` status until the staging pipeline and operator tests confirm them.
 
-The 2026-06-18 stabilization pass validated enough of the deployment/package/credential/manual Trash path to support thesis preparation, but full unattended provisioning plus profile/package/deployment bootstrap still needs one clean end-to-end run in the remote test environment.
+The 2026-06-18 stabilization pass validated enough of the deployment/package/credential/manual Trash path to support a controlled demo, but full unattended provisioning plus profile/package/deployment bootstrap still needs one clean end-to-end run in the remote test environment.
 
-The 2026-06-21 thesis documentation pass keeps the first demo deliberately small. Use the broader platform documentation for thesis background, but use `USECASE.md` and `USECASE-001-RUNBOOK.md` for the live presentation recipe.
+The 2026-06-21 documentation pass keeps the first demo deliberately small. Use the broader platform documentation for product background, and use local `USECASE.md` and `USECASE-001-RUNBOOK.md` files only as checkout-local demo recipes.
 
 ## Review Findings Added on 2026-05-23
 

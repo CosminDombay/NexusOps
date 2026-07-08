@@ -495,7 +495,7 @@ The 2026-06-06 documentation/code audit aligned durable Markdown docs with the c
 - `docs/architecture/backend.md` now includes audit, runtime-state, variables, and the centralized router authorization boundary.
 - `docs/architecture/frontend.md` now matches `frontend/src/app/router.tsx`, including route groups for authenticated, operator, and admin users.
 - `docs/architecture/runtime-snapshots.md` now describes the implemented snapshot/status/event tables more precisely.
-- The 2026-06-06 review log remains a historical router/docs audit. The latest thesis-readiness documentation review is `docs/project-review-2026-06-21-thesis-docs-readiness.md`.
+- The 2026-06-06 review log remains a historical router/docs audit. Later documentation updates are reflected directly in the living architecture and development docs.
 - Failed job completion and failed audit events now log at error severity. Human-readable logs are the default with JSON logging still available through `LOG_FORMAT=json`.
 - The local ignored `backlog.md` is the manual stabilization tracker. Items believed fixed should be marked `Needs testing` until manual validation confirms the final status.
 - Full backend validation passed locally with `DEBUG=false .venv/bin/python -m pytest backend/tests -q` producing 147 passing tests after the Identity replication credential changes.
@@ -515,7 +515,7 @@ The 2026-06-04 stabilization update tightened execution credentials, deployment 
 
 ### Stabilization Update on 2026-06-18
 
-The 2026-06-18 stabilization work focused on keeping the app steady for thesis validation while closing manual-test findings:
+The 2026-06-18 stabilization work focused on keeping the app steady for validation while closing manual-test findings:
 
 - Sidebar scrolling now allows small screens to reach lower navigation entries such as RBAC and Trash.
 - Identity planned-state records now support users, groups, group members, SSH key assignment, and permission templates before replication to real target hosts.
@@ -529,9 +529,9 @@ The 2026-06-18 stabilization work focused on keeping the app steady for thesis v
 - Credentials now use the universal Trash page for restore and purge, keeping one clear Trash entrypoint.
 - Full unattended VM provisioning plus profile/package/deployment application still needs final start-to-end validation before being marked complete.
 
-### Thesis Documentation Readiness Review on 2026-06-21
+### Documentation Readiness Review on 2026-06-21
 
-The 2026-06-21 review aligned the living documentation and local thesis use-case files with the current simplified demonstration plan:
+The 2026-06-21 review aligned the living documentation and local demo-use-case files with the current simplified demonstration plan:
 
 - `USECASE.md` and `USECASE-001-RUNBOOK.md` now describe a focused Docker demo host instead of the earlier monitoring-heavy node.
 - The primary demo flow is base utilities, optional data disk preparation, Docker Engine, an Identity step that places `cerberus` in the `docker` group, Portainer, cAdvisor, a demo Nginx service, and final Jobs-backed validation.

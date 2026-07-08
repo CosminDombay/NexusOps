@@ -15,8 +15,7 @@ infrastructure profiles, editable operational templates, credential-backed secre
 Linux identity orchestration, remote shell/file access, runtime diagnostics, simple variable-driven execution, and
 production-aware security guardrails.
 
-The latest documentation/readiness review is documented in `docs/project-review-2026-06-21-thesis-docs-readiness.md`.
-See `docs/development.md` for validation notes and the current documentation refresh status.
+See `docs/development.md` for validation notes and `docs/architecture/current-state.md` for the current implementation status.
 
 ## MVP Domains
 
@@ -58,7 +57,7 @@ See `docs/development.md` for validation notes and the current documentation ref
 
 ## Deployment Setup Scripts
 
-NexusOps is deployed as a web platform rather than installed as a desktop application. The repository now includes two setup scripts for the deployment cases used in the thesis/demo environment:
+NexusOps is deployed as a web platform rather than installed as a desktop application. The repository includes two setup scripts for common local and containerized deployment paths:
 
 - `./setup.sh` prepares a native local deployment with PostgreSQL running on the host.
 - `./setup-docker.sh` prepares and starts the full Docker Compose stack with PostgreSQL included.

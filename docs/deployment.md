@@ -4,7 +4,7 @@ These notes cover the two deployment paths currently worth evaluating: Docker Co
 
 ## Automated Setup Scripts
 
-The root deployment scripts are the fastest way to prepare the thesis/demo environment:
+The root deployment scripts are the fastest way to prepare a local validation environment:
 
 ```bash
 ./setup.sh
@@ -15,7 +15,7 @@ The root deployment scripts are the fastest way to prepare the thesis/demo envir
 
 `./setup-docker.sh` targets the containerized deployment. It prepares `.env`, runs backend and frontend validation, validates and builds the Compose stack, and starts PostgreSQL/backend/frontend containers with `docker compose up -d`.
 
-Both scripts write timestamped logs to `deployment-reports/`. The report directory is intentionally ignored by Git because it contains generated validation/deployment output. Use `--skip-tests` only for quick local iteration, not for thesis/demo release evidence.
+Both scripts write timestamped logs to `deployment-reports/`. The report directory is intentionally ignored by Git because it contains generated validation/deployment output. Use `--skip-tests` only for quick local iteration, not for release or staging evidence.
 
 Database behavior depends on the selected deployment mode:
 
