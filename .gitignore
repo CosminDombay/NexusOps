@@ -22,6 +22,7 @@ npm-debug.log*
 *.log
 screenshots/
 debug-bundles/
+deployment-reports/
 backlog.md
 
 # Environment

@@ -2,6 +2,27 @@
 
 These notes cover the two deployment paths currently worth evaluating: Docker Compose and an on-prem LXC/VM install. Docker is the recommended first testing path because it gives repeatable builds, a bundled PostgreSQL service, and a consistent migration path. LXC remains a good on-prem option when you want direct service control and host-level inspection.
 
+## Automated Setup Scripts
+
+The root deployment scripts are the fastest way to prepare the thesis/demo environment:
+
+```bash
+./setup.sh
+./setup-docker.sh
+```
+
+`./setup.sh` targets a native local deployment. It verifies or installs PostgreSQL on Debian/Ubuntu, creates the NexusOps database and user, prepares `.env`, installs Python/npm dependencies, runs backend and frontend validation, applies Alembic migrations, and starts the local backend/frontend servers.
+
+`./setup-docker.sh` targets the containerized deployment. It prepares `.env`, runs backend and frontend validation, validates and builds the Compose stack, and starts PostgreSQL/backend/frontend containers with `docker compose up -d`.
+
+Both scripts write timestamped logs to `deployment-reports/`. The report directory is intentionally ignored by Git because it contains generated validation/deployment output. Use `--skip-tests` only for quick local iteration, not for thesis/demo release evidence.
+
+Database behavior depends on the selected deployment mode:
+
+- Native local mode uses PostgreSQL on the host and writes a localhost `DATABASE_URL`.
+- Docker mode uses the bundled `postgres` Compose service and connects from the backend container through the Compose network.
+- Remote/on-prem database mode is supported by editing `.env` so `DATABASE_URL` points to an existing PostgreSQL server; in that case the operator is responsible for database/user creation, backups, and connectivity.
+
 ## Docker Compose Deployment
 
 1. Copy `.env.example` to `.env`.

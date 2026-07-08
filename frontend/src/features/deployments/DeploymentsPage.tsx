@@ -267,6 +267,13 @@ export function DeploymentsPage() {
   }
 
   async function run(deployment: Deployment, operation: DeploymentOperationName) {
+    if (operation !== 'deploy') {
+      const confirmed = window.confirm(
+        `${operationLabel(operation)} deployment ${deployment.name}? This runs Docker Compose on the selected target host(s) and can disrupt running services.`,
+      );
+      if (!confirmed) return;
+    }
+
     setSelectedDeploymentId(deployment.id);
     setIsWorking(true);
     setError(null);
@@ -1185,6 +1192,13 @@ function OutputPanel({ title, value }: { title: string; value: string }) {
       </pre>
     </section>
   );
+}
+
+function operationLabel(operation: DeploymentOperationName): string {
+  if (operation === 'redeploy') return 'Redeploy';
+  if (operation === 'restart') return 'Restart';
+  if (operation === 'stop') return 'Stop';
+  return 'Deploy';
 }
 
 function deploymentPathPreview(deployment: Deployment): string {

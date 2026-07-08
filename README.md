@@ -56,6 +56,103 @@ See `docs/development.md` for validation notes and the current documentation ref
 > WSL note: in this local setup the checkout lives at `/home/cerberus/Projects/NexusOps-project`.
 > If you are launching commands from Windows tooling, use WSL commands or open the folder through the WSL integration rather than treating it as `C:\home\cerberus\Projects\NexusOps-project`.
 
+## Deployment Setup Scripts
+
+NexusOps is deployed as a web platform rather than installed as a desktop application. The repository now includes two setup scripts for the deployment cases used in the thesis/demo environment:
+
+- `./setup.sh` prepares a native local deployment with PostgreSQL running on the host.
+- `./setup-docker.sh` prepares and starts the full Docker Compose stack with PostgreSQL included.
+
+Both scripts run validation before deployment unless `--skip-tests` is passed. They create a timestamped report under `deployment-reports/`, which is ignored by Git because it is generated runtime evidence.
+
+### Requirements
+
+For both deployment paths:
+
+- Linux shell environment, preferably Ubuntu/Debian or a Proxmox LXC/VM.
+- Git checkout of this repository.
+- Python 3.12 or newer with `venv` support.
+- Node.js and npm for frontend lint/build validation.
+
+For native local deployment:
+
+- PostgreSQL 16 or newer. On Debian/Ubuntu, `./setup.sh` attempts to install `postgresql` and `postgresql-client` with `apt-get` if they are missing.
+- `sudo` access when PostgreSQL needs to be installed or administered.
+
+For Docker Compose deployment:
+
+- Docker Engine.
+- Docker Compose plugin available through `docker compose`.
+
+### Database Modes
+
+NexusOps uses PostgreSQL as the platform database. The database can run in three practical shapes:
+
+- **Local native PostgreSQL:** `./setup.sh` creates or updates the configured database role and database on the host, writes `DATABASE_URL` in `.env`, runs Alembic migrations, then starts the backend and frontend.
+- **Docker PostgreSQL:** `./setup-docker.sh` uses the `postgres` service from `docker-compose.yml`. The backend connects to it inside the Compose network with `DATABASE_URL=postgresql+asyncpg://...@postgres:5432/...`.
+- **Remote/on-prem PostgreSQL:** keep the app native or containerized, but edit `.env` so `DATABASE_URL` points to the remote PostgreSQL server. The database and user must already exist or be provisioned by the operator.
+
+### Native Local Deployment
+
+Run:
+
+```bash
+./setup.sh
+```
+
+The script will:
+
+1. verify or install PostgreSQL on the host;
+2. start the PostgreSQL service when system tooling is available;
+3. create/update the `nexusops` database and user by default;
+4. create `.env` from `.env.example` if needed and generate `NEXUSOPS_MASTER_KEY`;
+5. install backend and frontend dependencies;
+6. run backend tests, Alembic head checks, artifact hygiene, frontend lint, and frontend build;
+7. run Alembic migrations;
+8. start the backend and frontend locally.
+
+Useful options:
+
+```bash
+./setup.sh --db-password '<strong-password>'
+./setup.sh --backend-port 8000 --frontend-port 5173
+./setup.sh --no-start
+./setup.sh --skip-tests
+```
+
+After startup:
+
+- Frontend: `http://localhost:5173`
+- Backend API: `http://localhost:8000/api/v1`
+- Backend API docs, when enabled: `http://localhost:8000/docs`
+
+### Docker Compose Deployment
+
+Run:
+
+```bash
+./setup-docker.sh
+```
+
+The script will:
+
+1. create `.env` from `.env.example` if needed and generate `NEXUSOPS_MASTER_KEY`;
+2. run backend tests, Alembic head checks, artifact hygiene, frontend lint, and frontend build;
+3. validate the Docker Compose configuration;
+4. build the backend and frontend images;
+5. start PostgreSQL, backend, and frontend containers in detached mode;
+6. print the Compose service status.
+
+Useful options:
+
+```bash
+./setup-docker.sh --expose-database
+./setup-docker.sh --no-start
+./setup-docker.sh --skip-tests
+```
+
+The default Docker stack keeps PostgreSQL inside the Compose network. Use `--expose-database` only when host-side tools need to connect to the Docker database.
+
 Copy the example environment file and set a local admin password:
 
 ```bash
