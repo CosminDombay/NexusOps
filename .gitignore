@@ -42,6 +42,7 @@ review/*thesis*
 .env
 .env.*
 !.env.example
+!.env.production.example
 !backend/.env.example
 !frontend/.env.example
 

@@ -10,6 +10,7 @@ on:
   push:
     branches:
       - development
+      - main
     paths-ignore:
       - "docs/**"
       - "review/**"
@@ -182,12 +183,14 @@ jobs:
           test "${{ needs.frontend.result }}" = "success"
 
   staging-deploy:
-    name: Validate and deploy staging
-    runs-on: self-hosted
+    name: Validate and deploy hds-lab
+    runs-on:
+      - self-hosted
+      - hds-lab
     timeout-minutes: 45
     needs:
       - ci-summary
-    if: github.event_name == 'push' && github.ref == 'refs/heads/development'
+    if: github.event_name == 'push' && github.ref == 'refs/heads/development' && vars.ENABLE_HDS_LAB_DEPLOY == 'true'
     environment: staging
     concurrency:
       group: staging-deploy
@@ -217,7 +220,7 @@ jobs:
           printf '%s\n' "$STAGING_ENV_FILE" > .env
 
       - name: Validate Docker Compose config
-        run: docker compose config --quiet
+        run: ./scripts/deploy.sh --config-only
 
       - name: Deploy stack
         run: ./scripts/deploy.sh

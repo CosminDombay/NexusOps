@@ -239,12 +239,14 @@ docker compose -f infra/docker-compose.dev.yml up --build
 
 ## CI and Deployment Scripts
 
+`main` is the stable branch for manually triggered production deployments. `development` is the integration branch and can deploy to the future `hds-lab` runner only after the `ENABLE_HDS_LAB_DEPLOY` repository variable is enabled.
+
 GitHub Actions and local runner checks should call the reusable Bash scripts:
 
 ```bash
 ./scripts/ci-backend.sh
 ./scripts/ci-frontend.sh
-docker compose config --quiet
+./scripts/deploy.sh --config-only
 docker compose build
 ```
 

@@ -1,6 +1,14 @@
 # NexusOps Deployment Notes
 
-These notes cover the two deployment paths currently worth evaluating: Docker Compose and an on-prem LXC/VM install. Docker is the recommended first testing path because it gives repeatable builds, a bundled PostgreSQL service, and a consistent migration path. LXC remains a good on-prem option when you want direct service control and host-level inspection.
+These notes cover the deployment shape for the current product version. Docker Compose is the recommended path because it gives repeatable builds, a bundled PostgreSQL service, and a consistent migration path. A native LXC/VM install remains possible when direct service control and host-level inspection are more important than container repeatability.
+
+## Branch And Environment Model
+
+`main` is the stable release branch. Production deployment should be manually triggered from `main` after changes have already been validated on `development`.
+
+`development` remains the active integration branch. When the `hds-lab` runner exists, pushes to `development` can validate and deploy to the lab environment, but the workflow is gated by the repository variable `ENABLE_HDS_LAB_DEPLOY=true` so it does not queue before the runner is online.
+
+Production deployments are manual only. The production workflow runs only from `main` on a self-hosted runner labeled `nexusops-prod`, reads its `.env` content from a production secret, validates the Compose config through `scripts/deploy.sh --config-only`, and then calls the shared deployment script.
 
 ## Automated Setup Scripts
 
@@ -25,22 +33,24 @@ Database behavior depends on the selected deployment mode:
 
 ## Docker Compose Deployment
 
-1. Copy `.env.example` to `.env`.
-2. Set strong local values:
+1. Copy `.env.production.example` to `.env` on the production host.
+2. Replace every `CHANGE_ME` value:
    - `SECRET_KEY`
    - `NEXUSOPS_MASTER_KEY`
    - `NEXUSOPS_ADMIN_USER`
    - `NEXUSOPS_ADMIN_EMAIL`
    - `NEXUSOPS_ADMIN_PASSWORD`
    - `POSTGRES_PASSWORD`
-3. For production-like testing, set:
+3. Confirm production settings:
    - `ENVIRONMENT=production`
    - `DEBUG=false`
    - `ENABLE_OPENAPI=false`
    - `ALLOW_INSECURE_DEV_SECRETS=false`
    - `ALLOW_INSECURE_DEV_TLS=false`
    - `PROXMOX_VERIFY_SSL=true`
-4. Start the stack:
+4. Set `CORS_ORIGINS` to the real browser origin, for example `["https://nexusops.example.com"]`.
+5. Keep `BACKEND_PORT=127.0.0.1:8000` unless the backend API must be reachable directly. The frontend nginx container proxies `/api/v1`, `/api/ws`, and remote access websocket paths to the backend over the Compose network.
+6. Start the stack:
 
 ```powershell
 .\scripts\start-docker.ps1 -Build
@@ -52,10 +62,22 @@ or:
 docker compose up -d --build
 ```
 
-5. Open the frontend at `http://localhost:5173`.
-6. Check backend health at `http://localhost:8000/api/v1/health`.
+7. Open the frontend at `http://localhost` or the configured external hostname.
+8. Check backend health locally at `http://127.0.0.1:8000/api/v1/health`.
 
 The backend container runs Alembic migrations during startup through `backend/docker-entrypoint.sh`.
+
+## Boot-Time Compose Service
+
+The template systemd unit at `deploy/systemd/nexusops-compose.service` starts the Compose stack at boot. Install it on the production host after the repository has been placed at `/opt/nexusops` and `.env` has been created there.
+
+```bash
+sudo cp deploy/systemd/nexusops-compose.service /etc/systemd/system/nexusops-compose.service
+sudo systemctl daemon-reload
+sudo systemctl enable --now nexusops-compose.service
+```
+
+The unit runs `docker compose up -d --remove-orphans` on start and `docker compose stop` on stop. Container-level `restart: unless-stopped` policies handle normal Docker restarts between system boots.
 
 ## Docker Update Flow
 
@@ -92,9 +114,11 @@ After updating, verify:
 
 Fully automated container updates are possible, but they should wait until image tagging, backup retention, rollback, migration checks, and post-update smoke tests are scripted.
 
-## Staging Runner Notes
+## HDS Lab Runner Notes
 
-The current GitHub staging workflow validates backend and frontend scripts on a self-hosted runner before deploying. Because the runner checkout may preserve files for speed, keep generated logs, screenshots, frontend `dist`, local SQLite files, and other local artifacts out of commits and periodically clean stale runner artifacts.
+The hds-lab workflow validates backend and frontend scripts on a self-hosted runner before deploying. It expects the runner to have the label `hds-lab`. Because the runner checkout may preserve files for speed, keep generated logs, screenshots, frontend `dist`, local SQLite files, and other local artifacts out of commits and periodically clean stale runner artifacts.
+
+Do not enable automatic development deployment until the host and runner are ready. Set the repository variable `ENABLE_HDS_LAB_DEPLOY=true` only after hds-lab is online and its environment secret has been configured.
 
 Recommended smoke-test priority during V1 stabilization:
 
