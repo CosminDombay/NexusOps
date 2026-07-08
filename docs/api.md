@@ -1,12 +1,12 @@
 # NexusOps API Overview
 
-Current date: 2026-06-21
+Current date: 2026-07-08
 
 NexusOps exposes its backend API under `/api/v1` by default. The prefix is configurable through `API_V1_PREFIX`.
 
 OpenAPI is available at `/api/v1/openapi.json` and Swagger UI at `/docs` when `ENABLE_OPENAPI=true` or the app is not running in production. In production, set `ENABLE_OPENAPI=false` if public API documentation should be hidden.
 
-This overview was refreshed against the versioned router map and feature routes on 2026-06-21. It remains a compact operator/developer guide rather than a generated endpoint reference; use Swagger/OpenAPI for request and response schemas.
+This overview was refreshed against the versioned router map and feature routes on 2026-07-08. It remains a compact operator/developer guide rather than a generated endpoint reference; use Swagger/OpenAPI for request and response schemas.
 
 ## Authentication
 
@@ -105,8 +105,10 @@ Provisioning uses Proxmox templates/cloud-init only. It registers Inventory befo
 
 - `GET/POST/PUT/DELETE /api/v1/packages`
 - package clone/reset/execute and bulk apply actions
+- package export/import actions for JSON and YAML NexusOps package documents
 - `GET/POST/PUT/DELETE /api/v1/profiles`
 - profile clone/reset/apply and bulk apply actions
+- profile export/import actions for JSON and YAML NexusOps profile documents
 - `GET /api/v1/workflows`
 - `GET /api/v1/workflows/{workflow_run_id}`
 - `GET/POST/PUT/DELETE /api/v1/automations`
@@ -118,15 +120,20 @@ Profiles can include package, action, deployment, raw command, Identity user, Id
 
 Package, profile, and automation execution can carry an execution/sudo credential reference where privileged Linux commands need sudo. Automations persist this reference so unattended scheduled runs use the same execution credential.
 
+Package and profile import/export uses versioned NexusOps documents. JSON is the canonical machine format and YAML is available for human-edited templates. Export documents include definitions, variables, steps, and credential references/placeholders, but not decrypted secret values. Import defaults to clone-on-conflict behavior so existing built-in or custom templates are not overwritten silently.
+
 ## Deployments
 
 - `GET/POST/PUT/DELETE /api/v1/deployments`
+- deployment definition export/import actions for JSON and YAML NexusOps deployment documents
 - `POST /api/v1/deployments/validate`
 - `GET /api/v1/deployments/{deployment_id}/dry-run`
 - deploy, redeploy, restart, stop
 - status, runtime refresh, and logs
 
 Docker Compose deployments persist definitions, revisions, targets, executions, target executions, runtime state, and redacted credential-backed env injection. Runtime refresh reconciles observed Docker state into persisted deployment target state.
+
+Deployment export/import moves the definition only. Exported documents include Compose content, non-secret env content, credential-backed environment references, and remote path. Import creates an untargeted planning draft for portability; execution/sudo credential references are cleared with a warning because they must be remapped to local Credential Manager records before runtime execution.
 
 Deployment validation and dry-run preview expose Compose validation, service names, selected targets, remote deployment paths, env keys, credential-backed env keys, execution/sudo credential presence, and redacted generated commands. Deployment reads include runtime stale markers, runtime age, failure reason, per-target container state, missing services, health, and sync drift.
 
@@ -137,8 +144,11 @@ Deployment validation and dry-run preview expose Compose validation, service nam
 - SSH key deployment/revocation
 - permission template CRUD/replication
 - access profiles, group presets, and permission presets
+- identity bundle export/import actions for JSON and YAML NexusOps identity bundle documents
 
 Identity is Linux infrastructure orchestration, not platform login federation. It uses Jobs for SSH execution, supports discovered user/group adoption, stores optional account password credential references for managed Linux users, passes selected password/SSH-password credentials into sudo-backed replication, and excludes the `root` account from orchestration.
+
+Identity bundle import/export covers managed Linux users, groups, SSH public keys, and permission templates. Import creates local records only and does not replicate them to hosts; operators can review the imported bundle and then run explicit replication through the Identity UI or profile steps.
 
 ## Remote Access
 

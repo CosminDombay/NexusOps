@@ -20,6 +20,9 @@ from backend.app.modules.deployments.repository import (
 from backend.app.modules.deployments.schemas import (
     DeploymentCreate,
     DeploymentDryRunRead,
+    DeploymentExportRead,
+    DeploymentImportRead,
+    DeploymentImportRequest,
     DeploymentLogsRead,
     DeploymentOperationRead,
     DeploymentRead,
@@ -28,6 +31,7 @@ from backend.app.modules.deployments.schemas import (
 )
 from backend.app.modules.deployments.service import (
     DeploymentNotFoundError,
+    DeploymentImportError,
     DeploymentValidationError,
     DockerComposeDeploymentService,
 )
@@ -84,6 +88,19 @@ async def create_deployment(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
 
 
+@router.post("/import", response_model=DeploymentImportRead, status_code=status.HTTP_201_CREATED)
+async def import_deployment(
+    payload: DeploymentImportRequest,
+    service: Annotated[DockerComposeDeploymentService, Depends(get_deployment_service)],
+) -> DeploymentImportRead:
+    try:
+        return await service.import_deployment(payload)
+    except DeploymentImportError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except DeploymentValidationError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+
+
 @router.post("/validate", response_model=DeploymentDryRunRead)
 async def validate_deployment_payload(
     payload: DeploymentCreate,
@@ -108,6 +125,17 @@ async def dry_run(
     operation: str = "deploy",
 ) -> DeploymentDryRunRead:
     return await _run(lambda: service.dry_run(deployment_id, operation))
+
+
+@router.get("/{deployment_id}/export", response_model=DeploymentExportRead)
+async def export_deployment(
+    deployment_id: UUID,
+    service: Annotated[DockerComposeDeploymentService, Depends(get_deployment_service)],
+    format: str = "json",
+) -> DeploymentExportRead:
+    if format not in {"json", "yaml"}:
+        raise HTTPException(status_code=422, detail="Export format must be json or yaml")
+    return await _run(lambda: service.export_deployment(deployment_id, format))
 
 
 @router.delete("/{deployment_id}", status_code=status.HTTP_204_NO_CONTENT)

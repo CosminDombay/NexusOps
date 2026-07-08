@@ -23,6 +23,9 @@ from backend.app.modules.identity.schemas import (
     GroupMembershipRead,
     GroupMembersRequest,
     GroupPresetRead,
+    IdentityBundleExportRead,
+    IdentityBundleImportRead,
+    IdentityBundleImportRequest,
     IdentityMutationRead,
     IdentityReplicationRead,
     LinuxGroupCreate,
@@ -47,6 +50,8 @@ from backend.app.modules.identity.schemas import (
 )
 from backend.app.modules.identity.service import (
     IdentityConflictError,
+    IdentityBundleService,
+    IdentityImportError,
     IdentityNotFoundError,
     IdentityPresetService,
     IdentityReplicationService,
@@ -111,6 +116,55 @@ async def get_permission_service(
 
 async def get_preset_service() -> IdentityPresetService:
     return IdentityPresetService()
+
+
+async def get_bundle_service(
+    session: Annotated[AsyncSession, Depends(get_db_session)],
+) -> IdentityBundleService:
+    replication_service = _replication_service(session)
+    credential_service = CredentialService(repository=CredentialRepository(session))
+    return IdentityBundleService(
+        user_service=LinuxUserService(
+            repository=LinuxUserRepository(session),
+            replication_service=replication_service,
+            credential_service=credential_service,
+        ),
+        group_service=LinuxGroupService(
+            repository=LinuxGroupRepository(session),
+            replication_service=replication_service,
+        ),
+        key_service=LinuxSSHKeyService(
+            repository=SSHKeyRepository(session),
+            replication_service=replication_service,
+        ),
+        permission_service=LinuxPermissionService(
+            repository=PermissionTemplateRepository(session),
+            replication_service=replication_service,
+        ),
+    )
+
+
+@router.get("/export", response_model=IdentityBundleExportRead)
+async def export_identity_bundle(
+    service: Annotated[IdentityBundleService, Depends(get_bundle_service)],
+    format: str = "json",
+) -> IdentityBundleExportRead:
+    if format not in {"json", "yaml"}:
+        raise HTTPException(status_code=422, detail="Export format must be json or yaml")
+    return await service.export_bundle(format)
+
+
+@router.post("/import", response_model=IdentityBundleImportRead, status_code=status.HTTP_201_CREATED)
+async def import_identity_bundle(
+    payload: IdentityBundleImportRequest,
+    service: Annotated[IdentityBundleService, Depends(get_bundle_service)],
+) -> IdentityBundleImportRead:
+    try:
+        return await service.import_bundle(payload)
+    except IdentityImportError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except IdentityConflictError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
 
 
 @router.get("/users", response_model=list[LinuxUserRead])

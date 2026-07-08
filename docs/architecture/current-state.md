@@ -173,6 +173,7 @@ The implemented system is focused on foundations, visibility, narrowly scoped pr
   - simple `{{ variable_name }}` command parameterization with execution-time inputs
   - runtime variables can be supplied from typed values or Credential Manager references
   - persisted job commands redacted when credential-backed runtime values are injected
+  - JSON/YAML import/export available from module pages and the centralized Data Exchange workspace
 - Infrastructure profiles:
   - Base Linux Server
   - Docker Host
@@ -189,6 +190,7 @@ The implemented system is focused on foundations, visibility, narrowly scoped pr
   - execution modal with normal runtime inputs and credential dropdowns for sensitive variables
   - move up/down and drag-and-drop step ordering in the editor
   - contextual create/edit drawer so profile authoring remains secondary to profile selection and execution
+  - JSON/YAML import/export available from module pages and the centralized Data Exchange workspace
 - Integrations:
   - persisted integration records for infrastructure providers, monitoring, networking, and database integrations
   - credential reference fields for API tokens and bearer-style auth secrets
@@ -201,8 +203,14 @@ The implemented system is focused on foundations, visibility, narrowly scoped pr
   - Monitoring runtime resolves enabled Prometheus, Grafana, and Loki integration records by explicit provider type
   - environment-backed monitoring settings remain fallback/bootstrap only
 - ESLint 9 flat configuration, TypeScript build, TailwindCSS, and Prettier configuration.
+- Data Exchange:
+  - operator-visible route for central package, profile, and deployment import/export
+  - admin-gated Identity bundle import/export in the same workspace
+  - file preview before import confirmation
+  - clone-on-conflict and create-only import policy selection
 - Docker Compose deployments:
   - deployment definitions with compose/env storage
+  - JSON/YAML deployment definition import/export for portable planning drafts
   - deployment executions and per-target execution records
   - credential-backed environment variables resolved server-side at deploy time
   - redacted deployment command history when secrets are injected into `.env`
@@ -247,6 +255,7 @@ The implemented system is focused on foundations, visibility, narrowly scoped pr
   - per-host execution history through Jobs and identity execution records
   - host-origin context for discovered users/groups in the Identity UI
   - guided access profiles for administrator, deployment, Docker, log viewer, read-only, and service-account workflows
+  - JSON/YAML identity bundle import/export for managed users, groups, SSH keys, and permission templates
   - distro-aware administrator group resolution
   - operational group presets and group discovery
   - permission presets, rwx matrix UI, and generated command previews
@@ -299,7 +308,7 @@ Inventory remains the source of managed execution targets. Jobs persist every co
 
 ### Package Definitions and Profiles
 
-Package definitions describe reusable install, uninstall, validation, variable, and metadata fields. Built-in package definitions provide starter standards, and custom definitions can be created for local workflows. Built-ins can also be edited as persisted working copies: the original code-defined template remains recoverable, while the persisted record carries `is_builtin`, `is_modified`, `base_version`, `source_template_id`, and `modified_at` metadata.
+Package definitions describe reusable install, uninstall, validation, variable, and metadata fields. Built-in package definitions provide starter standards, and custom definitions can be created for local workflows. Built-ins can also be edited as persisted working copies: the original code-defined template remains recoverable, while the persisted record carries `is_builtin`, `is_modified`, `base_version`, `source_template_id`, and `modified_at` metadata. Package definitions can be exported and imported as versioned JSON/YAML documents; imports default to clone-on-conflict behavior so existing templates are not overwritten silently.
 
 Profiles compose ordered package/action/deployment/Identity/command steps and apply them to inventory-managed hosts through the Jobs pipeline:
 
@@ -307,7 +316,7 @@ Profiles compose ordered package/action/deployment/Identity/command steps and ap
 Profile -> Package/Action/Deployment/Identity step -> Job -> SSH adapter -> managed Linux host
 ```
 
-Profile execution is synchronous and sequential for the MVP. Each step creates a persisted job or calls a module service that creates persisted Jobs. Profiles can be built from built-in actions, built-in packages, custom package definitions, Docker Compose deployments, managed Identity users/groups/permission templates, and raw command steps. Built-in profiles can be edited as persisted working copies, cloned into user-managed templates, or reset to the code-defined default.
+Profile execution is synchronous and sequential for the MVP. Each step creates a persisted job or calls a module service that creates persisted Jobs. Profiles can be built from built-in actions, built-in packages, custom package definitions, Docker Compose deployments, managed Identity users/groups/permission templates, and raw command steps. Built-in profiles can be edited as persisted working copies, cloned into user-managed templates, exported/imported as JSON/YAML documents, or reset to the code-defined default.
 
 Template variables use the intentionally small syntax `{{ variable_name }}`. Variables are resolved before Jobs execution using definition defaults, execution-time inputs, and server-side credential references. Operators can select Credential Manager records as runtime variable values for packages and profiles, which keeps reusable tokens such as a Tailscale auth key out of plaintext run forms. Sensitive variables marked `sensitive=true` must be supplied as `credential_refs`; plaintext sensitive variable values are rejected. This is not a full templating engine: NexusOps does not execute Jinja, Python, or arbitrary template logic.
 
@@ -514,6 +523,7 @@ The 2026-06-18 stabilization work focused on keeping the app steady for thesis v
 - Profile builder layout was widened and step controls were adjusted so target/type/credential controls fit better in dense profiles.
 - Docker deployments can now be saved as planned drafts with no selected target. Deployment create/edit no longer silently falls back to the first inventory host, and cards label no-target records as planning-only.
 - Docker deployment cards expose target lists and per-target runtime state for multi-host deployments.
+- Docker deployments can be exported/imported as versioned JSON/YAML documents. Imports create no-target planning drafts and clear execution/sudo credentials for local remapping.
 - Package uninstall commands are now executable through Jobs as explicit uninstall operations; package install remains install plus validation, while uninstall runs the uninstall command alone.
 - Search, credential references, and the universal Trash workflow were manually retested and worked in the remote test environment.
 - Credentials now use the universal Trash page for restore and purge, keeping one clear Trash entrypoint.
@@ -546,6 +556,8 @@ The 2026-06-21 review aligned the living documentation and local thesis use-case
 - Provisioning blueprints persist reusable provisioning defaults while keeping Proxmox VM templates as the provider-side base image.
 - Batch provisioning creates a parent batch record and normal child provisioning requests. Each generated VM still goes through the existing Proxmox clone, cloud-init, SSH readiness, Inventory registration, and optional bootstrap flow.
 - Docker Compose deployments reuse Jobs for deploy/redeploy/restart/stop/status/logs, resolve credential-backed env values server-side, and persist definition/execution/target-execution runtime separation. Application/env secrets and execution/sudo credentials are distinct concepts. Deployment definitions may exist as planned drafts without targets, but runtime operations require one or more managed inventory targets.
+- Data Exchange centralizes JSON/YAML import/export for packages, profiles, deployments, and admin-only Identity bundles with file preview and conflict policy selection.
+- Identity bundles can be exported/imported as versioned JSON/YAML documents. Imports create local desired-state records only and do not replicate Linux identity objects to hosts until an explicit Identity/profile operation runs.
 - Deployment API reads include derived operational metadata, per-target runtime state, runtime age, stale markers, failure reasons, and redacted dry-run previews while execution still flows through the existing Jobs pipeline.
 - Frontend create/edit/configuration workflows should prefer `ContextDrawer` or focused modals over permanent page-level forms.
 - Frontend operational pages should prefer shared page-header actions, operational toolbars, runtime badges, and collapsible action panels over page-local button/form patterns.

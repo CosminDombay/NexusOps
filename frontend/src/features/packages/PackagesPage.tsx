@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Download, Upload } from 'lucide-react';
 
 import { ContextDrawer } from '../../components/ContextDrawer';
 import { PageHeader } from '../../components/layout/PageHeader';
@@ -23,6 +24,8 @@ import {
   deletePackageDefinition,
   executePackageDefinition,
   executePackageDefinitionBulk,
+  exportPackageDefinition,
+  importPackageDefinition,
   listPackageDefinitions,
   resetPackageDefinition,
   updatePackageDefinition,
@@ -69,6 +72,7 @@ export function PackagesPage() {
   const [editingPackageId, setEditingPackageId] = useState<string | null>(null);
   const [isBuilderOpen, setIsBuilderOpen] = useState(false);
   const [search, setSearch] = useState('');
+  const importInputRef = useRef<HTMLInputElement | null>(null);
   const targetSelector = useTargetSelection('single');
   const filteredPackages = useMemo(
     () =>
@@ -244,6 +248,36 @@ export function PackagesPage() {
     }
   }
 
+  async function handleExportPackage(packageDefinition: PackageDefinition) {
+    try {
+      const exported = await exportPackageDefinition(packageDefinition.id, 'yaml');
+      downloadTextFile(exported.filename, exported.content, 'application/x-yaml');
+      setSuccess(`Exported package ${packageDefinition.name}.`);
+    } catch (caughtError) {
+      setError(getApiErrorMessage(caughtError));
+    }
+  }
+
+  async function handleImportPackage(file: File | null) {
+    if (!file) return;
+    setError(null);
+    setSuccess(null);
+    try {
+      const format = importFormatFromFile(file.name);
+      const imported = await importPackageDefinition(await file.text(), format);
+      setPackages((current) => [...current, imported.package]);
+      setSuccess(
+        `Imported package ${imported.package.name}${imported.status === 'cloned' ? ' as a clone' : ''}.`,
+      );
+    } catch (caughtError) {
+      setError(getApiErrorMessage(caughtError));
+    } finally {
+      if (importInputRef.current) {
+        importInputRef.current.value = '';
+      }
+    }
+  }
+
   function handleExecutePackage(packageDefinition: PackageDefinition, mode: PackageRunMode = 'install') {
     if (!selectedServerId && selectedServerIds.length === 0) {
       setError('Select one or more target hosts before running a package.');
@@ -307,9 +341,21 @@ export function PackagesPage() {
         title="Package Definitions"
         description="Reusable package standards that profiles can compose into orchestration workflows."
         actions={
-          <PageActionButton tone="secondary" onClick={() => setIsBuilderOpen(true)}>
-            Create package
-          </PageActionButton>
+          <div className="flex flex-wrap gap-2">
+            <PageActionButton icon={Upload} tone="secondary" onClick={() => importInputRef.current?.click()}>
+              Import
+            </PageActionButton>
+            <PageActionButton tone="secondary" onClick={() => setIsBuilderOpen(true)}>
+              Create package
+            </PageActionButton>
+            <input
+              ref={importInputRef}
+              accept=".json,.yaml,.yml,application/json,application/x-yaml,text/yaml"
+              className="hidden"
+              type="file"
+              onChange={(event) => void handleImportPackage(event.target.files?.[0] ?? null)}
+            />
+          </div>
         }
       />
 
@@ -380,6 +426,7 @@ export function PackagesPage() {
                 onClone={handleClonePackage}
                 onEdit={startEdit}
                 onExecute={handleExecutePackage}
+                onExport={handleExportPackage}
                 onReset={handleResetPackage}
               />
             ))}
@@ -560,6 +607,7 @@ function PackageCard({
   onClone,
   onEdit,
   onExecute,
+  onExport,
   onReset,
 }: {
   packageDefinition: PackageDefinition;
@@ -568,6 +616,7 @@ function PackageCard({
   onClone: (packageDefinition: PackageDefinition) => void;
   onEdit: (packageDefinition: PackageDefinition) => void;
   onExecute: (packageDefinition: PackageDefinition, mode?: PackageRunMode) => void;
+  onExport: (packageDefinition: PackageDefinition) => void;
   onReset: (packageDefinition: PackageDefinition) => void;
 }) {
   return (
@@ -640,6 +689,14 @@ function PackageCard({
           onClick={() => onClone(packageDefinition)}
         >
           Clone
+        </button>
+        <button
+          className="inline-flex items-center gap-2 rounded-md border border-zinc-300 px-3 py-2 text-sm font-semibold text-zinc-700 transition hover:bg-zinc-50"
+          type="button"
+          onClick={() => onExport(packageDefinition)}
+        >
+          <Download className="h-4 w-4" aria-hidden="true" />
+          Export
         </button>
         <button
           className="rounded-md border border-zinc-300 px-3 py-2 text-sm font-semibold text-zinc-700 transition hover:bg-zinc-50"
@@ -760,6 +817,20 @@ function splitCsv(value: string): string[] {
     .split(',')
     .map((item) => item.trim())
     .filter(Boolean);
+}
+
+function importFormatFromFile(filename: string): 'json' | 'yaml' {
+  return filename.toLowerCase().endsWith('.json') ? 'json' : 'yaml';
+}
+
+function downloadTextFile(filename: string, content: string, mimeType: string) {
+  const blob = new Blob([content], { type: mimeType });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = filename;
+  anchor.click();
+  URL.revokeObjectURL(url);
 }
 
 function LoadingGrid() {

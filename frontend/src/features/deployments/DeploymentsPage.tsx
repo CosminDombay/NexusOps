@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
   Activity,
+  Download,
   Eye,
   FileText,
   KeyRound,
@@ -14,6 +15,7 @@ import {
   Square,
   Terminal,
   Trash2,
+  Upload,
   X,
 } from 'lucide-react';
 
@@ -36,8 +38,10 @@ import {
   createDeployment,
   deleteDeployment,
   dryRunDeployment,
+  exportDeployment,
   getDeploymentLogs,
   getDeploymentStatus,
+  importDeployment,
   listDeployments,
   markDeploymentPlanned,
   refreshDeploymentRuntime,
@@ -90,10 +94,12 @@ export function DeploymentsPage() {
   const [inspectOutput, setInspectOutput] = useState('');
   const [dryRunPreview, setDryRunPreview] = useState<DeploymentDryRun | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isWorking, setIsWorking] = useState(false);
   const [editingDeploymentId, setEditingDeploymentId] = useState<string | null>(null);
   const [search, setSearch] = useState('');
+  const importInputRef = useRef<HTMLInputElement | null>(null);
 
   const selectedDeployment =
     deployments.find((deployment) => deployment.id === selectedDeploymentId) ??
@@ -223,6 +229,7 @@ export function DeploymentsPage() {
     }
     setIsWorking(true);
     setError(null);
+    setSuccess(null);
     try {
       const payload = deploymentPayload(targets);
       if (editingDeploymentId) {
@@ -239,6 +246,7 @@ export function DeploymentsPage() {
       }
       setDrawerMode(null);
       resetForm();
+      setSuccess(`Saved deployment ${payload.name}.`);
     } catch (caughtError) {
       setError(getApiErrorMessage(caughtError));
     } finally {
@@ -257,6 +265,7 @@ export function DeploymentsPage() {
     }
     setIsWorking(true);
     setError(null);
+    setSuccess(null);
     try {
       setDryRunPreview(await validateDeploymentPayload(deploymentPayload(targets)));
     } catch (caughtError) {
@@ -277,6 +286,7 @@ export function DeploymentsPage() {
     setSelectedDeploymentId(deployment.id);
     setIsWorking(true);
     setError(null);
+    setSuccess(null);
     try {
       const result = await runDeploymentOperation(deployment.id, operation);
       setDeployments((current) =>
@@ -294,6 +304,7 @@ export function DeploymentsPage() {
     setSelectedDeploymentId(deployment.id);
     setIsWorking(true);
     setError(null);
+    setSuccess(null);
     try {
       const preview = await dryRunDeployment(deployment.id);
       setInspectOutput(formatDryRunPreview(preview));
@@ -308,6 +319,7 @@ export function DeploymentsPage() {
     setSelectedDeploymentId(deployment.id);
     setIsWorking(true);
     setError(null);
+    setSuccess(null);
     try {
       const result = await getDeploymentStatus(deployment.id);
       setInspectOutput(formatJobsOutput(result.jobs.length ? result.jobs : result.job ? [result.job] : []));
@@ -326,6 +338,7 @@ export function DeploymentsPage() {
     setSelectedDeploymentId(deployment.id);
     setIsWorking(true);
     setError(null);
+    setSuccess(null);
     try {
       const refreshed = await refreshDeploymentRuntime(deployment.id);
       setDeployments((current) =>
@@ -347,6 +360,7 @@ export function DeploymentsPage() {
     setSelectedDeploymentId(deployment.id);
     setIsWorking(true);
     setError(null);
+    setSuccess(null);
     try {
       const planned = await markDeploymentPlanned(deployment.id);
       setDeployments((current) =>
@@ -364,6 +378,7 @@ export function DeploymentsPage() {
     setSelectedDeploymentId(deployment.id);
     setIsWorking(true);
     setError(null);
+    setSuccess(null);
     try {
       const result = await getDeploymentLogs(deployment.id);
       setLogs(result.logs || formatJobsOutput(result.jobs.length ? result.jobs : result.job ? [result.job] : []));
@@ -388,10 +403,49 @@ export function DeploymentsPage() {
       setSelectedDeploymentId(nextDeployments[0]?.id ?? '');
       setLogs('');
       setInspectOutput('');
+      setSuccess(`Deleted deployment ${deployment.name}.`);
     } catch (caughtError) {
       setError(getApiErrorMessage(caughtError));
     } finally {
       setIsWorking(false);
+    }
+  }
+
+  async function handleExportDeployment(deployment: Deployment) {
+    setError(null);
+    setSuccess(null);
+    try {
+      const exported = await exportDeployment(deployment.id, 'yaml');
+      downloadTextFile(exported.filename, exported.content, 'application/x-yaml');
+      setSuccess(`Exported deployment ${deployment.name}.`);
+    } catch (caughtError) {
+      setError(getApiErrorMessage(caughtError));
+    }
+  }
+
+  async function handleImportDeployment(file: File | null) {
+    if (!file) return;
+    setIsWorking(true);
+    setError(null);
+    setSuccess(null);
+    try {
+      const format = importFormatFromFile(file.name);
+      const imported = await importDeployment(await file.text(), format);
+      setDeployments((current) => [imported.deployment, ...current]);
+      setSelectedDeploymentId(imported.deployment.id);
+      setSuccess(
+        `Imported deployment ${imported.deployment.name}${imported.status === 'cloned' ? ' as a clone' : ''}.`,
+      );
+      if (imported.warnings.length) {
+        setInspectOutput(imported.warnings.join('\n'));
+      }
+    } catch (caughtError) {
+      setError(getApiErrorMessage(caughtError));
+    } finally {
+      setIsWorking(false);
+      if (importInputRef.current) {
+        importInputRef.current.value = '';
+      }
     }
   }
 
@@ -416,12 +470,22 @@ export function DeploymentsPage() {
         description="Operational Compose services deployed to inventory-managed Linux hosts."
         actions={
           <>
+            <PageActionButton icon={Upload} tone="secondary" onClick={() => importInputRef.current?.click()}>
+              Import
+            </PageActionButton>
             <PageActionButton icon={RefreshCw} tone="secondary" onClick={() => void refresh()}>
               Refresh
             </PageActionButton>
             <PageActionButton icon={Plus} onClick={openCreateDrawer}>
               Create deployment
             </PageActionButton>
+            <input
+              ref={importInputRef}
+              accept=".json,.yaml,.yml,application/json,application/x-yaml,text/yaml"
+              className="hidden"
+              type="file"
+              onChange={(event) => void handleImportDeployment(event.target.files?.[0] ?? null)}
+            />
           </>
         }
       />
@@ -429,6 +493,11 @@ export function DeploymentsPage() {
       {error ? (
         <div className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
           {error}
+        </div>
+      ) : null}
+      {success ? (
+        <div className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
+          {success}
         </div>
       ) : null}
 
@@ -489,6 +558,7 @@ export function DeploymentsPage() {
             onMarkPlanned={markPlanned}
             onLogs={loadLogs}
             onPreview={previewSavedDeployment}
+            onExport={handleExportDeployment}
             onEdit={openEditDrawer}
             onDelete={handleDeleteDeployment}
           />
@@ -556,6 +626,7 @@ function DeploymentCard({
   onMarkPlanned,
   onLogs,
   onPreview,
+  onExport,
   onEdit,
   onDelete,
 }: {
@@ -569,6 +640,7 @@ function DeploymentCard({
   onMarkPlanned: (deployment: Deployment) => Promise<void>;
   onLogs: (deployment: Deployment) => Promise<void>;
   onPreview: (deployment: Deployment) => Promise<void>;
+  onExport: (deployment: Deployment) => Promise<void>;
   onEdit: (deployment: Deployment) => void;
   onDelete: (deployment: Deployment) => Promise<void>;
 }) {
@@ -684,6 +756,12 @@ function DeploymentCard({
           label="Preview"
           disabled={isWorking}
           onClick={() => void onPreview(deployment)}
+        />
+        <ActionButton
+          icon={Download}
+          label="Export"
+          disabled={isWorking}
+          onClick={() => void onExport(deployment)}
         />
         <ActionButton
           icon={Pencil}
@@ -1278,6 +1356,20 @@ function formatJobsOutput(jobs: Job[]): string {
         .join('\n'),
     )
     .join('\n\n');
+}
+
+function importFormatFromFile(filename: string): 'json' | 'yaml' {
+  return filename.toLowerCase().endsWith('.json') ? 'json' : 'yaml';
+}
+
+function downloadTextFile(filename: string, content: string, mimeType: string) {
+  const blob = new Blob([content], { type: mimeType });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = filename;
+  anchor.click();
+  URL.revokeObjectURL(url);
 }
 
 function formatDryRunPreview(preview: DeploymentDryRun): string {

@@ -210,3 +210,30 @@ class ProfileBulkApplyRead(BaseModel):
     success_count: int
     failure_count: int
     results: list[ProfileBulkHostResult]
+
+
+class InfrastructureProfileExportRead(BaseModel):
+    filename: str
+    format: Literal["json", "yaml"]
+    content: str
+
+
+class InfrastructureProfileImportRequest(BaseModel):
+    content: str = Field(min_length=1, max_length=120_000)
+    format: Literal["json", "yaml"] = "json"
+    strategy: Literal["create", "clone_on_conflict"] = "clone_on_conflict"
+    clone_suffix: str = Field(default="import", min_length=1, max_length=40)
+
+    @field_validator("clone_suffix")
+    @classmethod
+    def normalize_clone_suffix(cls, value: str) -> str:
+        cleaned = value.strip().strip("-")
+        if not cleaned:
+            raise ValueError("Clone suffix cannot be blank")
+        return cleaned
+
+
+class InfrastructureProfileImportRead(BaseModel):
+    profile: InfrastructureProfileRead
+    status: Literal["created", "cloned"]
+    warnings: list[str] = Field(default_factory=list)

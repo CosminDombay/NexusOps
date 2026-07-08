@@ -86,3 +86,15 @@ export type ApplyProfileBulkResult = {
     error: string | null;
   }>;
 };
+
+export type InfrastructureProfileExport = {
+  filename: string;
+  format: 'json' | 'yaml';
+  content: string;
+};
+
+export type InfrastructureProfileImportResult = {
+  profile: InfrastructureProfile;
+  status: 'created' | 'cloned';
+  warnings: string[];
+};

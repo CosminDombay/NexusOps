@@ -5,6 +5,7 @@ from uuid import UUID
 
 import structlog
 
+from backend.app.common.import_export import ImportExportError, parse_document, render_document
 from backend.app.common.constants import InventoryHealthStatus
 from backend.app.modules.deployments.models import (
     Deployment,
@@ -27,6 +28,9 @@ from backend.app.modules.deployments.schemas import (
     DeploymentCreate,
     DeploymentDryRunRead,
     DeploymentDryRunTargetRead,
+    DeploymentExportRead,
+    DeploymentImportRead,
+    DeploymentImportRequest,
     DeploymentLogsRead,
     DeploymentExecutionRead,
     DeploymentOperationRead,
@@ -73,6 +77,13 @@ class DeploymentNotFoundError(Exception):
 
 class DeploymentValidationError(Exception):
     """Raised when a deployment request is invalid."""
+
+
+class DeploymentImportError(Exception):
+    """Raised when a deployment import document is invalid."""
+
+
+EXPORT_VERSION = 1
 
 
 class DeploymentStatusRollupService:
@@ -285,6 +296,68 @@ class DockerComposeDeploymentService:
             )
         await self.repository.session.commit()
         return await self._to_read(deployment)
+
+    async def export_deployment(self, deployment_id: UUID, document_format: str = "json") -> DeploymentExportRead:
+        deployment = await self.repository.get_by_id(deployment_id)
+        if deployment is None:
+            raise DeploymentNotFoundError("Deployment not found")
+        payload = {
+            "kind": "nexusops.deployment",
+            "version": EXPORT_VERSION,
+            "deployment": {
+                "name": deployment.name,
+                "description": deployment.description,
+                "compose_content": deployment.compose_content,
+                "env_content": deployment.env_content,
+                "credential_refs": deployment.credential_refs,
+                "execution_credential_ref": deployment.execution_credential_ref,
+                "remote_path": deployment.remote_path,
+            },
+        }
+        extension = "yaml" if document_format == "yaml" else "json"
+        return DeploymentExportRead(
+            filename=f"{self._filename_slug(deployment.name)}.deployment.{extension}",
+            format=document_format,
+            content=render_document(payload, document_format),  # type: ignore[arg-type]
+        )
+
+    async def import_deployment(self, payload: DeploymentImportRequest) -> DeploymentImportRead:
+        try:
+            document = parse_document(payload.content, payload.format)  # type: ignore[arg-type]
+        except ImportExportError as exc:
+            raise DeploymentImportError(str(exc)) from exc
+        if document.get("kind") != "nexusops.deployment":
+            raise DeploymentImportError("Import document kind must be nexusops.deployment")
+        if document.get("version") != EXPORT_VERSION:
+            raise DeploymentImportError(f"Unsupported deployment import version: {document.get('version')}")
+        if not isinstance(document.get("deployment"), dict):
+            raise DeploymentImportError("Import document must contain a deployment object")
+
+        deployment_data = dict(document["deployment"])
+        warnings: list[str] = []
+        if deployment_data.get("execution_credential_ref"):
+            deployment_data["execution_credential_ref"] = None
+            warnings.append("Execution credential reference was cleared and must be selected in this environment.")
+        deployment_data["target_server_id"] = None
+        deployment_data["target_server_ids"] = []
+        try:
+            create_payload = DeploymentCreate.model_validate(deployment_data)
+        except ValueError as exc:
+            raise DeploymentImportError("Deployment import document failed validation") from exc
+        if await self._deployment_name_exists(create_payload.name):
+            if payload.strategy == "create":
+                raise DeploymentValidationError("Deployment already exists")
+            create_payload = create_payload.model_copy(
+                update={"name": await self._next_available_import_name(create_payload.name, payload.clone_suffix)}
+            )
+            status = "cloned"
+        else:
+            status = "created"
+        return DeploymentImportRead(
+            deployment=await self.create_deployment(create_payload),
+            status=status,
+            warnings=warnings,
+        )
 
     async def delete_deployment(self, deployment_id: UUID) -> None:
         deployment = await self.repository.get_by_id(deployment_id)
@@ -663,6 +736,23 @@ class DockerComposeDeploymentService:
         }:
             raise JobTargetNotManagedError("Target server is not managed")
         return server
+
+    async def _deployment_name_exists(self, name: str) -> bool:
+        return any(deployment.name == name for deployment in await self.repository.list(include_deleted=True))
+
+    async def _next_available_import_name(self, name: str, suffix: str) -> str:
+        base = f"{name} {suffix.title()}"
+        candidate = base
+        counter = 2
+        while await self._deployment_name_exists(candidate):
+            candidate = f"{base} {counter}"
+            counter += 1
+        return candidate
+
+    @staticmethod
+    def _filename_slug(value: str) -> str:
+        slug = re.sub(r"[^a-zA-Z0-9_-]+", "-", value.strip().lower()).strip("-")
+        return slug or "deployment"
 
     async def _to_read(
         self,

@@ -171,3 +171,18 @@ export type ApplyPermissionPayload = {
 };
 
 export type PermissionTemplatePayload = Omit<ApplyPermissionPayload, 'target_server_ids'>;
+
+export type IdentityBundleExport = {
+  filename: string;
+  format: 'json' | 'yaml';
+  content: string;
+};
+
+export type IdentityBundleImportResult = {
+  users: LinuxUser[];
+  groups: LinuxGroup[];
+  ssh_keys: SSHKey[];
+  permissions: PermissionTemplate[];
+  status: 'created' | 'cloned';
+  warnings: string[];
+};

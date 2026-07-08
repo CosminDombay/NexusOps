@@ -10,6 +10,8 @@ import type {
   GroupPreset,
   GroupMembership,
   CreateSSHKeyPayload,
+  IdentityBundleExport,
+  IdentityBundleImportResult,
   IdentityMutationResponse,
   LinuxGroup,
   LinuxUser,
@@ -22,6 +24,26 @@ import type {
   UpdateLinuxGroupPayload,
   UserGroupMembership,
 } from '../types/identity';
+
+export async function exportIdentityBundle(format: 'json' | 'yaml' = 'json'): Promise<IdentityBundleExport> {
+  const response = await apiClient.get<IdentityBundleExport>('/identity/export', {
+    params: { format },
+  });
+  return response.data;
+}
+
+export async function importIdentityBundle(
+  content: string,
+  format: 'json' | 'yaml',
+  strategy: 'create' | 'clone_on_conflict' = 'clone_on_conflict',
+): Promise<IdentityBundleImportResult> {
+  const response = await apiClient.post<IdentityBundleImportResult>('/identity/import', {
+    content,
+    format,
+    strategy,
+  });
+  return response.data;
+}
 
 export async function listAccessProfiles(): Promise<AccessProfile[]> {
   const response = await apiClient.get<AccessProfile[]>('/identity/access-profiles');

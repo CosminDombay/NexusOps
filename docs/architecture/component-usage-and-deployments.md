@@ -14,6 +14,20 @@ Most operational work follows this path:
 
 Jobs are the runtime execution authority. Higher-level domains coordinate, schedule, group, or explain work, but executable host operations should resolve back into Jobs.
 
+## Data Exchange
+
+Data Exchange is the centralized workspace for portable NexusOps documents.
+
+Use it for:
+
+- exporting selected package, profile, and deployment definitions
+- importing package, profile, deployment, and Identity bundle JSON/YAML documents
+- previewing imported files before creating records
+- choosing whether imports clone conflicting records or fail on conflict
+- reviewing warnings about credential references, planning drafts, and local remapping
+
+Identity bundle actions remain admin-only. Package, profile, and deployment actions are operator-accessible and mirror the same import/export endpoints exposed on the individual module pages.
+
 ## Inventory
 
 Inventory is the target abstraction for operational work. A host must be inventory-managed before Jobs, Packages, Profiles, Deployments, Identity actions, or Remote Access should operate against it.
@@ -62,6 +76,7 @@ Use packages when a single reusable executable unit should run against one host,
 Setup checklist:
 
 - choose a built-in package or create a custom package
+- import a versioned package document when reusing a package from another NexusOps environment
 - define variables for values that differ per execution
 - keep template substitution simple with `{{ variable_name }}`
 - use Credential Manager references for sensitive variables instead of plaintext values
@@ -82,7 +97,8 @@ Operational notes:
 - profile steps still execute through Jobs internally
 - optional workflow-backed execution can provide workflow and step visibility
 - profile execution should be reviewed through job links, profile summaries, and workflow timeline when present
-- large profiles are currently edited step-by-step; profile import/export and a bulk step editor are deferred until after thesis presentation to avoid destabilizing the app during validation
+- profiles can be exported/imported as versioned JSON/YAML documents; imports preserve credential references/placeholders but never contain decrypted secret values
+- large profiles are currently edited step-by-step; a bulk step editor remains a future improvement
 
 ## Workflows
 
@@ -112,6 +128,7 @@ Use deployments for:
 Setup checklist:
 
 - create the deployment definition
+- import a versioned deployment document when moving a Compose definition from another NexusOps environment
 - provide Docker Compose content or the expected deployment payload
 - configure deployment variables and secret-backed environment values
 - select an execution/sudo credential separately from application environment secrets when Docker commands need sudo
@@ -124,7 +141,22 @@ Deployment operations should preserve revision history, target execution records
 
 Deployment definitions with no targets are planning records only. They can be previewed and edited, but deploy, restart, stop, status, logs, and runtime refresh require one or more managed inventory targets.
 
+Deployment import/export moves definitions, not runtime history. Imported deployment documents are saved as no-target planning drafts, keep application environment credential references as placeholders, and require local remapping of execution/sudo credentials before runtime execution.
+
 Deployment record deletion currently removes the NexusOps control-plane record and history only. Future adoption/removal work should add explicit Compose discovery, adoption of existing projects, and destructive machine-side removal that runs Compose down and optionally removes remote files.
+
+## Identity Bundles
+
+Identity bundles move local Linux identity templates between NexusOps environments.
+
+Use identity bundle import/export for:
+
+- managed Linux user templates
+- managed Linux group templates
+- SSH public key records
+- filesystem permission templates
+
+Imported identity bundles create local desired-state records only. They do not replicate users, groups, SSH keys, or permissions to Linux hosts until an operator selects targets and runs explicit Identity replication or profile execution.
 
 ## Automations
 

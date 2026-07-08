@@ -198,3 +198,15 @@ export type DeploymentDryRun = {
   env_keys: string[];
   credential_env_keys: string[];
 };
+
+export type DeploymentExport = {
+  filename: string;
+  format: 'json' | 'yaml';
+  content: string;
+};
+
+export type DeploymentImportResult = {
+  deployment: Deployment;
+  status: 'created' | 'cloned';
+  warnings: string[];
+};

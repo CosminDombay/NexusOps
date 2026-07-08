@@ -1,5 +1,15 @@
 import { apiClient } from '../../../lib/api/client';
-import type { CreateDeploymentPayload, Deployment, DeploymentDryRun, DeploymentLogs, DeploymentOperation, DeploymentStatusResult, UpdateDeploymentPayload } from '../types/deployment';
+import type {
+  CreateDeploymentPayload,
+  Deployment,
+  DeploymentDryRun,
+  DeploymentExport,
+  DeploymentImportResult,
+  DeploymentLogs,
+  DeploymentOperation,
+  DeploymentStatusResult,
+  UpdateDeploymentPayload,
+} from '../types/deployment';
 
 export async function listDeployments(filters: { serverId?: string } = {}): Promise<Deployment[]> {
   const response = await apiClient.get<Deployment[]>('/deployments', {
@@ -19,6 +29,29 @@ export async function deleteDeployment(deploymentId: string): Promise<void> {
 
 export async function updateDeployment(deploymentId: string, payload: UpdateDeploymentPayload): Promise<Deployment> {
   const response = await apiClient.put<Deployment>(`/deployments/${deploymentId}`, payload);
+  return response.data;
+}
+
+export async function exportDeployment(
+  deploymentId: string,
+  format: 'json' | 'yaml' = 'json',
+): Promise<DeploymentExport> {
+  const response = await apiClient.get<DeploymentExport>(`/deployments/${deploymentId}/export`, {
+    params: { format },
+  });
+  return response.data;
+}
+
+export async function importDeployment(
+  content: string,
+  format: 'json' | 'yaml',
+  strategy: 'create' | 'clone_on_conflict' = 'clone_on_conflict',
+): Promise<DeploymentImportResult> {
+  const response = await apiClient.post<DeploymentImportResult>('/deployments/import', {
+    content,
+    format,
+    strategy,
+  });
   return response.data;
 }
 

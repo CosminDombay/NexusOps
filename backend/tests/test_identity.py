@@ -178,6 +178,81 @@ def test_identity_router_lists_users(client) -> None:
     assert response.json() == []
 
 
+def test_identity_router_exports_and_imports_bundle_with_clone_on_conflict(client) -> None:
+    user_response = client.post(
+        "/api/v1/identity/users",
+        json={
+            "username": "bundleuser",
+            "shell": "/bin/bash",
+            "password_credential_ref": None,
+            "sudo_enabled": True,
+            "sudo_nopasswd": False,
+            "locked": False,
+            "managed": True,
+            "supplementary_groups": ["bundlegroup"],
+            "target_server_ids": [],
+        },
+    )
+    assert user_response.status_code == 201
+
+    group_response = client.post(
+        "/api/v1/identity/groups",
+        json={
+            "name": "bundlegroup",
+            "description": "Bundle group.",
+            "members": ["bundleuser"],
+            "managed": True,
+            "target_server_ids": [],
+        },
+    )
+    assert group_response.status_code == 201
+
+    key_response = client.post(
+        "/api/v1/identity/ssh-keys",
+        json={
+            "name": "bundle-key",
+            "public_key": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAICiqpLws4k0uTLP4GdDXhUIIcb3HP0H4VgTV3tFzvX8M bundle",
+            "assigned_username": "bundleuser",
+            "description": "Bundle key.",
+        },
+    )
+    assert key_response.status_code == 201
+
+    permission_response = client.post(
+        "/api/v1/identity/permissions",
+        json={
+            "path": "/opt/bundle-app",
+            "owner": "bundleuser",
+            "group": "bundlegroup",
+            "mode": "0750",
+            "recursive": False,
+            "description": "Bundle permission.",
+        },
+    )
+    assert permission_response.status_code == 201
+
+    export_response = client.get("/api/v1/identity/export?format=yaml")
+
+    assert export_response.status_code == 200
+    export_body = export_response.json()
+    assert export_body["filename"] == "identity-bundle.yaml"
+    assert export_body["format"] == "yaml"
+    assert "kind: nexusops.identity_bundle" in export_body["content"]
+
+    import_response = client.post(
+        "/api/v1/identity/import",
+        json={"content": export_body["content"], "format": "yaml"},
+    )
+
+    assert import_response.status_code == 201
+    import_body = import_response.json()
+    assert import_body["status"] == "cloned"
+    assert [user["username"] for user in import_body["users"]] == ["bundleuser-import"]
+    assert [group["name"] for group in import_body["groups"]] == ["bundlegroup-import"]
+    assert [key["name"] for key in import_body["ssh_keys"]] == ["bundle-key Import"]
+    assert [permission["path"] for permission in import_body["permissions"]] == ["/opt/bundle-app-import"]
+
+
 @pytest.mark.asyncio
 async def test_identity_discovery_parses_existing_users_and_groups(client) -> None:
     session = next(iter(client.app.dependency_overrides.values()))

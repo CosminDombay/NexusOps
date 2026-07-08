@@ -29,6 +29,7 @@ const navGroups = [
       { to: '/packages', label: 'Packages', minimumRole: 'operator' },
       { to: '/profiles', label: 'Profiles', minimumRole: 'operator' },
       { to: '/deployments', label: 'Deployments', minimumRole: 'operator' },
+      { to: '/data-exchange', label: 'Data Exchange', minimumRole: 'operator' },
       { to: '/identity', label: 'Identity', minimumRole: 'admin' },
       { to: '/monitoring', label: 'Monitoring', minimumRole: 'viewer' },
       { to: '/settings/integrations', label: 'Integrations', minimumRole: 'admin' },

@@ -4,6 +4,7 @@ from uuid import UUID
 
 from sqlalchemy.exc import IntegrityError
 
+from backend.app.common.import_export import ImportExportError, parse_document, render_document
 from backend.app.modules.credentials.service import CredentialService
 from backend.app.modules.identity.models import (
     IdentityExecution,
@@ -29,6 +30,10 @@ from backend.app.modules.identity.schemas import (
     GroupMemberHostRead,
     GroupMembershipRead,
     GroupPresetRead,
+    IdentityBundleExportRead,
+    IdentityBundleImportRead,
+    IdentityBundleImportRequest,
+    IdentityBundleDocument,
     IdentityMutationRead,
     IdentityReplicationRead,
     LinuxGroupCreate,
@@ -71,7 +76,12 @@ class IdentityValidationError(Exception):
     """Raised when an identity operation is invalid."""
 
 
+class IdentityImportError(Exception):
+    """Raised when an identity import document is invalid."""
+
+
 PROTECTED_LINUX_USERS = {"root"}
+EXPORT_VERSION = 1
 
 
 class IdentityPresetService:
@@ -175,6 +185,204 @@ class IdentityPresetService:
             PermissionPresetRead(id="public-writable", name="Public Writable", mode="0777", description="Writable by everyone. Use only for temporary lab paths."),
             PermissionPresetRead(id="custom", name="Custom", mode="0755", description="Use the permission matrix or raw octal mode."),
         ]
+
+
+class IdentityBundleService:
+    """Exports and imports local Identity templates without remote replication."""
+
+    def __init__(
+        self,
+        *,
+        user_service: "LinuxUserService",
+        group_service: "LinuxGroupService",
+        key_service: "LinuxSSHKeyService",
+        permission_service: "LinuxPermissionService",
+    ) -> None:
+        self.user_service = user_service
+        self.group_service = group_service
+        self.key_service = key_service
+        self.permission_service = permission_service
+
+    async def export_bundle(self, document_format: str = "json") -> IdentityBundleExportRead:
+        users = await self.user_service.list_users()
+        groups = await self.group_service.list_groups()
+        keys = await self.key_service.list_keys()
+        permissions = await self.permission_service.list_templates()
+        payload = {
+            "kind": "nexusops.identity_bundle",
+            "version": EXPORT_VERSION,
+            "identity": {
+                "users": [
+                    {
+                        "username": user.username,
+                        "shell": user.shell,
+                        "home_directory": user.home_directory,
+                        "password_credential_ref": user.password_credential_ref,
+                        "sudo_enabled": user.sudo_enabled,
+                        "sudo_nopasswd": user.sudo_nopasswd,
+                        "locked": user.locked,
+                        "managed": user.managed,
+                        "supplementary_groups": [],
+                        "target_server_ids": [],
+                    }
+                    for user in users
+                ],
+                "groups": [
+                    {
+                        "name": group.name,
+                        "description": group.description,
+                        "members": group.members,
+                        "managed": group.managed,
+                        "target_server_ids": [],
+                    }
+                    for group in groups
+                ],
+                "ssh_keys": [
+                    {
+                        "name": key.name,
+                        "public_key": key.public_key,
+                        "assigned_username": key.assigned_username,
+                        "description": key.description,
+                    }
+                    for key in keys
+                ],
+                "permissions": [
+                    {
+                        "path": permission.path,
+                        "owner": permission.owner,
+                        "group": permission.group,
+                        "mode": permission.mode,
+                        "recursive": permission.recursive,
+                        "description": permission.description,
+                    }
+                    for permission in permissions
+                ],
+            },
+        }
+        extension = "yaml" if document_format == "yaml" else "json"
+        return IdentityBundleExportRead(
+            filename=f"identity-bundle.{extension}",
+            format=document_format,
+            content=render_document(payload, document_format),  # type: ignore[arg-type]
+        )
+
+    async def import_bundle(self, payload: IdentityBundleImportRequest) -> IdentityBundleImportRead:
+        try:
+            document = parse_document(payload.content, payload.format)  # type: ignore[arg-type]
+        except ImportExportError as exc:
+            raise IdentityImportError(str(exc)) from exc
+        if document.get("kind") != "nexusops.identity_bundle":
+            raise IdentityImportError("Import document kind must be nexusops.identity_bundle")
+        if document.get("version") != EXPORT_VERSION:
+            raise IdentityImportError(f"Unsupported identity import version: {document.get('version')}")
+        if not isinstance(document.get("identity"), dict):
+            raise IdentityImportError("Import document must contain an identity object")
+        try:
+            bundle = IdentityBundleDocument.model_validate(document["identity"])
+        except ValueError as exc:
+            raise IdentityImportError("Identity import document failed validation") from exc
+
+        warnings: list[str] = []
+        imported_users: list[LinuxUserRead] = []
+        imported_groups: list[LinuxGroupRead] = []
+        imported_keys: list[SSHKeyRead] = []
+        imported_permissions: list[PermissionTemplateRead] = []
+        cloned = False
+
+        for item in bundle.users:
+            user_payload = item.model_copy(update={"target_server_ids": [], "execution_credential_ref": None})
+            if user_payload.password_credential_ref:
+                warnings.append(f"User {user_payload.username} keeps password credential reference; verify it exists locally before replication.")
+            if await self.user_service.repository.get_by_username(user_payload.username):
+                if payload.strategy == "create":
+                    raise IdentityConflictError(f"Linux user {user_payload.username} already exists")
+                user_payload = user_payload.model_copy(
+                    update={"username": await self._next_username(user_payload.username, payload.clone_suffix)}
+                )
+                cloned = True
+            imported_users.append((await self.user_service.create_user(user_payload)).item)  # type: ignore[arg-type]
+
+        for item in bundle.groups:
+            group_payload = item.model_copy(update={"target_server_ids": [], "credential_ref": None})
+            if await self.group_service.repository.get_by_name(group_payload.name):
+                if payload.strategy == "create":
+                    raise IdentityConflictError(f"Linux group {group_payload.name} already exists")
+                group_payload = group_payload.model_copy(
+                    update={"name": await self._next_group_name(group_payload.name, payload.clone_suffix)}
+                )
+                cloned = True
+            imported_groups.append((await self.group_service.create_group(group_payload)).item)  # type: ignore[arg-type]
+
+        for item in bundle.ssh_keys:
+            key_payload = item
+            if await self._ssh_key_name_exists(key_payload.name):
+                if payload.strategy == "create":
+                    raise IdentityConflictError(f"SSH key {key_payload.name} already exists")
+                key_payload = key_payload.model_copy(
+                    update={"name": await self._next_ssh_key_name(key_payload.name, payload.clone_suffix)}
+                )
+                cloned = True
+            imported_keys.append(await self.key_service.create_key(key_payload))
+
+        for item in bundle.permissions:
+            permission_payload = item
+            if await self._permission_path_exists(permission_payload.path):
+                if payload.strategy == "create":
+                    raise IdentityConflictError(f"Permission template {permission_payload.path} already exists")
+                permission_payload = permission_payload.model_copy(
+                    update={"path": await self._next_permission_path(permission_payload.path, payload.clone_suffix)}
+                )
+                cloned = True
+            imported_permissions.append(await self.permission_service.create_template(permission_payload))
+
+        return IdentityBundleImportRead(
+            users=imported_users,
+            groups=imported_groups,
+            ssh_keys=imported_keys,
+            permissions=imported_permissions,
+            status="cloned" if cloned else "created",
+            warnings=warnings,
+        )
+
+    async def _next_username(self, username: str, suffix: str) -> str:
+        return await self._next_linux_name(username, suffix, self.user_service.repository.get_by_username)
+
+    async def _next_group_name(self, name: str, suffix: str) -> str:
+        return await self._next_linux_name(name, suffix, self.group_service.repository.get_by_name)
+
+    async def _next_linux_name(self, name: str, suffix: str, exists) -> str:
+        base = f"{name[: max(1, 31 - len(suffix))]}-{suffix}"[:32]
+        candidate = base
+        counter = 2
+        while await exists(candidate):
+            tail = f"-{counter}"
+            candidate = f"{base[: 32 - len(tail)]}{tail}"
+            counter += 1
+        return candidate
+
+    async def _ssh_key_name_exists(self, name: str) -> bool:
+        return any(key.name == name for key in await self.key_service.list_keys())
+
+    async def _next_ssh_key_name(self, name: str, suffix: str) -> str:
+        base = f"{name} {suffix.title()}"
+        candidate = base
+        counter = 2
+        while await self._ssh_key_name_exists(candidate):
+            candidate = f"{base} {counter}"
+            counter += 1
+        return candidate
+
+    async def _permission_path_exists(self, path: str) -> bool:
+        return any(permission.path == path for permission in await self.permission_service.list_templates())
+
+    async def _next_permission_path(self, path: str, suffix: str) -> str:
+        base = f"{path.rstrip('/')}-{suffix}"
+        candidate = base
+        counter = 2
+        while await self._permission_path_exists(candidate):
+            candidate = f"{base}-{counter}"
+            counter += 1
+        return candidate
 
 
 class IdentityReplicationService:

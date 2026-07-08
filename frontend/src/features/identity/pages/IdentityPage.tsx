@@ -1,7 +1,8 @@
 import type { ReactNode } from 'react';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertCircle,
+  Download,
   Eye,
   FileKey2,
   KeyRound,
@@ -13,6 +14,7 @@ import {
   ShieldCheck,
   ShieldOff,
   Trash2,
+  Upload,
   Unlock,
   UserRound,
   UsersRound,
@@ -20,6 +22,7 @@ import {
 } from 'lucide-react';
 
 import { PageHeader } from '../../../components/layout/PageHeader';
+import { PageActionButton } from '../../../components/operations/OperationalComponents';
 import { getApiErrorMessage } from '../../../lib/api/client';
 import { listCredentials } from '../../credentials/api/credentialsApi';
 import type { Credential } from '../../credentials/types/credential';
@@ -44,7 +47,9 @@ import {
   discoverGroups,
   discoverUserGroups,
   discoverUsers,
+  exportIdentityBundle,
   expireLinuxUserPassword,
+  importIdentityBundle,
   listLinuxGroups,
   listLinuxUsers,
   listPermissionPresets,
@@ -121,8 +126,10 @@ export function IdentityPage() {
   const [modalIntent, setModalIntent] = useState<'create' | 'edit'>('edit');
   const [result, setResult] = useState<BulkExecutionResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isWorking, setIsWorking] = useState(false);
+  const importInputRef = useRef<HTMLInputElement | null>(null);
 
   const selectedTargetIds = targetSelector.selection.mode === 'bulk'
     ? targetSelector.selection.selectedIds
@@ -179,6 +186,7 @@ export function IdentityPage() {
   async function work(action: () => Promise<BulkExecutionResponse | null | void>) {
     setIsWorking(true);
     setError(null);
+    setSuccess(null);
     try {
       const nextResult = await action();
       if (nextResult) setResult(nextResult);
@@ -244,12 +252,37 @@ export function IdentityPage() {
 
   return (
     <div className="space-y-5">
-      <PageHeader title="Identity" description="Inventory-first Linux identity management for discovery, inspection, replication, and controlled account operations." />
+      <PageHeader
+        title="Identity"
+        description="Inventory-first Linux identity management for discovery, inspection, replication, and controlled account operations."
+        actions={
+          <>
+            <PageActionButton icon={Upload} tone="secondary" onClick={() => importInputRef.current?.click()}>
+              Import
+            </PageActionButton>
+            <PageActionButton icon={Download} tone="secondary" onClick={() => void handleExportIdentity()}>
+              Export
+            </PageActionButton>
+            <input
+              ref={importInputRef}
+              accept=".json,.yaml,.yml,application/json,application/x-yaml,text/yaml"
+              className="hidden"
+              type="file"
+              onChange={(event) => void handleImportIdentity(event.target.files?.[0] ?? null)}
+            />
+          </>
+        }
+      />
 
       {error ? (
         <div className="flex items-center gap-2 rounded-md border border-rose-400/40 bg-rose-500/10 px-3 py-2 text-sm text-rose-100">
           <AlertCircle className="h-4 w-4" aria-hidden="true" />
           {error}
+        </div>
+      ) : null}
+      {success ? (
+        <div className="rounded-md border border-emerald-400/40 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-100">
+          {success}
         </div>
       ) : null}
       {isLoading ? <div className="rounded-md border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-300">Loading identity dashboard...</div> : null}
@@ -601,6 +634,42 @@ export function IdentityPage() {
       setError(getApiErrorMessage(caughtError));
     } finally {
       setIsWorking(false);
+    }
+  }
+
+  async function handleExportIdentity() {
+    setError(null);
+    setSuccess(null);
+    try {
+      const exported = await exportIdentityBundle('yaml');
+      downloadTextFile(exported.filename, exported.content, 'application/x-yaml');
+      setSuccess('Exported identity bundle.');
+    } catch (caughtError) {
+      setError(getApiErrorMessage(caughtError));
+    }
+  }
+
+  async function handleImportIdentity(file: File | null) {
+    if (!file) return;
+    setIsWorking(true);
+    setError(null);
+    setSuccess(null);
+    try {
+      const format = importFormatFromFile(file.name);
+      const imported = await importIdentityBundle(await file.text(), format);
+      await refresh();
+      const importedCount =
+        imported.users.length + imported.groups.length + imported.ssh_keys.length + imported.permissions.length;
+      setSuccess(
+        `Imported ${importedCount} identity object${importedCount === 1 ? '' : 's'}${imported.status === 'cloned' ? ' with cloned names' : ''}.`,
+      );
+    } catch (caughtError) {
+      setError(getApiErrorMessage(caughtError));
+    } finally {
+      setIsWorking(false);
+      if (importInputRef.current) {
+        importInputRef.current.value = '';
+      }
     }
   }
 }
@@ -1165,4 +1234,18 @@ function previewOperation(entity: IdentityEntity | null) {
 
 function splitCsv(value: string): string[] {
   return value.split(',').map((item) => item.trim()).filter(Boolean);
+}
+
+function importFormatFromFile(filename: string): 'json' | 'yaml' {
+  return filename.toLowerCase().endsWith('.json') ? 'json' : 'yaml';
+}
+
+function downloadTextFile(filename: string, content: string, mimeType: string) {
+  const blob = new Blob([content], { type: mimeType });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = filename;
+  anchor.click();
+  URL.revokeObjectURL(url);
 }

@@ -237,3 +237,44 @@ class DeploymentDryRunRead(BaseModel):
     targets: list[DeploymentDryRunTargetRead] = Field(default_factory=list)
     env_keys: list[str] = Field(default_factory=list)
     credential_env_keys: list[str] = Field(default_factory=list)
+
+
+class DeploymentExportRead(BaseModel):
+    filename: str
+    format: str
+    content: str
+
+
+class DeploymentImportRequest(BaseModel):
+    content: str = Field(min_length=1, max_length=140_000)
+    format: str = "json"
+    strategy: str = "clone_on_conflict"
+    clone_suffix: str = Field(default="import", min_length=1, max_length=40)
+
+    @field_validator("format")
+    @classmethod
+    def validate_format(cls, value: str) -> str:
+        if value not in {"json", "yaml"}:
+            raise ValueError("Import format must be json or yaml")
+        return value
+
+    @field_validator("strategy")
+    @classmethod
+    def validate_strategy(cls, value: str) -> str:
+        if value not in {"create", "clone_on_conflict"}:
+            raise ValueError("Import strategy must be create or clone_on_conflict")
+        return value
+
+    @field_validator("clone_suffix")
+    @classmethod
+    def normalize_clone_suffix(cls, value: str) -> str:
+        cleaned = value.strip().strip("-")
+        if not cleaned:
+            raise ValueError("Clone suffix cannot be blank")
+        return cleaned
+
+
+class DeploymentImportRead(BaseModel):
+    deployment: DeploymentRead
+    status: str
+    warnings: list[str] = Field(default_factory=list)

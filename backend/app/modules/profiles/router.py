@@ -35,6 +35,9 @@ from backend.app.modules.packages.repository import PackageDefinitionRepository
 from backend.app.modules.profiles.repository import InfrastructureProfileRepository
 from backend.app.modules.profiles.schemas import (
     InfrastructureProfileCreate,
+    InfrastructureProfileExportRead,
+    InfrastructureProfileImportRead,
+    InfrastructureProfileImportRequest,
     InfrastructureProfileRead,
     InfrastructureProfileUpdate,
     ProfileCloneRequest,
@@ -47,6 +50,7 @@ from backend.app.common.variables import VariableResolutionError
 from backend.app.modules.profiles.service import (
     BuiltinProfileError,
     ProfileConflictError,
+    ProfileImportError,
     ProfileNotFoundError,
     ProfileService,
     ProfileStepResolutionError,
@@ -127,6 +131,19 @@ async def apply_profile_bulk(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
 
 
+@router.post("/import", response_model=InfrastructureProfileImportRead, status_code=status.HTTP_201_CREATED)
+async def import_profile(
+    payload: InfrastructureProfileImportRequest,
+    service: Annotated[ProfileService, Depends(get_profile_service)],
+) -> InfrastructureProfileImportRead:
+    try:
+        return await service.import_profile(payload)
+    except ProfileImportError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except ProfileConflictError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+
+
 @router.post("", response_model=InfrastructureProfileRead, status_code=status.HTTP_201_CREATED)
 async def create_profile(
     payload: InfrastructureProfileCreate,
@@ -145,6 +162,20 @@ async def get_profile(
 ) -> InfrastructureProfileRead:
     try:
         return await service.get_profile(profile_id)
+    except ProfileNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+
+@router.get("/{profile_id}/export", response_model=InfrastructureProfileExportRead)
+async def export_profile(
+    profile_id: str,
+    service: Annotated[ProfileService, Depends(get_profile_service)],
+    format: str = "json",
+) -> InfrastructureProfileExportRead:
+    if format not in {"json", "yaml"}:
+        raise HTTPException(status_code=422, detail="Export format must be json or yaml")
+    try:
+        return await service.export_profile(profile_id, format)  # type: ignore[arg-type]
     except ProfileNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
 

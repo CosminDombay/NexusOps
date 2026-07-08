@@ -1,5 +1,11 @@
 import { apiClient } from '../../../lib/api/client';
-import type { CreatePackageDefinitionPayload, PackageDefinition, UpdatePackageDefinitionPayload } from '../types/package';
+import type {
+  CreatePackageDefinitionPayload,
+  PackageDefinition,
+  PackageDefinitionExport,
+  PackageDefinitionImportResult,
+  UpdatePackageDefinitionPayload,
+} from '../types/package';
 import type { BulkExecutionResponse, Job } from '../../jobs/types/job';
 
 export async function listPackageDefinitions(): Promise<PackageDefinition[]> {
@@ -37,6 +43,29 @@ export async function resetPackageDefinition(packageId: string): Promise<Package
 
 export async function deletePackageDefinition(packageId: string): Promise<void> {
   await apiClient.delete(`/packages/${packageId}`);
+}
+
+export async function exportPackageDefinition(
+  packageId: string,
+  format: 'json' | 'yaml' = 'json',
+): Promise<PackageDefinitionExport> {
+  const response = await apiClient.get<PackageDefinitionExport>(`/packages/${packageId}/export`, {
+    params: { format },
+  });
+  return response.data;
+}
+
+export async function importPackageDefinition(
+  content: string,
+  format: 'json' | 'yaml',
+  strategy: 'create' | 'clone_on_conflict' = 'clone_on_conflict',
+): Promise<PackageDefinitionImportResult> {
+  const response = await apiClient.post<PackageDefinitionImportResult>('/packages/import', {
+    content,
+    format,
+    strategy,
+  });
+  return response.data;
 }
 
 export async function executePackageDefinition(

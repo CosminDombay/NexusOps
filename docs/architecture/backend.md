@@ -131,11 +131,15 @@ Packages and Profiles are lightweight orchestration definitions:
 - Packages expose reusable package metadata, install commands, uninstall commands, validation commands, variables, and tags.
 - Custom package definitions are persisted and can be created, edited, deleted, cloned, and executed.
 - Built-in package definitions can be edited through persisted overrides while preserving reset-to-default capability.
+- Package definitions can be exported and imported as versioned JSON/YAML NexusOps documents. Imports create custom records and clone on ID conflict unless the caller explicitly requests create-only behavior.
 - Profiles compose ordered action/package/command steps.
 - Custom profiles are persisted and can be created, edited, deleted, cloned, and applied.
 - Built-in profiles can be edited through persisted overrides while preserving reset-to-default capability.
+- Profiles can be exported and imported as versioned JSON/YAML NexusOps documents. Imports preserve step/variable structure, retain credential references/placeholders without exposing secret values, and report warnings for references that must be validated at apply time.
 - Applying a profile resolves each step into a command and calls `JobService.execute()` sequentially.
 - Sensitive package/profile variables are supplied as `credential_refs`, resolved through the Credential Manager at runtime, and redacted from persisted job command history.
+
+The shared import/export helper in `backend/app/common/import_export.py` provides JSON/YAML parsing and rendering for portable NexusOps documents. Current document kinds are `nexusops.package`, `nexusops.profile`, `nexusops.deployment`, and `nexusops.identity_bundle`.
 
 Template metadata fields track override and clone state:
 
@@ -403,6 +407,8 @@ Identity is operational Linux infrastructure orchestration. It stores reusable L
 
 Identity discovery reads live Linux state through Jobs and can adopt discovered users/groups into managed records. Managed user/group actions distinguish local record creation/adoption from remote replication/synchronization. Managed groups can store planned member lists before any target host exists; later replication or Profile Identity steps create the group and apply those desired memberships through the Jobs runtime. SSH key records can store a planned assigned Linux user, and permission templates can be saved before any host is selected, then replicated later. Replication requests can carry an explicit execution `credential_ref`, allowing a selected password or SSH-password credential to feed sudo through the Jobs runtime on key-auth targets.
 
+Identity bundle import/export serializes managed users, groups, SSH public key records, and permission templates as versioned JSON/YAML documents. Import creates local records only, clones conflicting Linux-safe names or paths, preserves credential reference placeholders, and never runs remote replication automatically.
+
 Identity also exposes a guided preset layer:
 
 - access profiles for common roles such as Administrator, Deployment Operator, Docker Operator, Log Viewer, Read Only, and Service Account
@@ -466,6 +472,8 @@ Frontend Deployments page
 ```
 
 Docker Compose deployments persist compose content, optional plaintext env content for non-secret values, credential-backed env references for secrets, an execution/sudo credential reference, deployment target metadata, deployment revisions, deployment executions, and per-target execution records. Deploy/redeploy/restart/stop/status/logs/runtime refresh reuse Jobs and never create a parallel remote-execution path.
+
+Deployment definitions can be exported and imported as versioned JSON/YAML NexusOps documents. The portable document intentionally carries the deployment definition only, not execution history or target records. Import creates an untargeted planning draft, preserves application environment credential references as placeholders, and clears execution/sudo credential references with a warning so the operator remaps them locally before running.
 
 Deployment command history is redacted when credential-backed env values are injected.
 

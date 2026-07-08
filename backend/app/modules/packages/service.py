@@ -2,6 +2,7 @@ from datetime import UTC, datetime
 
 from sqlalchemy.exc import IntegrityError
 
+from backend.app.common.import_export import ExportFormat, ImportExportError, parse_document, render_document
 from backend.app.common.variables import VariableResolutionError, VariableResolutionService
 from backend.app.modules.credentials.service import CredentialService
 from backend.app.modules.jobs.schemas import BulkExecutionRead, JobBulkExecuteRequest, JobExecuteRequest, JobRead
@@ -16,6 +17,9 @@ from backend.app.modules.packages.models import PackageDefinitionRecord
 from backend.app.modules.packages.repository import PackageDefinitionRepository
 from backend.app.modules.packages.schemas import (
     PackageDefinitionCreate,
+    PackageDefinitionExportRead,
+    PackageDefinitionImportRead,
+    PackageDefinitionImportRequest,
     PackageDefinitionRead,
     PackageDefinitionUpdate,
     PackageBulkApplyRequest,
@@ -37,7 +41,12 @@ class BuiltinPackageDefinitionError(Exception):
     """Raised when trying to mutate a built-in package definition."""
 
 
+class PackageDefinitionImportError(Exception):
+    """Raised when a package import document is invalid."""
+
+
 SYSTEM_TEMPLATE_VERSION = "2026.05.16"
+EXPORT_VERSION = 1
 
 
 class PackageAutomationService:
@@ -103,6 +112,57 @@ class PackageAutomationService:
             await self.repository.session.rollback()
             raise PackageDefinitionConflictError("Package definition already exists") from exc
         return self._record_to_read(record)
+
+    async def export_definition(
+        self,
+        package_id: str,
+        document_format: ExportFormat = "json",
+    ) -> PackageDefinitionExportRead:
+        definition = await self.get_definition(package_id)
+        payload = {
+            "kind": "nexusops.package",
+            "version": EXPORT_VERSION,
+            "package": self._definition_to_create_payload(definition),
+        }
+        extension = "yaml" if document_format == "yaml" else "json"
+        return PackageDefinitionExportRead(
+            filename=f"{definition.id}.package.{extension}",
+            format=document_format,
+            content=render_document(payload, document_format),
+        )
+
+    async def import_definition(self, payload: PackageDefinitionImportRequest) -> PackageDefinitionImportRead:
+        try:
+            document = parse_document(payload.content, payload.format)
+        except ImportExportError as exc:
+            raise PackageDefinitionImportError(str(exc)) from exc
+
+        if document.get("kind") != "nexusops.package":
+            raise PackageDefinitionImportError("Import document kind must be nexusops.package")
+        if document.get("version") != EXPORT_VERSION:
+            raise PackageDefinitionImportError(f"Unsupported package import version: {document.get('version')}")
+        if not isinstance(document.get("package"), dict):
+            raise PackageDefinitionImportError("Import document must contain a package object")
+
+        try:
+            create_payload = PackageDefinitionCreate.model_validate(document["package"])
+        except ValueError as exc:
+            raise PackageDefinitionImportError("Package import document failed validation") from exc
+
+        status = "created"
+        if await self._definition_exists(create_payload.id):
+            if payload.strategy == "create":
+                raise PackageDefinitionConflictError("Package definition already exists")
+            create_payload = create_payload.model_copy(
+                update={
+                    "id": await self._next_available_import_id(create_payload.id, payload.clone_suffix),
+                    "name": f"{create_payload.name} Import",
+                }
+            )
+            status = "cloned"
+
+        package = await self.create_definition(create_payload)
+        return PackageDefinitionImportRead(package=package, status=status, warnings=[])
 
     async def update_definition(
         self,
@@ -186,6 +246,22 @@ class PackageAutomationService:
             await self.repository.session.commit()
         return await self.get_definition(package_id)
 
+    async def _definition_exists(self, package_id: str) -> bool:
+        if get_package_definition(package_id):
+            return True
+        if self.repository is None:
+            return False
+        return await self.repository.get_by_slug(package_id, include_deleted=True) is not None
+
+    async def _next_available_import_id(self, package_id: str, suffix: str) -> str:
+        base = f"{package_id}-{suffix}"
+        candidate = base
+        counter = 2
+        while await self._definition_exists(candidate):
+            candidate = f"{base}-{counter}"
+            counter += 1
+        return candidate
+
     async def execute_definition(self, package_id: str, payload: PackageExecuteRequest) -> JobRead:
         if self.job_service is None:
             raise RuntimeError("Job service is required")
@@ -258,6 +334,21 @@ class PackageAutomationService:
             created_at=record.created_at,
             updated_at=record.updated_at,
         )
+
+    @staticmethod
+    def _definition_to_create_payload(definition: PackageDefinitionRead) -> dict:
+        return {
+            "id": definition.id,
+            "name": definition.name,
+            "category": definition.category,
+            "supported_os": definition.supported_os,
+            "install_command": definition.install_command,
+            "uninstall_command": definition.uninstall_command,
+            "validation_command": definition.validation_command,
+            "variables": [variable.model_dump() for variable in definition.variables],
+            "tags": definition.tags,
+            "description": definition.description,
+        }
 
     @staticmethod
     def _sanitize_variable_definitions(variables: list[dict]) -> list[dict]:

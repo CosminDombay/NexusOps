@@ -1524,6 +1524,89 @@ def test_profiles_router_lists_profiles(client) -> None:
     assert any(profile["id"] == "monitoring-node" for profile in response.json())
 
 
+def test_profiles_router_exports_and_imports_yaml_with_clone_on_conflict(client) -> None:
+    export_response = client.get("/api/v1/profiles/docker-host/export?format=yaml")
+
+    assert export_response.status_code == 200
+    export_body = export_response.json()
+    assert export_body["filename"] == "docker-host.profile.yaml"
+    assert export_body["format"] == "yaml"
+    assert "kind: nexusops.profile" in export_body["content"]
+
+    import_response = client.post(
+        "/api/v1/profiles/import",
+        json={"content": export_body["content"], "format": "yaml"},
+    )
+
+    assert import_response.status_code == 201
+    import_body = import_response.json()
+    assert import_body["status"] == "cloned"
+    assert import_body["profile"]["id"] == "docker-host-import"
+    assert import_body["profile"]["is_builtin"] is False
+
+
+def test_profiles_router_import_reports_invalid_document(client) -> None:
+    response = client.post(
+        "/api/v1/profiles/import",
+        json={"content": '{"kind":"nexusops.package","version":1}', "format": "json"},
+    )
+
+    assert response.status_code == 422
+    assert "nexusops.profile" in response.json()["detail"]
+
+
+def test_deployments_router_exports_and_imports_yaml_as_planning_draft(client) -> None:
+    server_response = client.post(
+        "/api/v1/servers",
+        json=server_payload(hostname="deployment-export-01", ip_address="10.2.0.41"),
+    )
+    assert server_response.status_code == 201
+    server_id = server_response.json()["id"]
+
+    create_response = client.post(
+        "/api/v1/deployments",
+        json={
+            "name": "Portable Compose",
+            "description": "Portable deployment definition.",
+            "target_server_id": server_id,
+            "target_server_ids": [server_id],
+            "compose_content": "services:\n  web:\n    image: nginx:alpine\n",
+            "env_content": "TOKEN=${TOKEN}\n",
+            "credential_refs": {"TOKEN": "token-credential"},
+            "remote_path": "/opt/nexusops/deployments",
+        },
+    )
+    assert create_response.status_code == 201
+    deployment = create_response.json()
+
+    export_response = client.get(f"/api/v1/deployments/{deployment['id']}/export?format=yaml")
+
+    assert export_response.status_code == 200
+    export_body = export_response.json()
+    assert export_body["filename"] == "portable-compose.deployment.yaml"
+    assert export_body["format"] == "yaml"
+    assert "kind: nexusops.deployment" in export_body["content"]
+    portable_content = export_body["content"].replace(
+        "execution_credential_ref: null",
+        "execution_credential_ref: sudo-credential",
+    )
+
+    import_response = client.post(
+        "/api/v1/deployments/import",
+        json={"content": portable_content, "format": "yaml"},
+    )
+
+    assert import_response.status_code == 201
+    import_body = import_response.json()
+    assert import_body["status"] == "cloned"
+    assert import_body["deployment"]["name"] == "Portable Compose Import"
+    assert import_body["deployment"]["target_server_id"] is None
+    assert import_body["deployment"]["target_server_ids"] == []
+    assert import_body["deployment"]["execution_credential_ref"] is None
+    assert import_body["deployment"]["credential_refs"] == {"TOKEN": "token-credential"}
+    assert any("Execution credential reference" in warning for warning in import_body["warnings"])
+
+
 def test_profiles_router_returns_policy_error_for_denied_profile_command(client) -> None:
     server_response = client.post(
         "/api/v1/servers",
@@ -1569,3 +1652,40 @@ def test_packages_router_lists_packages(client) -> None:
 
     assert response.status_code == 200
     assert any(package["id"] == "tailscale" for package in response.json())
+
+
+def test_packages_router_exports_and_imports_json_with_clone_on_conflict(client) -> None:
+    export_response = client.get("/api/v1/packages/tailscale/export")
+
+    assert export_response.status_code == 200
+    export_body = export_response.json()
+    assert export_body["filename"] == "tailscale.package.json"
+    assert export_body["format"] == "json"
+    assert '"kind": "nexusops.package"' in export_body["content"]
+
+    import_response = client.post(
+        "/api/v1/packages/import",
+        json={"content": export_body["content"], "format": "json"},
+    )
+
+    assert import_response.status_code == 201
+    import_body = import_response.json()
+    assert import_body["status"] == "cloned"
+    assert import_body["package"]["id"] == "tailscale-import"
+    assert import_body["package"]["is_builtin"] is False
+
+
+def test_packages_router_import_create_strategy_conflicts(client) -> None:
+    export_response = client.get("/api/v1/packages/docker-engine/export")
+    assert export_response.status_code == 200
+
+    import_response = client.post(
+        "/api/v1/packages/import",
+        json={
+            "content": export_response.json()["content"],
+            "format": "json",
+            "strategy": "create",
+        },
+    )
+
+    assert import_response.status_code == 409

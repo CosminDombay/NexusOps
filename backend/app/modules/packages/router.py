@@ -18,6 +18,9 @@ from backend.app.modules.packages.schemas import PackageDefinitionRead
 from backend.app.modules.packages.schemas import (
     PackageCloneRequest,
     PackageDefinitionCreate,
+    PackageDefinitionExportRead,
+    PackageDefinitionImportRead,
+    PackageDefinitionImportRequest,
     PackageDefinitionUpdate,
     PackageBulkApplyRequest,
     PackageExecuteRequest,
@@ -27,6 +30,7 @@ from backend.app.modules.packages.service import (
     BuiltinPackageDefinitionError,
     PackageAutomationService,
     PackageDefinitionConflictError,
+    PackageDefinitionImportError,
     PackageDefinitionNotFoundError,
 )
 
@@ -72,6 +76,19 @@ async def execute_package_bulk(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
 
 
+@router.post("/import", response_model=PackageDefinitionImportRead, status_code=status.HTTP_201_CREATED)
+async def import_package_definition(
+    payload: PackageDefinitionImportRequest,
+    service: Annotated[PackageAutomationService, Depends(get_package_service)],
+) -> PackageDefinitionImportRead:
+    try:
+        return await service.import_definition(payload)
+    except PackageDefinitionImportError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except PackageDefinitionConflictError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+
+
 @router.post("", response_model=PackageDefinitionRead, status_code=status.HTTP_201_CREATED)
 async def create_package_definition(
     payload: PackageDefinitionCreate,
@@ -90,6 +107,20 @@ async def get_package_definition(
 ) -> PackageDefinitionRead:
     try:
         return await service.get_definition(package_id)
+    except PackageDefinitionNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+
+@router.get("/{package_id}/export", response_model=PackageDefinitionExportRead)
+async def export_package_definition(
+    package_id: str,
+    service: Annotated[PackageAutomationService, Depends(get_package_service)],
+    format: str = "json",
+) -> PackageDefinitionExportRead:
+    if format not in {"json", "yaml"}:
+        raise HTTPException(status_code=422, detail="Export format must be json or yaml")
+    try:
+        return await service.export_definition(package_id, format)  # type: ignore[arg-type]
     except PackageDefinitionNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
 

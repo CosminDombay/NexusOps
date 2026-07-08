@@ -8,6 +8,7 @@ import { AdminRoute, AuthenticatedRoute, OperatorRoute } from '../features/auth/
 const AccessDeniedPage = lazy(() => import('../features/auth/pages/AccessDeniedPage').then((module) => ({ default: module.AccessDeniedPage })));
 const AutomationsPage = lazy(() => import('../features/automations/pages/AutomationsPage').then((module) => ({ default: module.AutomationsPage })));
 const CredentialsPage = lazy(() => import('../features/credentials/CredentialsPage').then((module) => ({ default: module.CredentialsPage })));
+const DataExchangePage = lazy(() => import('../features/data-exchange/pages/DataExchangePage').then((module) => ({ default: module.DataExchangePage })));
 const DeploymentsPage = lazy(() => import('../features/deployments/DeploymentsPage').then((module) => ({ default: module.DeploymentsPage })));
 const HostDetailPage = lazy(() => import('../features/inventory/pages/HostDetailPage').then((module) => ({ default: module.HostDetailPage })));
 const HostToolsPage = lazy(() => import('../features/remote-access/pages/HostToolsPage').then((module) => ({ default: module.HostToolsPage })));
@@ -56,6 +57,7 @@ export const router = createBrowserRouter([
             children: [
               { path: 'provisioning', element: <LazyPage><ProvisioningPage /></LazyPage> },
               { path: 'deployments', element: <LazyPage><DeploymentsPage /></LazyPage> },
+              { path: 'data-exchange', element: <LazyPage><DataExchangePage /></LazyPage> },
               { path: 'packages', element: <LazyPage><PackagesPage /></LazyPage> },
               { path: 'profiles', element: <LazyPage><ProfilesPage /></LazyPage> },
               { path: 'jobs', element: <LazyPage><JobsPage /></LazyPage> },

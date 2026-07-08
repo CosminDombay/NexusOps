@@ -14,6 +14,7 @@ The frontend currently implements:
 - Jobs page with operational actions, raw command execution, history, and result viewer
 - Package definitions page with contextual create/edit drawer workflow
 - Infrastructure profiles page with contextual create/edit drawer workflow, apply workflow, and execution visibility
+- Data Exchange workspace for centralized JSON/YAML import/export across packages, profiles, deployments, and Identity bundles
 - Credential Manager page for reusable encrypted secrets and shared SSH accounts with contextual create/edit drawer workflow
 - shared execution variable modal for normal inputs and credential-backed sensitive inputs
 - visual variable definition editor for packages and profiles
@@ -57,6 +58,7 @@ Current main routes:
 - `/infrastructure/credentials` credential manager
 - `/packages` package definition catalog
 - `/profiles` reusable infrastructure profile templates
+- `/data-exchange` centralized package/profile/deployment/Identity import and export workspace
 - `/provisioning` Proxmox template provisioning workflow
 - `/deployments` Docker Compose deployment workflows
 - `/settings/integrations` integration records and connection tests
@@ -67,7 +69,7 @@ Route authorization mirrors `frontend/src/app/router.tsx`:
 
 ```text
 authenticated: /, /nodes/:id, /inventory/:id, /infrastructure, /infrastructure/nodes/:id, /monitoring, /workflows
-operator: /provisioning, /deployments, /packages, /profiles, /jobs, /automations, /inventory/:id/tools
+operator: /provisioning, /deployments, /packages, /profiles, /data-exchange, /jobs, /automations, /inventory/:id/tools
 admin: /infrastructure/credentials, /identity, /settings/integrations, /settings/trash, /settings/users
 ```
 
@@ -263,6 +265,8 @@ Advanced mode keeps raw shell path, raw group selection, recursive chmod/chown, 
 
 The `root` account is intentionally hidden from discovery and blocked from NexusOps identity orchestration. Identity remains Linux infrastructure orchestration, not centralized authentication or privileged root-account ownership.
 
+The Identity page exposes whole-bundle JSON/YAML import and export for managed users, groups, SSH public keys, and permission templates. Imported bundles create local desired-state records only; operators must review and explicitly replicate them to selected hosts.
+
 Current UI debt: Identity still needs a clearer target-first matrix for large environments. Managed records, discovered host observations, and drift/reconciliation status should become easier to distinguish as manual testing findings mature.
 
 ## Packages Frontend Flow
@@ -274,11 +278,22 @@ PackagesPage
   -> FastAPI /api/v1/packages
 ```
 
-The Packages UI displays reusable package definitions with install, uninstall, validation, variable, tag, category, and supported OS metadata. It supports adding custom package definitions, editing built-in working copies, cloning templates, restoring modified built-ins to defaults, deleting custom definitions, shared single/bulk target selection, bulk execution, and running packages through Jobs.
+The Packages UI displays reusable package definitions with install, uninstall, validation, variable, tag, category, and supported OS metadata. It supports adding custom package definitions, editing built-in working copies, cloning templates, exporting JSON/YAML package documents, importing package documents as safe clones when IDs conflict, restoring modified built-ins to defaults, deleting custom definitions, shared single/bulk target selection, bulk execution, and running packages through Jobs.
 
 Package variable definitions are edited through a visual editor instead of raw JSON. Before execution, a modal displays the execution preview, normal runtime inputs, and credential dropdowns for sensitive variables. Sensitive values are sent as `credential_refs`, not plaintext.
 
 Package create/edit now uses `ContextDrawer`; the package catalog, target selector, and execution context remain visible behind the workflow.
+
+## Data Exchange Frontend Flow
+
+```text
+DataExchangePage
+  -> packagesApi / profilesApi / deploymentsApi / identityApi
+  -> shared apiClient
+  -> FastAPI import/export endpoints
+```
+
+The Data Exchange workspace centralizes portable document operations that are also available from individual module pages. Operators can export selected package, profile, and deployment records, import JSON/YAML documents with either clone-on-conflict or create-only policy, preview file content before confirmation, and review import warnings. Identity bundle import/export is shown in the same workspace but remains admin-only because the backend Identity API is admin-scoped.
 
 ## Profiles Frontend Flow
 
@@ -296,6 +311,7 @@ The Profiles UI includes:
 - profile builder using visual step cards for package/action/deployment/script step types
 - editable built-in working copies
 - clone and restore-default workflows
+- JSON/YAML import and export workflows
 - move up/down and drag-and-drop step ordering preview
 - visual variable definition editor
 - execution modal with runtime inputs and credential dropdowns for sensitive variables
@@ -394,6 +410,7 @@ The Deployments UI is now an operational service dashboard rather than a permane
 - service-style deployment cards
 - runtime status, health, sync, uptime, target hosts, per-target state, duration, ports, compose source, and credential-ref indicators
 - direct start, stop, restart, redeploy, inspect, logs, edit, and delete actions
+- per-card JSON/YAML export and page-level import for portable deployment definition drafts
 - status filtering
 - inspect and log output panels
 - drawer-based create/edit workflow
@@ -402,6 +419,8 @@ The Deployments UI is now an operational service dashboard rather than a permane
 - execution history and output summaries for deployment runs
 
 Credential-backed env mappings send only credential IDs to the backend; secret values are resolved server-side.
+
+Deployment imports create planning drafts with no targets selected and clear execution/sudo credential references so operators can remap local credentials before running.
 
 ## Host Tools Frontend Flow
 

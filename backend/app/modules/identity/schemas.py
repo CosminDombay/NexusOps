@@ -506,6 +506,57 @@ class IdentityMutationRead(BaseModel):
     replication: IdentityReplicationRead | None = None
 
 
+class IdentityBundleDocument(BaseModel):
+    users: list[LinuxUserCreate] = Field(default_factory=list)
+    groups: list[LinuxGroupCreate] = Field(default_factory=list)
+    ssh_keys: list[SSHKeyCreate] = Field(default_factory=list)
+    permissions: list[PermissionTemplateCreate] = Field(default_factory=list)
+
+
+class IdentityBundleExportRead(BaseModel):
+    filename: str
+    format: str
+    content: str
+
+
+class IdentityBundleImportRequest(BaseModel):
+    content: str = Field(min_length=1, max_length=180_000)
+    format: str = "json"
+    strategy: str = "clone_on_conflict"
+    clone_suffix: str = Field(default="import", min_length=1, max_length=40)
+
+    @field_validator("format")
+    @classmethod
+    def validate_format(cls, value: str) -> str:
+        if value not in {"json", "yaml"}:
+            raise ValueError("Import format must be json or yaml")
+        return value
+
+    @field_validator("strategy")
+    @classmethod
+    def validate_strategy(cls, value: str) -> str:
+        if value not in {"create", "clone_on_conflict"}:
+            raise ValueError("Import strategy must be create or clone_on_conflict")
+        return value
+
+    @field_validator("clone_suffix")
+    @classmethod
+    def normalize_clone_suffix(cls, value: str) -> str:
+        cleaned = value.strip().strip("-")
+        if not cleaned:
+            raise ValueError("Clone suffix cannot be blank")
+        return cleaned
+
+
+class IdentityBundleImportRead(BaseModel):
+    users: list[LinuxUserRead] = Field(default_factory=list)
+    groups: list[LinuxGroupRead] = Field(default_factory=list)
+    ssh_keys: list[SSHKeyRead] = Field(default_factory=list)
+    permissions: list[PermissionTemplateRead] = Field(default_factory=list)
+    status: str = "created"
+    warnings: list[str] = Field(default_factory=list)
+
+
 def validate_absolute_path(value: str) -> str:
     stripped = value.strip()
     if not stripped.startswith("/"):

@@ -42,3 +42,15 @@ export type CreatePackageDefinitionPayload = {
 };
 
 export type UpdatePackageDefinitionPayload = Omit<CreatePackageDefinitionPayload, 'id'>;
+
+export type PackageDefinitionExport = {
+  filename: string;
+  format: 'json' | 'yaml';
+  content: string;
+};
+
+export type PackageDefinitionImportResult = {
+  package: PackageDefinition;
+  status: 'created' | 'cloned';
+  warnings: string[];
+};

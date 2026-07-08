@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { DragEvent } from 'react';
-import { ArrowDown, ArrowUp, Package, Play, Plus, ShieldCheck, Trash2, UsersRound, Terminal } from 'lucide-react';
+import { ArrowDown, ArrowUp, Download, Package, Play, Plus, ShieldCheck, Trash2, Upload, UsersRound, Terminal } from 'lucide-react';
 
 import { ContextDrawer } from '../../components/ContextDrawer';
 import { PageHeader } from '../../components/layout/PageHeader';
@@ -36,6 +36,8 @@ import {
   cloneProfile,
   createProfile,
   deleteProfile,
+  exportProfile,
+  importProfile,
   listProfiles,
   resetProfile,
   updateProfile,
@@ -109,6 +111,7 @@ export function ProfilesPage() {
   const [editingProfileId, setEditingProfileId] = useState<string | null>(null);
   const [isBuilderOpen, setIsBuilderOpen] = useState(false);
   const [search, setSearch] = useState('');
+  const importInputRef = useRef<HTMLInputElement | null>(null);
   const targetSelector = useTargetSelection('single');
 
   const selectedProfile = useMemo(
@@ -310,6 +313,40 @@ export function ProfilesPage() {
     }
   }
 
+  async function handleExportProfile(profile: InfrastructureProfile) {
+    try {
+      const exported = await exportProfile(profile.id, 'yaml');
+      downloadTextFile(exported.filename, exported.content, 'application/x-yaml');
+      setSuccess(`Exported profile ${profile.name}.`);
+    } catch (caughtError) {
+      setOperationError(getApiErrorMessage(caughtError));
+    }
+  }
+
+  async function handleImportProfile(file: File | null) {
+    if (!file) return;
+    setOperationError(null);
+    setSuccess(null);
+    try {
+      const format = importFormatFromFile(file.name);
+      const imported = await importProfile(await file.text(), format);
+      setProfiles((current) => [...current, imported.profile]);
+      setSelectedProfileId(imported.profile.id);
+      const warningSuffix = imported.warnings.length
+        ? ` Warnings: ${imported.warnings.join(' ')}`
+        : '';
+      setSuccess(
+        `Imported profile ${imported.profile.name}${imported.status === 'cloned' ? ' as a clone' : ''}.${warningSuffix}`,
+      );
+    } catch (caughtError) {
+      setOperationError(getApiErrorMessage(caughtError));
+    } finally {
+      if (importInputRef.current) {
+        importInputRef.current.value = '';
+      }
+    }
+  }
+
   function handleApplyProfile() {
     const profileId = selectedProfile?.id;
     if (!profileId || (!selectedServerId && selectedServerIds.length === 0)) {
@@ -369,9 +406,21 @@ export function ProfilesPage() {
         title="Infrastructure Profiles"
         description="Reusable infrastructure standards that apply ordered package and action workflows."
         actions={
-          <PageActionButton icon={Plus} tone="secondary" onClick={() => setIsBuilderOpen(true)}>
-            Create profile
-          </PageActionButton>
+          <div className="flex flex-wrap gap-2">
+            <PageActionButton icon={Upload} tone="secondary" onClick={() => importInputRef.current?.click()}>
+              Import
+            </PageActionButton>
+            <PageActionButton icon={Plus} tone="secondary" onClick={() => setIsBuilderOpen(true)}>
+              Create profile
+            </PageActionButton>
+            <input
+              ref={importInputRef}
+              accept=".json,.yaml,.yml,application/json,application/x-yaml,text/yaml"
+              className="hidden"
+              type="file"
+              onChange={(event) => void handleImportProfile(event.target.files?.[0] ?? null)}
+            />
+          </div>
         }
       />
 
@@ -494,6 +543,7 @@ export function ProfilesPage() {
                   onDelete={handleDeleteProfile}
                   onClone={handleCloneProfile}
                   onEdit={startEdit}
+                  onExport={handleExportProfile}
                   onReset={handleResetProfile}
                   onSelect={() => setSelectedProfileId(profile.id)}
                 />
@@ -583,6 +633,7 @@ function ProfileCard({
   onDelete,
   onClone,
   onEdit,
+  onExport,
   onReset,
   onSelect,
 }: {
@@ -591,6 +642,7 @@ function ProfileCard({
   onDelete: (profileId: string) => void;
   onClone: (profile: InfrastructureProfile) => void;
   onEdit: (profile: InfrastructureProfile) => void;
+  onExport: (profile: InfrastructureProfile) => void;
   onReset: (profile: InfrastructureProfile) => void;
   onSelect: () => void;
 }) {
@@ -655,6 +707,14 @@ function ProfileCard({
           onClick={() => onClone(profile)}
         >
           Clone
+        </button>
+        <button
+          className="inline-flex items-center gap-2 rounded-md border border-zinc-300 px-3 py-2 text-sm font-semibold text-zinc-700 transition hover:bg-zinc-50"
+          type="button"
+          onClick={() => onExport(profile)}
+        >
+          <Download className="h-4 w-4" aria-hidden="true" />
+          Export
         </button>
         <button
           className="rounded-md border border-zinc-300 px-3 py-2 text-sm font-semibold text-zinc-700 transition hover:bg-zinc-50"
@@ -1252,6 +1312,20 @@ function splitCsv(value: string): string[] {
     .split(',')
     .map((item) => item.trim())
     .filter(Boolean);
+}
+
+function importFormatFromFile(filename: string): 'json' | 'yaml' {
+  return filename.toLowerCase().endsWith('.json') ? 'json' : 'yaml';
+}
+
+function downloadTextFile(filename: string, content: string, mimeType: string) {
+  const blob = new Blob([content], { type: mimeType });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = filename;
+  anchor.click();
+  URL.revokeObjectURL(url);
 }
 
 function normalizeProfileSteps(steps: ProfileStep[]): ProfileStep[] {

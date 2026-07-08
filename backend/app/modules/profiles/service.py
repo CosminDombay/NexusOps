@@ -3,6 +3,7 @@ from uuid import UUID
 
 from sqlalchemy.exc import IntegrityError
 
+from backend.app.common.import_export import ExportFormat, ImportExportError, parse_document, render_document
 from backend.app.common.variables import VariableResolutionError, VariableResolutionService
 from backend.app.modules.deployments.service import DockerComposeDeploymentService
 from backend.app.modules.identity.schemas import LinuxUserUpdate, PermissionReplicateRequest, ReplicationRequest
@@ -22,6 +23,9 @@ from backend.app.modules.profiles.models import InfrastructureProfileRecord
 from backend.app.modules.profiles.repository import InfrastructureProfileRepository
 from backend.app.modules.profiles.schemas import (
     InfrastructureProfileCreate,
+    InfrastructureProfileExportRead,
+    InfrastructureProfileImportRead,
+    InfrastructureProfileImportRequest,
     InfrastructureProfileRead,
     InfrastructureProfileUpdate,
     ProfileApplyRead,
@@ -52,7 +56,12 @@ class BuiltinProfileError(Exception):
     """Raised when trying to mutate a built-in profile."""
 
 
+class ProfileImportError(Exception):
+    """Raised when a profile import document is invalid."""
+
+
 SYSTEM_TEMPLATE_VERSION = "2026.05.16"
+EXPORT_VERSION = 1
 
 
 class ProfileExecutionService:
@@ -191,6 +200,58 @@ class ProfileService:
             raise ProfileConflictError("Profile already exists") from exc
         return self._record_to_read(record)
 
+    async def export_profile(
+        self,
+        profile_id: str,
+        document_format: ExportFormat = "json",
+    ) -> InfrastructureProfileExportRead:
+        profile = await self.get_profile(profile_id)
+        payload = {
+            "kind": "nexusops.profile",
+            "version": EXPORT_VERSION,
+            "profile": self._profile_to_create_payload(profile),
+        }
+        extension = "yaml" if document_format == "yaml" else "json"
+        return InfrastructureProfileExportRead(
+            filename=f"{profile.id}.profile.{extension}",
+            format=document_format,
+            content=render_document(payload, document_format),
+        )
+
+    async def import_profile(self, payload: InfrastructureProfileImportRequest) -> InfrastructureProfileImportRead:
+        try:
+            document = parse_document(payload.content, payload.format)
+        except ImportExportError as exc:
+            raise ProfileImportError(str(exc)) from exc
+
+        if document.get("kind") != "nexusops.profile":
+            raise ProfileImportError("Import document kind must be nexusops.profile")
+        if document.get("version") != EXPORT_VERSION:
+            raise ProfileImportError(f"Unsupported profile import version: {document.get('version')}")
+        if not isinstance(document.get("profile"), dict):
+            raise ProfileImportError("Import document must contain a profile object")
+
+        try:
+            create_payload = InfrastructureProfileCreate.model_validate(document["profile"])
+        except ValueError as exc:
+            raise ProfileImportError("Profile import document failed validation") from exc
+
+        status = "created"
+        if await self._profile_exists(create_payload.id):
+            if payload.strategy == "create":
+                raise ProfileConflictError("Profile already exists")
+            create_payload = create_payload.model_copy(
+                update={
+                    "id": await self._next_available_import_id(create_payload.id, payload.clone_suffix),
+                    "name": f"{create_payload.name} Import",
+                }
+            )
+            status = "cloned"
+
+        warnings = await self._import_warnings(create_payload)
+        profile = await self.create_profile(create_payload)
+        return InfrastructureProfileImportRead(profile=profile, status=status, warnings=warnings)
+
     async def update_profile(
         self,
         profile_id: str,
@@ -278,6 +339,40 @@ class ProfileService:
             await self.repository.delete(record)
             await self.repository.session.commit()
         return await self.get_profile(profile_id)
+
+    async def _profile_exists(self, profile_id: str) -> bool:
+        if get_profile(profile_id):
+            return True
+        if self.repository is None:
+            return False
+        return await self.repository.get_by_slug(profile_id, include_deleted=True) is not None
+
+    async def _next_available_import_id(self, profile_id: str, suffix: str) -> str:
+        base = f"{profile_id}-{suffix}"
+        candidate = base
+        counter = 2
+        while await self._profile_exists(candidate):
+            candidate = f"{base}-{counter}"
+            counter += 1
+        return candidate
+
+    async def _import_warnings(self, payload: InfrastructureProfileCreate) -> list[str]:
+        warnings: list[str] = []
+        for step in payload.steps:
+            if step.kind == "action" and get_action(step.reference_id) is None:
+                warnings.append(f"Action step {step.name} references unknown action {step.reference_id}.")
+            if step.kind == "package" and not await self._package_exists(step.reference_id):
+                warnings.append(f"Package step {step.name} references unknown package {step.reference_id}.")
+            if step.kind in {"deployment", "identity_user", "identity_group", "identity_permission"}:
+                warnings.append(f"{step.kind} step {step.name} will be validated when the profile is applied.")
+        return warnings
+
+    async def _package_exists(self, package_id: str) -> bool:
+        if get_package_definition(package_id):
+            return True
+        if self.package_repository is None:
+            return False
+        return await self.package_repository.get_by_slug(package_id, include_deleted=True) is not None
 
     async def apply_profile(self, profile_id: str, payload: ProfileApplyRequest) -> ProfileApplyRead:
         profile = await self.get_profile(profile_id)
@@ -813,6 +908,18 @@ class ProfileService:
             created_at=record.created_at,
             updated_at=record.updated_at,
         )
+
+    @staticmethod
+    def _profile_to_create_payload(profile: InfrastructureProfileRead) -> dict:
+        return {
+            "id": profile.id,
+            "name": profile.name,
+            "category": profile.category,
+            "description": profile.description,
+            "tags": profile.tags,
+            "steps": [step.model_dump() for step in profile.steps],
+            "variables": [variable.model_dump() for variable in profile.variables],
+        }
 
     async def _create_builtin_override(self, profile: InfrastructureProfile) -> InfrastructureProfileRecord:
         assert self.repository is not None
