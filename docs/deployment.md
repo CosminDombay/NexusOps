@@ -8,7 +8,7 @@ These notes cover the deployment shape for the current product version. Docker C
 
 `development` remains the active integration branch. When the `hds-lab` runner exists, pushes to `development` can validate and deploy to the lab environment, but the workflow is gated by the repository variable `ENABLE_HDS_LAB_DEPLOY=true` so it does not queue before the runner is online.
 
-Production deployments are manual only. The production workflow runs only from `main` on a self-hosted runner labeled `nexusops-prod`. It validates the dispatched revision in the runner workspace, verifies that revision is the current `origin/main`, updates the persistent `/opt/nexusops` checkout to that exact commit, writes its `.env` from a production secret, validates the Compose config through `scripts/deploy.sh --config-only`, and then calls the shared deployment script from `/opt/nexusops`.
+Production deployments are manual only. The production workflow runs only from `main` on a self-hosted runner labeled `nexusops-prod`. It validates the dispatched revision in the runner workspace, verifies that revision is the current `origin/main`, updates the persistent `/opt/nexusops` checkout to that exact commit, requires a host-managed `/opt/nexusops/.env` file with mode `0600`, validates the Compose config through `scripts/deploy.sh --config-only`, and then calls the shared deployment script from `/opt/nexusops`. Production secrets remain on the host rather than being copied into GitHub.
 
 ## Automated Setup Scripts
 

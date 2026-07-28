@@ -82,17 +82,16 @@ jobs:
           fi
           git -C "$PRODUCTION_ROOT" checkout --detach "$GITHUB_SHA"
 
-      - name: Create production env file
-        env:
-          PRODUCTION_ENV_FILE: ${{ secrets.PRODUCTION_ENV_FILE || secrets.NEXUSOPS_PRODUCTION_ENV_FILE }}
+      - name: Verify host-managed production env file
         run: |
-          if [[ -z "$PRODUCTION_ENV_FILE" ]]; then
-            echo "PRODUCTION_ENV_FILE is empty or unavailable to this workflow." >&2
-            echo "Create a production environment or repository secret named PRODUCTION_ENV_FILE." >&2
+          if [[ ! -s "$PRODUCTION_ROOT/.env" ]]; then
+            echo "Production environment file is missing or empty at $PRODUCTION_ROOT/.env." >&2
             exit 1
           fi
-          umask 077
-          printf '%s\n' "$PRODUCTION_ENV_FILE" > "$PRODUCTION_ROOT/.env"
+          if [[ "$(stat -c '%a' "$PRODUCTION_ROOT/.env")" != "600" ]]; then
+            echo "Production environment file must have mode 600." >&2
+            exit 1
+          fi
 
       - name: Validate Docker Compose config
         working-directory: ${{ env.PRODUCTION_ROOT }}
