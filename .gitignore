@@ -33,9 +33,11 @@ docs/diagrams/**
 !docs/diagrams/
 !docs/diagrams/.gitkeep
 review/screenshots/
+review/*.md
 review/*.pptx
 review/*prezentare*
 review/*thesis*
+docs/project-review*.md
 *.docx
 
 # Environment

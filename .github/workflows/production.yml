@@ -17,6 +17,7 @@ permissions:
 
 env:
   PUPPETEER_SKIP_DOWNLOAD: "true"
+  PRODUCTION_ROOT: /opt/nexusops
 
 concurrency:
   group: production-deploy
@@ -41,6 +42,13 @@ jobs:
       - name: Set executable permissions
         run: chmod +x scripts/*.sh
 
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
       - name: Ensure runner dependencies
         run: ./scripts/ensure-runner-env.sh
 
@@ -56,6 +64,24 @@ jobs:
           SKIP_NPM_CI: "true"
         run: ./scripts/ci-frontend.sh
 
+      - name: Prepare persistent production checkout
+        run: |
+          if [[ ! -d "$PRODUCTION_ROOT/.git" ]]; then
+            echo "Production checkout is missing at $PRODUCTION_ROOT." >&2
+            exit 1
+          fi
+          if [[ -n "$(git -C "$PRODUCTION_ROOT" status --short --untracked-files=no)" ]]; then
+            echo "Tracked changes exist in $PRODUCTION_ROOT; refusing to overwrite them." >&2
+            git -C "$PRODUCTION_ROOT" status --short
+            exit 1
+          fi
+          git -C "$PRODUCTION_ROOT" fetch --prune origin main
+          if [[ "$(git -C "$PRODUCTION_ROOT" rev-parse origin/main)" != "$GITHUB_SHA" ]]; then
+            echo "The dispatched commit does not match origin/main." >&2
+            exit 1
+          fi
+          git -C "$PRODUCTION_ROOT" checkout --detach "$GITHUB_SHA"
+
       - name: Create production env file
         env:
           PRODUCTION_ENV_FILE: ${{ secrets.PRODUCTION_ENV_FILE || secrets.NEXUSOPS_PRODUCTION_ENV_FILE }}
@@ -66,12 +92,14 @@ jobs:
             exit 1
           fi
           umask 077
-          printf '%s\n' "$PRODUCTION_ENV_FILE" > .env
+          printf '%s\n' "$PRODUCTION_ENV_FILE" > "$PRODUCTION_ROOT/.env"
 
       - name: Validate Docker Compose config
+        working-directory: ${{ env.PRODUCTION_ROOT }}
         run: ./scripts/deploy.sh --config-only
 
       - name: Deploy stack
+        working-directory: ${{ env.PRODUCTION_ROOT }}
         env:
           BACKEND_URL: ${{ vars.PRODUCTION_BACKEND_HEALTH_URL || 'http://localhost:8000/api/v1/health' }}
           FRONTEND_URL: ${{ vars.PRODUCTION_FRONTEND_URL || 'http://localhost' }}

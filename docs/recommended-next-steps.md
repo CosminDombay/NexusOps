@@ -126,8 +126,6 @@ The 2026-06-21 documentation pass keeps the first demo deliberately small. Use t
 
 ## Review Findings Added on 2026-05-23
 
-Source document: `docs/project-review-2026-05-23-monitoring-inventory.md`
-
 1. Partially completed: monitoring validation now has persisted attempt history, audit events, bounded per-node checks, and resilient snapshot preservation. A full WorkflowRun-backed execution model remains future work.
 
 2. Completed: monitoring validation attempts persist method, duration, result, component state, structured failure reason, and audit-event linkage per node.
