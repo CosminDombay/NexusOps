@@ -102,5 +102,5 @@ jobs:
         working-directory: ${{ env.PRODUCTION_ROOT }}
         env:
           BACKEND_URL: ${{ vars.PRODUCTION_BACKEND_HEALTH_URL || 'http://localhost:8000/api/v1/health' }}
-          FRONTEND_URL: ${{ vars.PRODUCTION_FRONTEND_URL || 'http://localhost' }}
+          FRONTEND_URL: ${{ vars.PRODUCTION_FRONTEND_URL || 'http://127.0.0.1:8080' }}
         run: ./scripts/deploy.sh
