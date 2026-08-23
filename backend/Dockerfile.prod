@@ -14,5 +14,10 @@ COPY backend/docker-entrypoint.sh /app/docker-entrypoint.sh
 
 RUN chmod +x /app/docker-entrypoint.sh
 
+# The API holds fleet-wide SSH credentials; it must not run as root.
+RUN useradd --system --create-home --uid 10001 nexusops \
+    && chown -R nexusops:nexusops /app
+USER nexusops
+
 ENTRYPOINT ["/app/docker-entrypoint.sh"]
 CMD ["uvicorn", "backend.app.main:app", "--host", "0.0.0.0", "--port", "8000"]
