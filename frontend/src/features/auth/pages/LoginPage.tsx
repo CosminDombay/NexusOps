@@ -5,6 +5,24 @@ import backgroundImage from '../../../assets/background.png';
 import logoImage from '../../../assets/logo.png';
 import { useAuth } from '../hooks/useAuth';
 
+/**
+ * Constrain the post-login destination to an in-app absolute path.
+ *
+ * Anything protocol-relative ("//host"), backslash-prefixed ("\\host", which
+ * some browsers normalise to "//host"), or otherwise not a single-slash path
+ * falls back to the dashboard rather than navigating off-site.
+ */
+function toSafeRedirectPath(pathname: string | undefined): string {
+  if (!pathname || !pathname.startsWith('/')) {
+    return '/';
+  }
+  const secondCharacter = pathname[1];
+  if (secondCharacter === '/' || secondCharacter === '\\') {
+    return '/';
+  }
+  return pathname;
+}
+
 export function LoginPage() {
   const { isAuthenticated, isRestoring, login } = useAuth();
   const [usernameOrEmail, setUsernameOrEmail] = useState('');
@@ -13,7 +31,7 @@ export function LoginPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
-  const from = (location.state as { from?: { pathname: string } } | null)?.from?.pathname ?? '/';
+  const from = toSafeRedirectPath((location.state as { from?: { pathname: string } } | null)?.from?.pathname);
 
   if (!isRestoring && isAuthenticated) {
     return <Navigate to={from} replace />;
