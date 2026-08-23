@@ -51,10 +51,11 @@ class Settings(BaseSettings):
     nexusops_admin_user: str | None = None
     nexusops_admin_email: str | None = None
     nexusops_admin_password: str | None = None
-    allow_insecure_dev_secrets: bool = False
-    allow_insecure_dev_tls: bool = False
     enable_openapi: bool = True
     rate_limit_enabled: bool = True
+    # Number of reverse proxies in front of the API that append to X-Forwarded-For.
+    # 0 ignores the header entirely and uses the socket peer.
+    trusted_proxy_hops: int = Field(default=0, ge=0, le=10)
     api_rate_limit_per_minute: int = Field(default=600, ge=10, le=10000)
     login_rate_limit_per_minute: int = Field(default=10, ge=1, le=300)
     websocket_rate_limit_per_minute: int = Field(default=30, ge=1, le=600)
@@ -97,6 +98,15 @@ class Settings(BaseSettings):
             warnings.append("NEXUSOPS_MASTER_KEY is not configured; credential encryption is unavailable.")
         if not self.proxmox_verify_ssl:
             warnings.append("Proxmox TLS certificate verification is disabled.")
+        if self.ssh_trust_on_first_use:
+            warnings.append(
+                "SSH_TRUST_ON_FIRST_USE is enabled; unknown host keys are accepted on first contact."
+            )
+        if self.rate_limit_enabled and self.trusted_proxy_hops == 0:
+            warnings.append(
+                "TRUSTED_PROXY_HOPS is 0; set it to the number of reverse proxies in front of the API "
+                "so per-client rate limiting and audit source IPs are accurate."
+            )
         return warnings
 
     def validate_startup_configuration(self) -> None:
@@ -111,6 +121,8 @@ class Settings(BaseSettings):
             errors.append("NEXUSOPS_MASTER_KEY is required in production.")
         if not self.proxmox_verify_ssl:
             errors.append("PROXMOX_VERIFY_SSL must be true in production.")
+        if any(origin == "*" for origin in self.cors_origins):
+            errors.append("CORS_ORIGINS must not contain a wildcard in production.")
         if self.nexusops_admin_password and self.nexusops_admin_password.lower() in {
             "admin",
             "password",

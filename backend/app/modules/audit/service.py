@@ -5,6 +5,7 @@ import structlog
 from fastapi import Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from backend.app.core.client_ip import client_ip
 from backend.app.modules.audit.models import AuditEvent
 from backend.app.modules.audit.repository import AuditEventRepository
 from backend.app.modules.audit.schemas import AuditEventRead
@@ -91,12 +92,12 @@ class AuditService:
 
 
 def source_ip_from_request(request: Request | None) -> str | None:
-    if request is None or request.client is None:
-        return None
-    forwarded_for = request.headers.get("x-forwarded-for")
-    if forwarded_for:
-        return forwarded_for.split(",", 1)[0].strip()
-    return request.client.host
+    """Resolve the audited source IP.
+
+    Delegates to the shared resolver so audit records and rate limiting agree,
+    and so a client-supplied X-Forwarded-For cannot forge the recorded origin.
+    """
+    return client_ip(request)
 
 
 def audit_service_from_session(session: AsyncSession) -> AuditService:

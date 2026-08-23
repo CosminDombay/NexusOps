@@ -45,8 +45,7 @@ Database behavior depends on the selected deployment mode:
    - `ENVIRONMENT=production`
    - `DEBUG=false`
    - `ENABLE_OPENAPI=false`
-   - `ALLOW_INSECURE_DEV_SECRETS=false`
-   - `ALLOW_INSECURE_DEV_TLS=false`
+   - `TRUSTED_PROXY_HOPS=1` (one reverse proxy: the frontend nginx)
    - `PROXMOX_VERIFY_SSL=true`
 4. Set `CORS_ORIGINS` to the real browser origin, for example `["https://nexusops.example.com"]`.
 5. Keep `BACKEND_PORT=127.0.0.1:8000` unless the backend API must be reachable directly. The frontend nginx container proxies `/api/v1`, `/api/ws`, and remote access websocket paths to the backend over the Compose network.

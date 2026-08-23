@@ -5,7 +5,7 @@ services:
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-nexusops}
       POSTGRES_USER: ${POSTGRES_USER:-nexusops}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-nexusops}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
     expose:
       - "5432"
     volumes:
@@ -24,14 +24,17 @@ services:
     env_file:
       - .env
     environment:
-      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-nexusops}:${POSTGRES_PASSWORD:-nexusops}@postgres:5432/${POSTGRES_DB:-nexusops}
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-nexusops}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/${POSTGRES_DB:-nexusops}
       CORS_ORIGINS: '${CORS_ORIGINS:-["http://localhost:5173","http://127.0.0.1:5173"]}'
       ENABLE_OPENAPI: ${ENABLE_OPENAPI:-true}
       RATE_LIMIT_ENABLED: ${RATE_LIMIT_ENABLED:-true}
-      ENVIRONMENT: ${ENVIRONMENT:-development}
+      # No default: the production guardrails in validate_startup_configuration()
+      # only run when ENVIRONMENT is explicitly production, so it must be a
+      # deliberate choice rather than an inherited default.
+      ENVIRONMENT: ${ENVIRONMENT:?set ENVIRONMENT in .env (development|staging|production)}
       DEBUG: ${DEBUG:-false}
-      ALLOW_INSECURE_DEV_SECRETS: ${ALLOW_INSECURE_DEV_SECRETS:-true}
-      ALLOW_INSECURE_DEV_TLS: ${ALLOW_INSECURE_DEV_TLS:-true}
+      # One reverse proxy (the frontend nginx) sits in front of the API.
+      TRUSTED_PROXY_HOPS: ${TRUSTED_PROXY_HOPS:-1}
     depends_on:
       postgres:
         condition: service_healthy
