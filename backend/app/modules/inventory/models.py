@@ -1,21 +1,21 @@
 from datetime import datetime
-
 from uuid import UUID
 
-from sqlalchemy import Boolean, DateTime, JSON, Enum, ForeignKey, Integer, String, UniqueConstraint
+from sqlalchemy import JSON, Boolean, DateTime, Enum, ForeignKey, Integer, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
-from backend.app.db.base import Base, TimestampMixin, UuidPrimaryKeyMixin
 from backend.app.common.constants import (
-    ServerStatus,
-    ServerEnvironment,
-    ServerSshAuthMethod,
-    ManagedNodeType,
-    ManagementState,
+    InventoryHealthStatus,
     InventoryLifecycleState,
     InventorySyncStatus,
-    InventoryHealthStatus,
+    ManagedNodeType,
+    ManagementState,
+    ServerEnvironment,
+    ServerSshAuthMethod,
+    ServerStatus,
 )
+from backend.app.db.base import Base, TimestampMixin, UuidPrimaryKeyMixin
+from backend.app.db.types import EncryptedString
 
 
 class Server(Base, UuidPrimaryKeyMixin, TimestampMixin):
@@ -56,7 +56,8 @@ class Server(Base, UuidPrimaryKeyMixin, TimestampMixin):
         default=ServerSshAuthMethod.KEY,
         nullable=False,
     )
-    ssh_password: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    # Encrypted at rest; see backend.app.db.types.EncryptedString.
+    ssh_password: Mapped[str | None] = mapped_column(EncryptedString, nullable=True)
     ssh_private_key_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
     trusted_ssh_host_key_sha256: Mapped[str | None] = mapped_column(String(95), nullable=True)
     trusted_ssh_host_key_accepted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
