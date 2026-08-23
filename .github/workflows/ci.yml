@@ -60,6 +60,12 @@ jobs:
       - name: Python syntax check
         run: python -m compileall -q backend scripts
 
+      - name: Install lint tooling
+        run: python -m pip install "ruff>=0.5.7"
+
+      - name: Backend lint
+        run: python -m ruff check backend scripts
+
       - name: Artifact hygiene
         run: python scripts/check_artifact_hygiene.py
 
@@ -159,6 +165,13 @@ jobs:
       - name: Frontend lint
         working-directory: frontend
         run: npm run lint
+
+      - name: Frontend dependency audit
+        working-directory: frontend
+        # Production dependencies only: build tooling is not shipped to users.
+        # Advisory, not blocking, so a fresh disclosure cannot wedge deploys.
+        continue-on-error: true
+        run: npm audit --omit=dev --audit-level=high
 
       - name: Frontend build
         working-directory: frontend
