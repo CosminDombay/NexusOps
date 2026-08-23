@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
 from backend.app.adapters.ssh import SshAdapter
+from backend.app.adapters.ssh.host_keys import HostKeyPolicy
 from backend.app.adapters.ssh.sudo import prepare_sudo_command
 from backend.app.modules.audit.service import AuditService
 from backend.app.modules.credentials.service import CredentialNotFoundError, CredentialService
@@ -12,15 +13,14 @@ from backend.app.modules.inventory.models import ServerSshAuthMethod
 from backend.app.modules.jobs.models import Job, JobStatus
 from backend.app.modules.jobs.repository import JobRepository
 from backend.app.modules.jobs.schemas import JobExecuteRequest
+from backend.app.modules.orchestration.security import SecretSanitizer
 from backend.app.modules.orchestration.semantics import (
     JOB_LIFECYCLE,
     is_job_success,
     orchestration_origin,
     runtime_metadata,
 )
-from backend.app.modules.orchestration.security import SecretSanitizer, SSHExecutionError
 from backend.app.modules.orchestration.utils import duration_seconds
-
 
 TERMINAL_JOB_STATES = JOB_LIFECYCLE.terminal
 
@@ -110,6 +110,7 @@ class JobExecutionRuntime:
         try:
             ssh_user, ssh_password, ssh_private_key_path, ssh_private_key, ssh_passphrase = await self._credentials(server, payload)
             command, input_data = prepare_sudo_command(payload.command, ssh_password)
+            host_key_policy = HostKeyPolicy.for_server(server)
             result = await self.ssh_adapter.run_command(
                 host=server.ip_address,
                 port=server.ssh_port,
@@ -120,7 +121,9 @@ class JobExecutionRuntime:
                 private_key=ssh_private_key,
                 passphrase=ssh_passphrase,
                 input_data=input_data,
+                host_key_policy=host_key_policy,
             )
+            host_key_policy.persist_to(server)
             job.stdout = self.secret_sanitizer.redact_text(result.stdout)
             job.stderr = self.secret_sanitizer.redact_text(result.stderr)
             job.exit_code = result.exit_code

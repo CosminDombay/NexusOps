@@ -1,12 +1,12 @@
 import asyncio
-import io
-import hashlib
 from pathlib import Path
 
 import paramiko
 import structlog
 
 from backend.app.adapters.ssh.base import SshAdapter, SshExecutionResult
+from backend.app.adapters.ssh.host_keys import HostKeyPolicy, HostKeyVerificationError
+from backend.app.adapters.ssh.keys import PrivateKeyLoadError, load_private_key
 from backend.app.core.config import settings
 
 logger = structlog.get_logger(__name__)
@@ -16,13 +16,8 @@ class SshConnectionError(Exception):
     """Raised when a remote host cannot be reached over SSH."""
 
 
-class TrustOnFirstUsePolicy(paramiko.MissingHostKeyPolicy):
-    def missing_host_key(self, client: paramiko.SSHClient, hostname: str, key: paramiko.PKey) -> None:
-        if not settings.ssh_trust_on_first_use:
-            raise SshConnectionError("SSH host key is not trusted")
-        fingerprint = "SHA256:" + hashlib.sha256(key.asbytes()).hexdigest()
-        logger.warning("ssh_host_key_trusted_on_first_use", host=hostname, fingerprint=fingerprint)
-        client.get_host_keys().add(hostname, key.get_name(), key)
+class SshHostKeyError(SshConnectionError):
+    """Raised when a host key is untrusted or does not match the pinned fingerprint."""
 
 
 class ParamikoSshAdapter(SshAdapter):
@@ -44,6 +39,7 @@ class ParamikoSshAdapter(SshAdapter):
         private_key: str | None = None,
         passphrase: str | None = None,
         input_data: str | None = None,
+        host_key_policy: HostKeyPolicy | None = None,
     ) -> SshExecutionResult:
         return await asyncio.to_thread(
             self._run_command_sync,
@@ -56,6 +52,7 @@ class ParamikoSshAdapter(SshAdapter):
             private_key=private_key,
             passphrase=passphrase,
             input_data=input_data,
+            host_key_policy=host_key_policy,
         )
 
     async def upload_file(self, host: str, local_path: str, remote_path: str, user: str) -> None:
@@ -73,9 +70,13 @@ class ParamikoSshAdapter(SshAdapter):
         private_key: str | None,
         passphrase: str | None,
         input_data: str | None,
+        host_key_policy: HostKeyPolicy | None = None,
     ) -> SshExecutionResult:
         client = paramiko.SSHClient()
-        client.set_missing_host_key_policy(TrustOnFirstUsePolicy())
+        policy = host_key_policy or HostKeyPolicy(
+            None, trust_on_first_use=settings.ssh_trust_on_first_use
+        )
+        client.set_missing_host_key_policy(policy)
         key_filename = self._key_filename(private_key_path)
         use_password = password is not None
         use_inline_key = private_key is not None
@@ -103,13 +104,18 @@ class ParamikoSshAdapter(SshAdapter):
             stdout = stdout_stream.read().decode("utf-8", errors="replace")
             stderr = stderr_stream.read().decode("utf-8", errors="replace")
             exit_code = stdout_stream.channel.recv_exit_status()
+        except HostKeyVerificationError as exc:
+            # Never retried or downgraded: a mismatch means the peer is not the host we pinned.
+            logger.warning("ssh_host_key_rejected", host=host, port=port, user=user)
+            raise SshHostKeyError(str(exc)) from exc
         except Exception as exc:
+            # The command is deliberately not logged: resolved templates can carry
+            # credential-backed values.
             logger.warning(
                 "ssh_command_failed",
                 host=host,
                 port=port,
                 user=user,
-                command=command,
                 reason=exc.__class__.__name__,
             )
             raise SshConnectionError(f"SSH command failed for {host}: {exc}") from exc
@@ -117,7 +123,12 @@ class ParamikoSshAdapter(SshAdapter):
             client.close()
 
         logger.info("ssh_command_completed", host=host, port=port, user=user, exit_code=exit_code)
-        return SshExecutionResult(exit_code=exit_code, stdout=stdout, stderr=stderr)
+        return SshExecutionResult(
+            exit_code=exit_code,
+            stdout=stdout,
+            stderr=stderr,
+            accepted_host_key_sha256=policy.accepted_fingerprint,
+        )
 
     @staticmethod
     def _key_filename(private_key_path: str | None) -> str | None:
@@ -128,19 +139,7 @@ class ParamikoSshAdapter(SshAdapter):
 
     @staticmethod
     def _pkey(private_key: str | None, passphrase: str | None) -> paramiko.PKey | None:
-        if not private_key:
-            return None
-        key_stream = io.StringIO(private_key)
-        loaders = (
-            paramiko.RSAKey.from_private_key,
-            paramiko.Ed25519Key.from_private_key,
-            paramiko.ECDSAKey.from_private_key,
-            paramiko.DSSKey.from_private_key,
-        )
-        for loader in loaders:
-            key_stream.seek(0)
-            try:
-                return loader(key_stream, password=passphrase)
-            except paramiko.SSHException:
-                continue
-        raise SshConnectionError("Unsupported SSH private key format")
+        try:
+            return load_private_key(private_key, passphrase)
+        except PrivateKeyLoadError as exc:
+            raise SshConnectionError(str(exc)) from exc

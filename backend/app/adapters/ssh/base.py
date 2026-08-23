@@ -1,7 +1,11 @@
 from abc import abstractmethod
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from backend.app.adapters.base import Adapter
+
+if TYPE_CHECKING:
+    from backend.app.adapters.ssh.host_keys import HostKeyPolicy
 
 
 @dataclass(frozen=True)
@@ -9,6 +13,7 @@ class SshExecutionResult:
     exit_code: int
     stdout: str
     stderr: str
+    accepted_host_key_sha256: str | None = None
 
 
 class SshAdapter(Adapter):
@@ -27,6 +32,7 @@ class SshAdapter(Adapter):
         private_key: str | None = None,
         passphrase: str | None = None,
         input_data: str | None = None,
+        host_key_policy: "HostKeyPolicy | None" = None,
     ) -> SshExecutionResult:
         raise NotImplementedError
 

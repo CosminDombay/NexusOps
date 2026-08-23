@@ -153,4 +153,4 @@ NexusOps remains local-development friendly by default, but startup now validate
 - `CORS_ORIGINS` accepts either comma-separated origins or JSON array syntax.
 - `ENABLE_OPENAPI=false` hides Swagger/OpenAPI in production.
 
-Local-only escape hatches such as `ALLOW_INSECURE_DEV_TLS` and `ALLOW_INSECURE_DEV_SECRETS` are intended for development and should not be used for production deployments.
+`SSH_TRUST_ON_FIRST_USE=true` accepts an unknown host key on first contact and pins it to the inventory record; every later connection to that host must present the same key. Set it to `false` to require an operator to approve each fingerprint before any SSH work runs.

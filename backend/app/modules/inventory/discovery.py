@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import csv
 import shlex
+from collections.abc import Iterable
 from dataclasses import dataclass
 from io import StringIO
-from typing import Iterable
 
 from backend.app.adapters.ssh.base import SshAdapter
+from backend.app.adapters.ssh.host_keys import HostKeyPolicy
 from backend.app.adapters.ssh.paramiko import SshConnectionError
 from backend.app.adapters.ssh.sudo import prepare_sudo_command
 from backend.app.modules.credentials.service import CredentialNotFoundError, CredentialService
@@ -148,6 +149,7 @@ class HostDiscoveryService:
 
         command, input_data = prepare_sudo_command(command, ssh_password)
 
+        host_key_policy = HostKeyPolicy.for_server(server)
         try:
             result = await self.ssh_adapter.run_command(
                 host=server.ip_address,
@@ -159,9 +161,11 @@ class HostDiscoveryService:
                 passphrase=ssh_passphrase,
                 command=command,
                 input_data=input_data,
+                host_key_policy=host_key_policy,
             )
         except SshConnectionError as exc:
             raise HostDiscoveryError(str(exc)) from exc
+        host_key_policy.persist_to(server)
 
         if result.exit_code != 0 and not result.stdout:
             raise HostDiscoveryError(result.stderr or "Host discovery command failed")

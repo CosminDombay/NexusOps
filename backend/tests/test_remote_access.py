@@ -2,7 +2,11 @@ from uuid import uuid4
 
 import pytest
 
-from backend.app.common.constants import InventoryLifecycleState, ServerEnvironment, ServerSshAuthMethod
+from backend.app.common.constants import (
+    InventoryLifecycleState,
+    ServerEnvironment,
+    ServerSshAuthMethod,
+)
 from backend.app.modules.auth.models import User, UserRole
 from backend.app.modules.inventory.models import Server
 from backend.app.modules.remote_access.schemas import RemoteFileWriteResponse

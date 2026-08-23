@@ -5,16 +5,28 @@ from secrets import token_urlsafe
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, WebSocket, WebSocketDisconnect, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    HTTPException,
+    Query,
+    Request,
+    WebSocket,
+    WebSocketDisconnect,
+    status,
+)
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from backend.app.core.client_ip import client_ip
+from backend.app.core.config import settings
 from backend.app.db.session import get_db_session
 from backend.app.modules.audit.service import audit_service_from_session, source_ip_from_request
-from backend.app.modules.auth.models import User, UserRole
-from backend.app.core.config import settings
-from backend.app.modules.auth.models import RemoteAccessToken
-from backend.app.modules.auth.repositories.user_repository import RemoteAccessTokenRepository, UserRepository
+from backend.app.modules.auth.models import RemoteAccessToken, User, UserRole
+from backend.app.modules.auth.repositories.user_repository import (
+    RemoteAccessTokenRepository,
+    UserRepository,
+)
 from backend.app.modules.auth.security.dependencies import ROLE_ORDER, require_operator
 from backend.app.modules.auth.security.jwt import TokenValidationError, decode_token
 from backend.app.modules.credentials.repository import CredentialRepository
@@ -94,7 +106,7 @@ async def shell_websocket(
             target_type="server",
             target_id=server_id,
             result="success",
-            source_ip=websocket.client.host if websocket.client else None,
+            source_ip=client_ip(websocket),
         )
         await asyncio.gather(
             _websocket_to_shell(websocket, shell.channel),
@@ -116,7 +128,7 @@ async def shell_websocket(
             target_type="server",
             target_id=server_id,
             result="failed",
-            source_ip=websocket.client.host if websocket.client else None,
+            source_ip=client_ip(websocket),
             error=exc.__class__.__name__,
         )
         await websocket.close(code=status.WS_1011_INTERNAL_ERROR, reason=str(exc))
@@ -130,7 +142,7 @@ async def shell_websocket(
             target_type="server",
             target_id=server_id,
             result="success",
-            source_ip=websocket.client.host if websocket.client else None,
+            source_ip=client_ip(websocket),
         )
 
 

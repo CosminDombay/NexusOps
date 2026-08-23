@@ -9,11 +9,12 @@ import httpx
 import structlog
 
 from backend.app.adapters.ssh import ParamikoSshAdapter, SshAdapter
+from backend.app.adapters.ssh.host_keys import HostKeyPolicy
+from backend.app.common.constants import InventoryLifecycleState
+from backend.app.core.config import settings
 from backend.app.modules.audit.repository import AuditEventRepository
 from backend.app.modules.audit.service import AuditService
 from backend.app.modules.credentials.service import CredentialNotFoundError, CredentialService
-from backend.app.common.constants import InventoryLifecycleState
-from backend.app.core.config import settings
 from backend.app.modules.integrations.models import IntegrationProviderType
 from backend.app.modules.integrations.service import IntegrationService, ProviderConnectionConfig
 from backend.app.modules.inventory.models import Server
@@ -23,14 +24,16 @@ from backend.app.modules.monitoring.models import (
     MonitoringComponentStatus,
     MonitoringSnapshot,
     MonitoringState,
+    MonitoringValidationAttempt,
 )
-from backend.app.modules.monitoring.repository import MonitoringSnapshotRepository, MonitoringValidationAttemptRepository
-from backend.app.modules.monitoring.models import MonitoringValidationAttempt
+from backend.app.modules.monitoring.repository import (
+    MonitoringSnapshotRepository,
+    MonitoringValidationAttemptRepository,
+)
 from backend.app.modules.monitoring.schemas import (
     MonitoringOverviewRead,
     MonitoringProviderStatusRead,
     MonitoringValidationRead,
-    PrometheusHealthRead,
     ServerMetricsRead,
 )
 from backend.app.modules.runtime_state.repository import (
@@ -407,6 +410,7 @@ class MonitoringService:
         )
         try:
             details = await self._ssh_details(server)
+            host_key_policy = HostKeyPolicy.for_server(server)
             result = await self.ssh_adapter.run_command(
                 host=server.ip_address,
                 port=server.ssh_port,
@@ -416,7 +420,9 @@ class MonitoringService:
                 private_key_path=details["private_key_path"],
                 private_key=details["private_key"],
                 passphrase=details["passphrase"],
+                host_key_policy=host_key_policy,
             )
+            host_key_policy.persist_to(server)
         except CredentialNotFoundError:
             return MonitoringComponentStatus.UNAVAILABLE, "ssh_auth_failed"
         except TimeoutError:
@@ -438,6 +444,7 @@ class MonitoringService:
         )
         try:
             details = await self._ssh_details(server)
+            host_key_policy = HostKeyPolicy.for_server(server)
             result = await self.ssh_adapter.run_command(
                 host=server.ip_address,
                 port=server.ssh_port,
@@ -447,7 +454,9 @@ class MonitoringService:
                 private_key_path=details["private_key_path"],
                 private_key=details["private_key"],
                 passphrase=details["passphrase"],
+                host_key_policy=host_key_policy,
             )
+            host_key_policy.persist_to(server)
         except CredentialNotFoundError:
             return MonitoringComponentStatus.UNAVAILABLE, "ssh_auth_failed"
         except TimeoutError:

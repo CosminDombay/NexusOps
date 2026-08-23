@@ -1,6 +1,5 @@
 import asyncio
 import hashlib
-import io
 import posixpath
 import stat
 import time
@@ -12,10 +11,16 @@ from uuid import UUID
 
 import paramiko
 
+from backend.app.adapters.ssh.host_keys import HostKeyPolicy, HostKeyVerificationError
+from backend.app.adapters.ssh.keys import PrivateKeyLoadError, load_private_key
 from backend.app.core.config import settings
 from backend.app.modules.auth.models import User, UserRole
 from backend.app.modules.credentials.service import CredentialNotFoundError, CredentialService
-from backend.app.modules.inventory.models import InventoryLifecycleState, Server, ServerSshAuthMethod
+from backend.app.modules.inventory.models import (
+    InventoryLifecycleState,
+    Server,
+    ServerSshAuthMethod,
+)
 from backend.app.modules.inventory.repository import ServerRepository
 from backend.app.modules.remote_access.schemas import (
     RemoteDirectoryListing,
@@ -169,7 +174,10 @@ class ParamikoRemoteAccessAdapter:
 
     def _connect(self, details: SshConnectionDetails) -> paramiko.SSHClient:
         client = paramiko.SSHClient()
-        policy = FingerprintPolicy(details.trusted_host_key_sha256, details.trust_on_first_use)
+        policy = HostKeyPolicy(
+            details.trusted_host_key_sha256,
+            trust_on_first_use=details.trust_on_first_use,
+        )
         client.set_missing_host_key_policy(policy)
         try:
             client.connect(
@@ -186,6 +194,9 @@ class ParamikoRemoteAccessAdapter:
             if policy.accepted_fingerprint:
                 self.last_accepted_host_key_sha256 = policy.accepted_fingerprint
             return client
+        except HostKeyVerificationError as exc:
+            client.close()
+            raise RemoteSshError(str(exc)) from exc
         except Exception as exc:
             client.close()
             raise RemoteSshError(f"SSH connection failed for {details.host}: {exc}") from exc
@@ -216,22 +227,10 @@ class ParamikoRemoteAccessAdapter:
 
     @staticmethod
     def _pkey(details: SshConnectionDetails) -> paramiko.PKey | None:
-        if not details.private_key:
-            return None
-        key_stream = io.StringIO(details.private_key)
-        loaders = (
-            paramiko.RSAKey.from_private_key,
-            paramiko.Ed25519Key.from_private_key,
-            paramiko.ECDSAKey.from_private_key,
-            paramiko.DSSKey.from_private_key,
-        )
-        for loader in loaders:
-            key_stream.seek(0)
-            try:
-                return loader(key_stream, password=details.passphrase)
-            except paramiko.SSHException:
-                continue
-        raise RemoteSshError("Unsupported SSH private key format")
+        try:
+            return load_private_key(details.private_key, details.passphrase)
+        except PrivateKeyLoadError as exc:
+            raise RemoteSshError(str(exc)) from exc
 
     @staticmethod
     def _entry_from_attrs(name: str, path: str, attrs: paramiko.SFTPAttributes) -> RemoteFileEntry:
@@ -425,23 +424,3 @@ class RemoteAccessService:
         if len(value) != 64 or any(character not in "0123456789abcdef" for character in value):
             raise RemotePathError("expected_hash must be a SHA-256 hex digest")
         return value
-
-
-def host_key_fingerprint_sha256(key: paramiko.PKey) -> str:
-    return "SHA256:" + hashlib.sha256(key.asbytes()).hexdigest()
-
-
-class FingerprintPolicy(paramiko.MissingHostKeyPolicy):
-    def __init__(self, expected_fingerprint: str | None, trust_on_first_use: bool) -> None:
-        self.expected_fingerprint = expected_fingerprint
-        self.trust_on_first_use = trust_on_first_use
-        self.accepted_fingerprint: str | None = None
-
-    def missing_host_key(self, client: paramiko.SSHClient, hostname: str, key: paramiko.PKey) -> None:
-        fingerprint = host_key_fingerprint_sha256(key)
-        if self.expected_fingerprint and fingerprint != self.expected_fingerprint:
-            raise RemoteSshError("SSH host key fingerprint mismatch")
-        if not self.expected_fingerprint and not self.trust_on_first_use:
-            raise RemoteSshError("SSH host key is not trusted")
-        self.accepted_fingerprint = fingerprint
-        client.get_host_keys().add(hostname, key.get_name(), key)
