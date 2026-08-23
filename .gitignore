@@ -6,41 +6,45 @@ __pycache__/
 .ruff_cache/
 .mypy_cache/
 .venv/
-.runner-cache/
 venv/
-dist/
-build/
 *.egg-info/
+/dist/
+/build/
+
+# Test and coverage output
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
 
 # Node
 node_modules/
 frontend/dist/
 frontend/.vite/
-frontend/*.tsbuildinfo
-frontend/tsconfig*.tsbuildinfo
+*.tsbuildinfo
 npm-debug.log*
+
+# Logs, runtime output and generated evidence
 *.log
+.runner-cache/
 screenshots/
 debug-bundles/
 deployment-reports/
-backlog.md
+backend/storage/*
+!backend/storage/.gitkeep
 
-# Local thesis/presentation archives and generated artifacts
-Dombay_Cosmin_Aplicatie_Practica_Spec_Licenta.txt
-docs/thesis/
-docs/thessis support/
-docs/diagrams/**
-!docs/diagrams/
-!docs/diagrams/.gitkeep
-review/screenshots/
-review/*.md
-review/*.pptx
-review/*prezentare*
-review/*thesis*
+# Local databases
+*.db
+*.sqlite
+*.sqlite3
+
+# Local working notes (not part of the published project)
+backlog.md
+USECASE*.md
 docs/project-review*.md
 *.docx
 
-# Environment
+# Environment: real secrets stay local, examples stay tracked
 .env
 .env.*
 !.env.example
@@ -48,13 +52,13 @@ docs/project-review*.md
 !backend/.env.example
 !frontend/.env.example
 
-# Editors
+# Editors, IDEs and local agent context
 .idea/
 .vscode/
-app.json
-appearance.json
-core-plugins.json
-workspace.json
+.obsidian/
+.agents/
+.codex/
+.claude/
 
 # OS
 Thumbs.db
