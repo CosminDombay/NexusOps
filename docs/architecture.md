@@ -5,6 +5,7 @@ For the latest living platform state, validation status, and technical debt, see
 Focused operational references:
 
 - `docs/api.md`: compact API surface overview.
+- `docs/architecture/design-constraints.md`: scope boundaries and non-goals the implementation is held to.
 - `docs/architecture/orchestration-semantics.md`: orchestration ownership and lifecycle terminology.
 - `docs/architecture/operational-runtime-experience.md`: runtime timeline, explainability, and cancellation semantics.
 - `docs/architecture/security-hardening-and-service-decomposition.md`: transition guards, command safety, secret redaction, and decomposition notes.

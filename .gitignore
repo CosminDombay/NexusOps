@@ -63,3 +63,6 @@ docs/project-review*.md
 # OS
 Thumbs.db
 .DS_Store
+
+# Local agent working memory (kept out of the published repo)
+AGENTS.md
