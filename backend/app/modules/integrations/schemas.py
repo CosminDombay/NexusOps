@@ -4,7 +4,11 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from backend.app.modules.integrations.models import IntegrationProviderType, IntegrationState, IntegrationType
+from backend.app.modules.integrations.models import (
+    IntegrationProviderType,
+    IntegrationState,
+    IntegrationType,
+)
 
 
 class IntegrationFields(BaseModel):

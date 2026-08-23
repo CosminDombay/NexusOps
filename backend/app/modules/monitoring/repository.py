@@ -1,7 +1,13 @@
-from backend.app.common.repository import BaseRepository
-from backend.app.modules.monitoring.models import MetricSample, MonitoringSnapshot, MonitoringValidationAttempt
-from sqlalchemy import select
 from uuid import UUID
+
+from sqlalchemy import select
+
+from backend.app.common.repository import BaseRepository
+from backend.app.modules.monitoring.models import (
+    MetricSample,
+    MonitoringSnapshot,
+    MonitoringValidationAttempt,
+)
 
 
 class MetricSampleRepository(BaseRepository[MetricSample]):

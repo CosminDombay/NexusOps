@@ -3,13 +3,6 @@ from enum import StrEnum
 from types import SimpleNamespace
 from uuid import uuid4
 
-from backend.app.modules.orchestration.utils import (
-    aggregate_target_executions,
-    duration_seconds,
-    rollup_status,
-    success_failure_counts,
-    summarize_statuses,
-)
 from backend.app.common.variables import VariableResolutionService
 from backend.app.modules.deployments.models import DeploymentStatus
 from backend.app.modules.deployments.runtime import (
@@ -34,6 +27,13 @@ from backend.app.modules.orchestration.transitions import (
     InvalidWorkflowStateTransitionError,
     validate_deployment_transition,
     validate_workflow_transition,
+)
+from backend.app.modules.orchestration.utils import (
+    aggregate_target_executions,
+    duration_seconds,
+    rollup_status,
+    success_failure_counts,
+    summarize_statuses,
 )
 from backend.app.modules.workflows.models import WorkflowStatus
 

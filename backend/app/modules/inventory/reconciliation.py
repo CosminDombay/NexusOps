@@ -4,8 +4,9 @@ Reconciliation service for matching discovered infrastructure with inventory rec
 Implements the core matching strategies for determining synchronization state.
 """
 
-import structlog
 from datetime import UTC, datetime
+
+import structlog
 
 from backend.app.common.constants import (
     InventoryLifecycleState,

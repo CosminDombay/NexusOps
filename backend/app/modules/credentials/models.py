@@ -1,8 +1,7 @@
+from datetime import datetime
 from uuid import UUID
 
-from datetime import datetime
-
-from sqlalchemy import DateTime, JSON, Enum, ForeignKey, String, Text
+from sqlalchemy import JSON, DateTime, Enum, ForeignKey, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from backend.app.db.base import Base, TimestampMixin, UuidPrimaryKeyMixin

@@ -22,18 +22,20 @@ from backend.app.modules.identity.repository import (
     SSHKeyRepository,
 )
 from backend.app.modules.identity.schemas import (
+    GROUP_PATTERN,
+    USERNAME_PATTERN,
     AccessProfileRead,
     DiscoveredGroupRead,
     DiscoveredUserRead,
-    GroupMembersRequest,
     GroupDiscoveryRead,
     GroupMemberHostRead,
     GroupMembershipRead,
+    GroupMembersRequest,
     GroupPresetRead,
+    IdentityBundleDocument,
     IdentityBundleExportRead,
     IdentityBundleImportRead,
     IdentityBundleImportRequest,
-    IdentityBundleDocument,
     IdentityMutationRead,
     IdentityReplicationRead,
     LinuxGroupCreate,
@@ -56,8 +58,6 @@ from backend.app.modules.identity.schemas import (
     UserDiscoveryRead,
     UserGroupMembershipHostRead,
     UserGroupMembershipRead,
-    GROUP_PATTERN,
-    USERNAME_PATTERN,
 )
 from backend.app.modules.jobs.models import JobStatus
 from backend.app.modules.jobs.schemas import BulkExecutionHostResult, JobBulkExecuteRequest
@@ -1221,4 +1221,3 @@ class LinuxPermissionService:
         if not commands:
             raise IdentityValidationError("No permission operation requested")
         return " && ".join(commands)
-    PermissionPresetRead,

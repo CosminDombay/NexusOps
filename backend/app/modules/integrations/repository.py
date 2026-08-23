@@ -5,7 +5,11 @@ from uuid import UUID
 from sqlalchemy import select
 
 from backend.app.common.repository import BaseRepository
-from backend.app.modules.integrations.models import Integration, IntegrationProviderType, IntegrationType
+from backend.app.modules.integrations.models import (
+    Integration,
+    IntegrationProviderType,
+    IntegrationType,
+)
 
 
 class IntegrationRepository(BaseRepository[Integration]):

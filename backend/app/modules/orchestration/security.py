@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
 import shlex
 from collections.abc import Mapping
+from dataclasses import dataclass
 from typing import Any
 
 import structlog

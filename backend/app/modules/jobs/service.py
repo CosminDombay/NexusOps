@@ -1,23 +1,31 @@
 import asyncio
 from datetime import UTC, datetime
 from hashlib import sha256
-from uuid import UUID
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import structlog
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from backend.app.adapters.ssh import SshAdapter
-from backend.app.modules.auth.models import User
 from backend.app.modules.audit.repository import AuditEventRepository
 from backend.app.modules.audit.service import AuditService
+from backend.app.modules.auth.models import User
 from backend.app.modules.credentials.repository import CredentialRepository
 from backend.app.modules.credentials.service import CredentialService
-from backend.app.modules.inventory.repository import ServerRepository
 from backend.app.modules.inventory.models import InventoryLifecycleState
+from backend.app.modules.inventory.repository import ServerRepository
 from backend.app.modules.jobs.actions import get_action, list_actions
-from backend.app.modules.jobs.models import CustomOperationalAction, Job, JobExecutionEvent, JobStatus
-from backend.app.modules.jobs.repository import CustomOperationalActionRepository, JobExecutionEventRepository, JobRepository
+from backend.app.modules.jobs.models import (
+    CustomOperationalAction,
+    Job,
+    JobExecutionEvent,
+    JobStatus,
+)
+from backend.app.modules.jobs.repository import (
+    CustomOperationalActionRepository,
+    JobExecutionEventRepository,
+    JobRepository,
+)
 from backend.app.modules.jobs.runtime import JobExecutionRuntime
 from backend.app.modules.jobs.schemas import (
     BulkExecutionHostResult,
@@ -31,7 +39,12 @@ from backend.app.modules.jobs.schemas import (
     OperationalActionUpdate,
 )
 from backend.app.modules.orchestration.activity import job_activity_timeline
-from backend.app.modules.orchestration.security import CommandPolicyEngine, CommandValidationError, SafeCommandBuilder, redact_sensitive_text
+from backend.app.modules.orchestration.security import (
+    CommandPolicyEngine,
+    CommandValidationError,
+    SafeCommandBuilder,
+    redact_sensitive_text,
+)
 from backend.app.modules.orchestration.semantics import (
     is_job_failure,
     is_job_success,

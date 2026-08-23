@@ -4,8 +4,8 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.app.common.constants import InventoryHealthStatus, InventorySyncStatus
 from backend.app.adapters.proxmox import ProxmoxConfigurationError, ProxmoxConnectionError
+from backend.app.common.constants import InventoryHealthStatus, InventorySyncStatus
 from backend.app.db.session import get_db_session
 from backend.app.modules.credentials.repository import CredentialRepository
 from backend.app.modules.credentials.service import CredentialService

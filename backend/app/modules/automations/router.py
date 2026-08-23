@@ -6,8 +6,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.db.session import get_db_session
 from backend.app.modules.automations.factory import build_automation_service
-from backend.app.modules.automations.schemas import AutomationCreate, AutomationRead, AutomationUpdate
-from backend.app.modules.automations.service import AutomationNotFoundError, AutomationService, AutomationValidationError
+from backend.app.modules.automations.schemas import (
+    AutomationCreate,
+    AutomationRead,
+    AutomationUpdate,
+)
+from backend.app.modules.automations.service import (
+    AutomationNotFoundError,
+    AutomationService,
+    AutomationValidationError,
+)
 from backend.app.modules.automations.tasks import execute_automation_workflow
 from backend.app.modules.workflows.schemas import WorkflowRunRead
 from backend.app.workers.queue.service import task_queue

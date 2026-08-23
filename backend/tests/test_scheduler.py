@@ -1,4 +1,9 @@
-from backend.app.modules.automations.models import Automation, AutomationOperationType, AutomationScheduleType, AutomationTargetMode
+from backend.app.modules.automations.models import (
+    Automation,
+    AutomationOperationType,
+    AutomationScheduleType,
+    AutomationTargetMode,
+)
 from backend.app.workers.scheduler.service import SchedulerService
 
 

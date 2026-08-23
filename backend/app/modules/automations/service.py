@@ -3,17 +3,32 @@ from uuid import UUID
 
 from backend.app.modules.automations.models import Automation, AutomationOperationType
 from backend.app.modules.automations.repository import AutomationRepository
-from backend.app.modules.automations.schemas import AutomationCreate, AutomationRead, AutomationTargetRead, AutomationUpdate
+from backend.app.modules.automations.schemas import (
+    AutomationCreate,
+    AutomationRead,
+    AutomationTargetRead,
+    AutomationUpdate,
+)
 from backend.app.modules.inventory.models import InventoryLifecycleState
 from backend.app.modules.inventory.repository import ServerRepository
 from backend.app.modules.jobs.schemas import JobActionExecuteRequest
 from backend.app.modules.jobs.service import JobService, OperationalActionNotFoundError
 from backend.app.modules.orchestration.security import CommandValidationError
-from backend.app.modules.orchestration.semantics import workflow_failure_states, workflow_runtime_state
+from backend.app.modules.orchestration.semantics import (
+    workflow_failure_states,
+    workflow_runtime_state,
+)
 from backend.app.modules.packages.schemas import PackageExecuteRequest
-from backend.app.modules.packages.service import PackageAutomationService, PackageDefinitionNotFoundError
+from backend.app.modules.packages.service import (
+    PackageAutomationService,
+    PackageDefinitionNotFoundError,
+)
 from backend.app.modules.profiles.schemas import ProfileApplyRequest
-from backend.app.modules.profiles.service import ProfileNotFoundError, ProfileService, ProfileStepResolutionError
+from backend.app.modules.profiles.service import (
+    ProfileNotFoundError,
+    ProfileService,
+    ProfileStepResolutionError,
+)
 from backend.app.modules.workflows.models import WorkflowStatus, WorkflowTriggerSource, WorkflowType
 from backend.app.modules.workflows.schemas import WorkflowCreate, WorkflowStepCreate
 from backend.app.modules.workflows.service import WorkflowService

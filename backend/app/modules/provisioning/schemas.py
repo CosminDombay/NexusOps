@@ -1,13 +1,12 @@
 from datetime import datetime
 from ipaddress import ip_address, ip_interface
-from uuid import UUID
-
 from typing import Literal, Self
+from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from backend.app.modules.jobs.models import JobStatus
 from backend.app.modules.inventory.models import ServerEnvironment
+from backend.app.modules.jobs.models import JobStatus
 from backend.app.modules.provisioning.models import ProvisioningBatchStatus, ProvisioningStatus
 
 

@@ -10,8 +10,8 @@ from backend.app.modules.credentials.models import Credential, CredentialUsage
 from backend.app.modules.credentials.repository import CredentialRepository
 from backend.app.modules.credentials.schemas import (
     CredentialCreate,
-    CredentialReferenceRead,
     CredentialRead,
+    CredentialReferenceRead,
     CredentialUpdate,
     CredentialUsageRead,
     ResolvedCredential,

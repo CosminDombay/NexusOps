@@ -8,8 +8,19 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.app.db.session import get_db_session
 from backend.app.modules.audit.service import audit_service_from_session, source_ip_from_request
 from backend.app.modules.auth.models import User
-from backend.app.modules.auth.repositories.user_repository import RefreshTokenSessionRepository, UserRepository
-from backend.app.modules.auth.schemas.auth import LoginRequest, RefreshRequest, TokenPair, UserCreate, UserPasswordReset, UserRead, UserUpdate
+from backend.app.modules.auth.repositories.user_repository import (
+    RefreshTokenSessionRepository,
+    UserRepository,
+)
+from backend.app.modules.auth.schemas.auth import (
+    LoginRequest,
+    RefreshRequest,
+    TokenPair,
+    UserCreate,
+    UserPasswordReset,
+    UserRead,
+    UserUpdate,
+)
 from backend.app.modules.auth.security.dependencies import get_current_user, require_admin
 from backend.app.modules.auth.security.jwt import TokenValidationError, decode_token
 from backend.app.modules.auth.services.auth_service import (

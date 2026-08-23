@@ -7,7 +7,10 @@ import structlog
 
 from backend.app.core.config import settings
 from backend.app.modules.auth.models import RefreshTokenSession, User, UserRole
-from backend.app.modules.auth.repositories.user_repository import RefreshTokenSessionRepository, UserRepository
+from backend.app.modules.auth.repositories.user_repository import (
+    RefreshTokenSessionRepository,
+    UserRepository,
+)
 from backend.app.modules.auth.schemas.auth import (
     LoginRequest,
     TokenPair,

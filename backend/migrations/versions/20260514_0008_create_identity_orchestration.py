@@ -5,16 +5,16 @@ Revises: 20260514_0007
 Create Date: 2026-05-14
 """
 
-from typing import Sequence, Union
+from collections.abc import Sequence
 
-from alembic import op
 import sqlalchemy as sa
+from alembic import op
 from sqlalchemy.dialects import postgresql
 
 revision: str = "20260514_0008"
-down_revision: Union[str, None] = "20260514_0007"
-branch_labels: Union[str, Sequence[str], None] = None
-depends_on: Union[str, Sequence[str], None] = None
+down_revision: str | None = "20260514_0007"
+branch_labels: str | Sequence[str] | None = None
+depends_on: str | Sequence[str] | None = None
 
 identity_execution_status = postgresql.ENUM(
     "pending",

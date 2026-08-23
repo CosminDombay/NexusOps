@@ -112,7 +112,7 @@ async def delete_credential(
     session: Annotated[AsyncSession, Depends(get_db_session)],
     current_user: Annotated[User, Depends(require_admin)],
     service: Annotated[CredentialService, Depends(get_credential_service)],
-    payload: CredentialDeleteRequest | None = Body(default=None),
+    payload: Annotated[CredentialDeleteRequest | None, Body()] = None,
 ) -> CredentialRead:
     try:
         credential = await service.delete_credential(

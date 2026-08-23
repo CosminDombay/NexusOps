@@ -1,8 +1,9 @@
-from backend.app.common.repository import BaseRepository
-from backend.app.modules.profiles.models import InfrastructureProfileRecord, StandardizationProfile
+from uuid import UUID
 
 from sqlalchemy import delete, select
-from uuid import UUID
+
+from backend.app.common.repository import BaseRepository
+from backend.app.modules.profiles.models import InfrastructureProfileRecord, StandardizationProfile
 
 
 class StandardizationProfileRepository(BaseRepository[StandardizationProfile]):

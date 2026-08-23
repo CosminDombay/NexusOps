@@ -4,6 +4,7 @@ import pytest
 from pydantic import ValidationError
 
 from backend.app.adapters.ssh import SshAdapter, SshExecutionResult
+from backend.app.adapters.ssh.host_keys import HostKeyPolicy
 from backend.app.modules.credentials.schemas import ResolvedCredential
 from backend.app.modules.identity.models import LinuxUser
 from backend.app.modules.identity.repository import (
@@ -62,6 +63,7 @@ class FakeSshAdapter(SshAdapter):
         private_key: str | None = None,
         passphrase: str | None = None,
         input_data: str | None = None,
+        host_key_policy: HostKeyPolicy | None = None,
     ) -> SshExecutionResult:
         self.calls.append({"host": host, "command": command, "user": user, "input_data": input_data})
         return SshExecutionResult(exit_code=0, stdout=self.stdout, stderr="")

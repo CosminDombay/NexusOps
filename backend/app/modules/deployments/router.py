@@ -14,8 +14,8 @@ from backend.app.modules.deployments.repository import (
     DeploymentExecutionRepository,
     DeploymentRepository,
     DeploymentRevisionRepository,
-    DeploymentTargetRepository,
     DeploymentTargetExecutionRepository,
+    DeploymentTargetRepository,
 )
 from backend.app.modules.deployments.schemas import (
     DeploymentCreate,
@@ -30,14 +30,18 @@ from backend.app.modules.deployments.schemas import (
     DeploymentUpdate,
 )
 from backend.app.modules.deployments.service import (
-    DeploymentNotFoundError,
     DeploymentImportError,
+    DeploymentNotFoundError,
     DeploymentValidationError,
     DockerComposeDeploymentService,
 )
 from backend.app.modules.inventory.repository import ServerRepository
 from backend.app.modules.jobs.repository import JobRepository
-from backend.app.modules.jobs.service import JobService, JobTargetNotFoundError, JobTargetNotManagedError
+from backend.app.modules.jobs.service import (
+    JobService,
+    JobTargetNotFoundError,
+    JobTargetNotManagedError,
+)
 
 router = APIRouter()
 

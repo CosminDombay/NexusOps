@@ -4,6 +4,7 @@ import pytest
 
 from backend.app.adapters.proxmox.base import ProxmoxAdapter
 from backend.app.adapters.ssh import SshAdapter, SshExecutionResult
+from backend.app.adapters.ssh.host_keys import HostKeyPolicy
 from backend.app.common.constants import (
     InventoryLifecycleState,
     InventorySyncStatus,
@@ -11,14 +12,6 @@ from backend.app.common.constants import (
     ServerSshAuthMethod,
     ServerStatus,
 )
-from backend.app.modules.inventory.models import Server
-from backend.app.modules.inventory.repository import ServerRepository
-from backend.app.modules.identity.repository import (
-    IdentityExecutionRepository,
-    LinuxGroupRepository,
-)
-from backend.app.modules.identity.schemas import LinuxGroupCreate
-from backend.app.modules.identity.service import IdentityReplicationService, LinuxGroupService
 from backend.app.modules.deployments.repository import (
     DeploymentRepository,
     DeploymentRevisionRepository,
@@ -26,20 +19,28 @@ from backend.app.modules.deployments.repository import (
 )
 from backend.app.modules.deployments.schemas import DeploymentCreate
 from backend.app.modules.deployments.service import DockerComposeDeploymentService
+from backend.app.modules.identity.repository import (
+    IdentityExecutionRepository,
+    LinuxGroupRepository,
+)
+from backend.app.modules.identity.schemas import LinuxGroupCreate
+from backend.app.modules.identity.service import IdentityReplicationService, LinuxGroupService
+from backend.app.modules.inventory.models import Server
+from backend.app.modules.inventory.repository import ServerRepository
+from backend.app.modules.jobs.models import JobStatus
 from backend.app.modules.jobs.repository import JobRepository
 from backend.app.modules.jobs.service import JobService
-from backend.app.modules.jobs.models import JobStatus
 from backend.app.modules.packages.repository import PackageDefinitionRepository
 from backend.app.modules.profiles.repository import InfrastructureProfileRepository
 from backend.app.modules.profiles.schemas import InfrastructureProfileCreate
 from backend.app.modules.profiles.service import ProfileService
+from backend.app.modules.provisioning.models import ProvisioningRequest, ProvisioningStatus
 from backend.app.modules.provisioning.repository import (
+    ProvisioningBatchRepository,
     ProvisioningBlueprintRepository,
     ProvisioningBootstrapTemplateRepository,
-    ProvisioningBatchRepository,
     ProvisioningRequestRepository,
 )
-from backend.app.modules.provisioning.models import ProvisioningRequest, ProvisioningStatus
 from backend.app.modules.provisioning.schemas import (
     ProvisioningBatchCreate,
     ProvisioningBlueprintCreate,
@@ -162,6 +163,7 @@ class FakeSshAdapter(SshAdapter):
         private_key: str | None = None,
         passphrase: str | None = None,
         input_data: str | None = None,
+        host_key_policy: HostKeyPolicy | None = None,
     ) -> SshExecutionResult:
         self.calls.append(
             {
@@ -192,6 +194,7 @@ class BootstrapReadinessFailingSshAdapter(FakeSshAdapter):
         private_key: str | None = None,
         passphrase: str | None = None,
         input_data: str | None = None,
+        host_key_policy: HostKeyPolicy | None = None,
     ) -> SshExecutionResult:
         self.calls.append(
             {

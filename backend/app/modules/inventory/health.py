@@ -5,12 +5,19 @@ from uuid import UUID
 
 import structlog
 
-from backend.app.common.constants import InventoryHealthStatus, InventoryLifecycleState, ServerStatus
+from backend.app.common.constants import (
+    InventoryHealthStatus,
+    InventoryLifecycleState,
+    ServerStatus,
+)
 from backend.app.modules.inventory.models import Server
 from backend.app.modules.inventory.repository import ServerRepository
 from backend.app.modules.inventory.schemas import InventoryHealthCheckResult, InventoryHealthSummary
 from backend.app.modules.inventory.service import ServerNotFoundError
-from backend.app.modules.runtime_state.repository import NodeRuntimeSnapshotRepository, RuntimeRefreshStatusRepository
+from backend.app.modules.runtime_state.repository import (
+    NodeRuntimeSnapshotRepository,
+    RuntimeRefreshStatusRepository,
+)
 from backend.app.modules.runtime_state.snapshots import RuntimeSnapshotService
 
 logger = structlog.get_logger(__name__)

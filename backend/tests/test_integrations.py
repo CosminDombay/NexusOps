@@ -1,13 +1,17 @@
 import pytest
 
+from backend.app.core.config import settings
 from backend.app.modules.credentials.repository import CredentialRepository
 from backend.app.modules.credentials.schemas import CredentialCreate
 from backend.app.modules.credentials.service import CredentialService
-from backend.app.modules.integrations.models import Integration, IntegrationProviderType, IntegrationType
+from backend.app.modules.integrations.models import (
+    Integration,
+    IntegrationProviderType,
+    IntegrationType,
+)
 from backend.app.modules.integrations.repository import IntegrationRepository
 from backend.app.modules.integrations.schemas import IntegrationCreate
 from backend.app.modules.integrations.service import IntegrationService
-from backend.app.core.config import settings
 
 
 @pytest.mark.asyncio

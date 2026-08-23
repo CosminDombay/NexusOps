@@ -7,7 +7,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.db.session import get_db_session
 from backend.app.modules.auth.models import User, UserRole
-from backend.app.modules.auth.repositories.user_repository import RefreshTokenSessionRepository, UserRepository
+from backend.app.modules.auth.repositories.user_repository import (
+    RefreshTokenSessionRepository,
+    UserRepository,
+)
 from backend.app.modules.auth.security.jwt import TokenValidationError, decode_token
 
 bearer_scheme = HTTPBearer(auto_error=False)

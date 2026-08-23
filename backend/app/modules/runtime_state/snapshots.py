@@ -43,7 +43,7 @@ class RuntimeSnapshotService:
             snapshot = snapshots.get(server.id)
             if snapshot is None:
                 continue
-            setattr(server, "runtime_state", self.to_runtime_state(snapshot))
+            server.runtime_state = self.to_runtime_state(snapshot)
         return servers
 
     async def attach_snapshot(self, server: Server) -> Server:
@@ -76,7 +76,7 @@ class RuntimeSnapshotService:
             observability=observability,
         )
         saved = await self.snapshot_repository.upsert(snapshot)
-        setattr(server, "runtime_state", self.to_runtime_state(saved))
+        server.runtime_state = self.to_runtime_state(saved)
         if commit:
             await self.snapshot_repository.session.commit()
             await self.snapshot_repository.session.refresh(saved)
@@ -128,7 +128,7 @@ class RuntimeSnapshotService:
             observability=observability,
         )
         saved = await self.snapshot_repository.upsert(snapshot)
-        setattr(server, "runtime_state", self.to_runtime_state(saved))
+        server.runtime_state = self.to_runtime_state(saved)
         if commit:
             await self.record_refresh_status(
                 "monitoring",
@@ -167,7 +167,7 @@ class RuntimeSnapshotService:
             refresh_status="success",
         )
         saved = await self.snapshot_repository.upsert(snapshot)
-        setattr(server, "runtime_state", self.to_runtime_state(saved))
+        server.runtime_state = self.to_runtime_state(saved)
         if commit:
             await self.record_refresh_status(
                 "provider",

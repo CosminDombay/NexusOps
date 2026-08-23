@@ -4,42 +4,49 @@ import pytest
 from pydantic import ValidationError
 
 from backend.app.adapters.ssh import SshAdapter, SshExecutionResult
+from backend.app.adapters.ssh.host_keys import HostKeyPolicy
 from backend.app.modules.credentials.schemas import ResolvedCredential
 from backend.app.modules.credentials.service import CredentialNotFoundError
-from backend.app.modules.inventory.repository import ServerRepository
-from backend.app.modules.inventory.schemas import ServerCreate
-from backend.app.modules.inventory.service import InventoryService
 from backend.app.modules.deployments.repository import (
     DeploymentRepository,
     DeploymentRevisionRepository,
     DeploymentTargetRepository,
 )
-from backend.app.modules.deployments.schemas import DeploymentCreate
-from backend.app.modules.deployments.service import DeploymentValidationError, DockerComposeDeploymentService
 from backend.app.modules.deployments.runtime import validate_compose_content
+from backend.app.modules.deployments.schemas import DeploymentCreate
+from backend.app.modules.deployments.service import (
+    DeploymentValidationError,
+    DockerComposeDeploymentService,
+)
 from backend.app.modules.identity.repository import (
     IdentityExecutionRepository,
     LinuxGroupRepository,
     LinuxUserRepository,
     PermissionTemplateRepository,
 )
-from backend.app.modules.identity.schemas import LinuxGroupCreate, LinuxUserCreate, PermissionTemplateCreate
+from backend.app.modules.identity.schemas import (
+    LinuxGroupCreate,
+    LinuxUserCreate,
+    PermissionTemplateCreate,
+)
 from backend.app.modules.identity.service import (
     IdentityReplicationService,
     LinuxGroupService,
     LinuxPermissionService,
     LinuxUserService,
 )
+from backend.app.modules.inventory.repository import ServerRepository
+from backend.app.modules.inventory.schemas import ServerCreate
+from backend.app.modules.inventory.service import InventoryService
 from backend.app.modules.jobs.repository import CustomOperationalActionRepository, JobRepository
-from backend.app.modules.jobs.service import JobService
 from backend.app.modules.jobs.schemas import OperationalActionCreate
-from backend.app.modules.packages.repository import PackageDefinitionRepository
+from backend.app.modules.jobs.service import JobService
 from backend.app.modules.packages.models import PackageDefinitionRecord
-from backend.app.modules.packages.service import PackageAutomationService
+from backend.app.modules.packages.repository import PackageDefinitionRepository
 from backend.app.modules.packages.schemas import PackageDefinitionCreate, PackageExecuteRequest
-from backend.app.modules.profiles.schemas import ProfileApplyRequest
-from backend.app.modules.profiles.schemas import InfrastructureProfileCreate
+from backend.app.modules.packages.service import PackageAutomationService
 from backend.app.modules.profiles.repository import InfrastructureProfileRepository
+from backend.app.modules.profiles.schemas import InfrastructureProfileCreate, ProfileApplyRequest
 from backend.app.modules.profiles.service import ProfileService
 from backend.app.modules.workflows.models import WorkflowStatus, WorkflowStepStatus, WorkflowType
 from backend.app.modules.workflows.repository import WorkflowRunRepository, WorkflowStepRepository
@@ -67,6 +74,7 @@ class FakeSshAdapter(SshAdapter):
         private_key: str | None = None,
         passphrase: str | None = None,
         input_data: str | None = None,
+        host_key_policy: HostKeyPolicy | None = None,
     ) -> SshExecutionResult:
         self.calls.append({"host": host, "command": command, "user": user, "password": password, "input_data": input_data})
         if "docker inspect" in command:

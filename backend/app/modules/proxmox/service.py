@@ -1,7 +1,7 @@
+import socket
 from collections import Counter
 from datetime import UTC, datetime
 from ipaddress import ip_address
-import socket
 from typing import Any
 from uuid import UUID
 
@@ -32,11 +32,11 @@ from backend.app.modules.proxmox.schemas import (
     ProxmoxVmActionRead,
     ProxmoxVmRead,
 )
-from backend.app.modules.runtime_state.service import RuntimeStateService
 from backend.app.modules.runtime_state.repository import (
     NodeRuntimeSnapshotRepository,
     RuntimeRefreshStatusRepository,
 )
+from backend.app.modules.runtime_state.service import RuntimeStateService
 from backend.app.modules.runtime_state.snapshots import RuntimeSnapshotService
 
 logger = structlog.get_logger(__name__)

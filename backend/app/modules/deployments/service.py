@@ -1,12 +1,13 @@
-from datetime import UTC, datetime
 import re
+from datetime import UTC, datetime
 from hashlib import sha256
 from uuid import UUID
 
 import structlog
 
-from backend.app.common.import_export import ImportExportError, parse_document, render_document
 from backend.app.common.constants import InventoryHealthStatus
+from backend.app.common.import_export import ImportExportError, parse_document, render_document
+from backend.app.modules.credentials.service import CredentialNotFoundError, CredentialService
 from backend.app.modules.deployments.models import (
     Deployment,
     DeploymentExecution,
@@ -19,20 +20,27 @@ from backend.app.modules.deployments.repository import (
     DeploymentExecutionRepository,
     DeploymentRepository,
     DeploymentRevisionRepository,
-    DeploymentTargetRepository,
     DeploymentTargetExecutionRepository,
+    DeploymentTargetRepository,
+)
+from backend.app.modules.deployments.runtime import (
+    ComposeValidationResult,
+    DeploymentRuntimeInspector,
+    DeploymentRuntimeState,
+    expected_compose_services,
+    validate_compose_content,
 )
 from backend.app.modules.deployments.schemas import (
-    DeploymentContainerRead,
     DeploymentComposeValidationRead,
+    DeploymentContainerRead,
     DeploymentCreate,
     DeploymentDryRunRead,
     DeploymentDryRunTargetRead,
+    DeploymentExecutionRead,
     DeploymentExportRead,
     DeploymentImportRead,
     DeploymentImportRequest,
     DeploymentLogsRead,
-    DeploymentExecutionRead,
     DeploymentOperationRead,
     DeploymentRead,
     DeploymentRevisionRead,
@@ -42,18 +50,14 @@ from backend.app.modules.deployments.schemas import (
     DeploymentTargetRead,
     DeploymentUpdate,
 )
-from backend.app.modules.deployments.runtime import (
-    ComposeValidationResult,
-    DeploymentRuntimeInspector,
-    DeploymentRuntimeState,
-    expected_compose_services,
-    validate_compose_content,
-)
-from backend.app.modules.credentials.service import CredentialNotFoundError, CredentialService
 from backend.app.modules.inventory.models import InventoryLifecycleState
 from backend.app.modules.inventory.repository import ServerRepository
 from backend.app.modules.jobs.schemas import JobExecuteRequest, JobRead
-from backend.app.modules.jobs.service import JobService, JobTargetNotFoundError, JobTargetNotManagedError
+from backend.app.modules.jobs.service import (
+    JobService,
+    JobTargetNotFoundError,
+    JobTargetNotManagedError,
+)
 from backend.app.modules.orchestration.activity import deployment_execution_activity_timeline
 from backend.app.modules.orchestration.security import CommandValidationError, SecretSanitizer
 from backend.app.modules.orchestration.semantics import (

@@ -49,8 +49,8 @@ from backend.app.modules.identity.schemas import (
     UserGroupMembershipRead,
 )
 from backend.app.modules.identity.service import (
-    IdentityConflictError,
     IdentityBundleService,
+    IdentityConflictError,
     IdentityImportError,
     IdentityNotFoundError,
     IdentityPresetService,
@@ -63,7 +63,11 @@ from backend.app.modules.identity.service import (
 )
 from backend.app.modules.inventory.repository import ServerRepository
 from backend.app.modules.jobs.repository import JobRepository
-from backend.app.modules.jobs.service import JobService, JobTargetNotFoundError, JobTargetNotManagedError
+from backend.app.modules.jobs.service import (
+    JobService,
+    JobTargetNotFoundError,
+    JobTargetNotManagedError,
+)
 
 router = APIRouter()
 

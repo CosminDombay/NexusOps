@@ -8,25 +8,25 @@ from backend.app.adapters.proxmox import (
     ProxmoxConfigurationError,
     ProxmoxConnectionError,
 )
-from backend.app.modules.integrations.models import IntegrationProviderType
 from backend.app.db.session import get_db_session
 from backend.app.modules.audit.service import audit_service_from_session, source_ip_from_request
 from backend.app.modules.auth.models import User
+from backend.app.modules.auth.security.dependencies import require_operator
 from backend.app.modules.credentials.repository import CredentialRepository
 from backend.app.modules.credentials.service import CredentialService
+from backend.app.modules.integrations.models import IntegrationProviderType
 from backend.app.modules.integrations.repository import IntegrationRepository
 from backend.app.modules.integrations.service import IntegrationNotFoundError, IntegrationService
 from backend.app.modules.inventory.repository import ServerRepository
 from backend.app.modules.inventory.service import InventoryService
-from backend.app.modules.auth.security.dependencies import require_operator
 from backend.app.modules.proxmox.schemas import (
     ProxmoxClusterSummaryRead,
     ProxmoxDashboardRead,
     ProxmoxGuestSyncRead,
     ProxmoxHostSyncRead,
     ProxmoxInventorySanitizeRead,
-    ProxmoxNodeRead,
     ProxmoxNodeDetailRead,
+    ProxmoxNodeRead,
     ProxmoxStorageRead,
     ProxmoxVmActionRead,
     ProxmoxVmRead,

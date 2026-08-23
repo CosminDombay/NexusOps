@@ -4,10 +4,10 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
+from backend.app.core.config import settings
 from backend.app.db.base import Base
 from backend.app.db.session import get_db_session
 from backend.app.main import app
-from backend.app.core.config import settings
 from backend.app.modules.auth.models import User, UserRole
 from backend.app.modules.auth.security.dependencies import get_current_user
 from backend.app.modules.auth.security.hashing import hash_password

@@ -5,7 +5,6 @@ from sqlalchemy import delete, or_, select
 from backend.app.common.repository import BaseRepository
 from backend.app.modules.inventory.models import InventoryLifecycleState, Server, ServerEnvironment
 
-
 INACTIVE_LIFECYCLE_STATES = {
     InventoryLifecycleState.ARCHIVED,
     InventoryLifecycleState.DECOMMISSIONED,

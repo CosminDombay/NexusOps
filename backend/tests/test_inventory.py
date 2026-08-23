@@ -7,6 +7,7 @@ import pytest
 from sqlalchemy import select
 
 from backend.app.adapters.ssh import SshAdapter, SshExecutionResult
+from backend.app.adapters.ssh.host_keys import HostKeyPolicy
 from backend.app.common.constants import (
     InventoryHealthStatus,
     InventorySyncStatus,
@@ -15,8 +16,13 @@ from backend.app.common.constants import (
     ServerEnvironment,
     ServerStatus,
 )
-from backend.app.modules.automations.models import Automation, AutomationOperationType, AutomationScheduleType, AutomationTargetMode
 from backend.app.modules.auth.models import RemoteAccessToken, User, UserRole
+from backend.app.modules.automations.models import (
+    Automation,
+    AutomationOperationType,
+    AutomationScheduleType,
+    AutomationTargetMode,
+)
 from backend.app.modules.credentials.schemas import ResolvedCredential
 from backend.app.modules.deployments.models import (
     Deployment,
@@ -31,8 +37,7 @@ from backend.app.modules.identity.models import IdentityExecution, IdentityExecu
 from backend.app.modules.inventory.discovery import HostDiscoveryService
 from backend.app.modules.inventory.models import ServerSshAuthMethod
 from backend.app.modules.inventory.repository import ServerRepository
-from backend.app.modules.inventory.schemas import ServerRead
-from backend.app.modules.inventory.schemas import ServerCreate
+from backend.app.modules.inventory.schemas import ServerCreate, ServerRead
 from backend.app.modules.inventory.service import InventoryService
 from backend.app.modules.jobs.models import Job, JobStatus
 from backend.app.modules.monitoring.models import (
@@ -43,12 +48,22 @@ from backend.app.modules.monitoring.models import (
     MonitoringValidationAttempt,
 )
 from backend.app.modules.packages.models import PackageInstallation, PackageInstallStatus
-from backend.app.modules.provisioning.models import ProvisioningRequest, ProvisioningStatus, VirtualMachine, VmStatus
+from backend.app.modules.provisioning.models import (
+    ProvisioningRequest,
+    ProvisioningStatus,
+    VirtualMachine,
+    VmStatus,
+)
 from backend.app.modules.proxmox.schemas import ProxmoxVmRead
 from backend.app.modules.proxmox.service import ProxmoxService
 from backend.app.modules.runtime_state.models import RuntimeRefreshEvent
 from backend.app.modules.trash.service import TrashService
-from backend.app.modules.workflows.models import WorkflowRun, WorkflowStatus, WorkflowTriggerSource, WorkflowType
+from backend.app.modules.workflows.models import (
+    WorkflowRun,
+    WorkflowStatus,
+    WorkflowTriggerSource,
+    WorkflowType,
+)
 
 
 class FakeDiscoverySshAdapter(SshAdapter):
@@ -71,6 +86,7 @@ class FakeDiscoverySshAdapter(SshAdapter):
         private_key: str | None = None,
         passphrase: str | None = None,
         input_data: str | None = None,
+        host_key_policy: HostKeyPolicy | None = None,
     ) -> SshExecutionResult:
         self.calls.append(
             {

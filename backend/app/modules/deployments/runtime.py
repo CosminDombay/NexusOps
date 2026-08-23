@@ -205,7 +205,6 @@ class DeploymentRuntimeInspector:
         expected_services: set[str],
         desired_running: bool,
     ) -> DeploymentRuntimeState:
-        base = cls._empty_state(target_server_id, expected_services, desired_running)
         return DeploymentRuntimeState(
             target_server_id=target_server_id,
             status=DeploymentStatus.DEGRADED if desired_running else DeploymentStatus.STOPPED,

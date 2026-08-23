@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.adapters.ssh import ParamikoSshAdapter
+from backend.app.common.variables import VariableResolutionError
 from backend.app.db.session import AsyncSessionLocal, get_db_session
 from backend.app.modules.audit.repository import AuditEventRepository
 from backend.app.modules.audit.service import AuditService
@@ -12,20 +13,23 @@ from backend.app.modules.credentials.service import CredentialNotFoundError, Cre
 from backend.app.modules.inventory.repository import ServerRepository
 from backend.app.modules.jobs.repository import JobRepository
 from backend.app.modules.jobs.schemas import BulkExecutionRead, JobRead
-from backend.app.modules.jobs.service import JobService, JobTargetNotFoundError, JobTargetNotManagedError
+from backend.app.modules.jobs.service import (
+    JobService,
+    JobTargetNotFoundError,
+    JobTargetNotManagedError,
+)
 from backend.app.modules.packages.repository import PackageDefinitionRepository
-from backend.app.modules.packages.schemas import PackageDefinitionRead
 from backend.app.modules.packages.schemas import (
+    PackageBulkApplyRequest,
     PackageCloneRequest,
     PackageDefinitionCreate,
     PackageDefinitionExportRead,
     PackageDefinitionImportRead,
     PackageDefinitionImportRequest,
+    PackageDefinitionRead,
     PackageDefinitionUpdate,
-    PackageBulkApplyRequest,
     PackageExecuteRequest,
 )
-from backend.app.common.variables import VariableResolutionError
 from backend.app.modules.packages.service import (
     BuiltinPackageDefinitionError,
     PackageAutomationService,
@@ -193,7 +197,5 @@ async def execute_package_definition(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except JobTargetNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
-    except JobTargetNotManagedError as exc:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     except JobTargetNotManagedError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc

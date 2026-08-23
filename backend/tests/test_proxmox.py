@@ -4,8 +4,18 @@ from uuid import UUID
 import pytest
 
 from backend.app.adapters.proxmox.base import ProxmoxAdapter
-from backend.app.common.constants import InventorySyncStatus, ServerEnvironment, ServerSshAuthMethod, ServerStatus
-from backend.app.modules.inventory.models import InventoryLifecycleState, ManagedNodeType, ManagementState, Server
+from backend.app.common.constants import (
+    InventorySyncStatus,
+    ServerEnvironment,
+    ServerSshAuthMethod,
+    ServerStatus,
+)
+from backend.app.modules.inventory.models import (
+    InventoryLifecycleState,
+    ManagedNodeType,
+    ManagementState,
+    Server,
+)
 from backend.app.modules.inventory.repository import ServerRepository
 from backend.app.modules.proxmox.service import ProxmoxService, ProxmoxVmActionNotAllowedError
 

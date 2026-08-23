@@ -1,13 +1,14 @@
 from __future__ import annotations
 
-from sqlalchemy import select
 from uuid import UUID
+
+from sqlalchemy import select
 
 from backend.app.common.repository import BaseRepository
 from backend.app.modules.provisioning.models import (
+    ProvisioningBatch,
     ProvisioningBlueprint,
     ProvisioningBootstrapTemplate,
-    ProvisioningBatch,
     ProvisioningRequest,
     VirtualMachine,
 )

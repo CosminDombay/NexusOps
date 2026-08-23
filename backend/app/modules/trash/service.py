@@ -9,7 +9,11 @@ from backend.app.common.constants import InventoryLifecycleState
 from backend.app.modules.automations.models import Automation, AutomationOperationType
 from backend.app.modules.credentials.models import Credential
 from backend.app.modules.credentials.repository import CredentialRepository
-from backend.app.modules.credentials.service import CredentialInUseError, CredentialNotFoundError, CredentialService
+from backend.app.modules.credentials.service import (
+    CredentialInUseError,
+    CredentialNotFoundError,
+    CredentialService,
+)
 from backend.app.modules.deployments.models import (
     Deployment,
     DeploymentExecution,
@@ -22,8 +26,18 @@ from backend.app.modules.inventory.models import Server
 from backend.app.modules.jobs.models import CustomOperationalAction
 from backend.app.modules.packages.models import PackageDefinitionRecord
 from backend.app.modules.profiles.models import InfrastructureProfileRecord
-from backend.app.modules.provisioning.models import ProvisioningBatch, ProvisioningBlueprint, ProvisioningRequest
-from backend.app.modules.trash.schemas import TrashGroupRead, TrashItemRead, TrashListRead, TrashReferenceRead, TrashUsageRead
+from backend.app.modules.provisioning.models import (
+    ProvisioningBatch,
+    ProvisioningBlueprint,
+    ProvisioningRequest,
+)
+from backend.app.modules.trash.schemas import (
+    TrashGroupRead,
+    TrashItemRead,
+    TrashListRead,
+    TrashReferenceRead,
+    TrashUsageRead,
+)
 
 
 class TrashItemNotFoundError(Exception):

@@ -8,13 +8,12 @@ from backend.app.adapters.ssh import ParamikoSshAdapter
 from backend.app.db.session import AsyncSessionLocal, get_db_session
 from backend.app.modules.audit.repository import AuditEventRepository
 from backend.app.modules.audit.service import AuditService
+from backend.app.modules.auth.models import User
+from backend.app.modules.auth.security.dependencies import require_admin, require_operator
 from backend.app.modules.credentials.repository import CredentialRepository
 from backend.app.modules.credentials.service import CredentialService
 from backend.app.modules.inventory.repository import ServerRepository
-from backend.app.modules.auth.models import User
-from backend.app.modules.auth.security.dependencies import require_admin, require_operator
-from backend.app.modules.jobs.repository import JobRepository
-from backend.app.modules.jobs.repository import CustomOperationalActionRepository
+from backend.app.modules.jobs.repository import CustomOperationalActionRepository, JobRepository
 from backend.app.modules.jobs.schemas import (
     BulkExecutionRead,
     JobActionExecuteRequest,

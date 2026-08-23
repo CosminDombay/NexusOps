@@ -3,29 +3,29 @@ from typing import Any
 from uuid import UUID
 
 import structlog
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy import delete, inspect, select, update
+from sqlalchemy.exc import IntegrityError
 
-from backend.app.modules.automations.models import Automation
 from backend.app.modules.auth.models import RemoteAccessToken
-from backend.app.modules.deployments.models import Deployment, DeploymentRevision, DeploymentStatus, DeploymentTarget, DeploymentTargetExecution
+from backend.app.modules.automations.models import Automation
+from backend.app.modules.deployments.models import (
+    Deployment,
+    DeploymentRevision,
+    DeploymentStatus,
+    DeploymentTarget,
+    DeploymentTargetExecution,
+)
 from backend.app.modules.execution.models import CommandExecution
 from backend.app.modules.identity.models import IdentityExecution
 from backend.app.modules.inventory.models import (
-    InventoryLifecycleState,
     InventoryHealthStatus,
+    InventoryLifecycleState,
     InventorySyncStatus,
     ManagedNodeType,
     ManagementState,
     Server,
     ServerEnvironment,
 )
-from backend.app.modules.jobs.models import Job
-from backend.app.modules.monitoring.models import MetricSample, MonitoringSnapshot, MonitoringValidationAttempt
-from backend.app.modules.packages.models import PackageInstallation
-from backend.app.modules.provisioning.models import ProvisioningRequest, VirtualMachine
-from backend.app.modules.runtime_state.models import NodeRuntimeSnapshot, RuntimeRefreshEvent
-from backend.app.modules.workflows.models import WorkflowRun
 from backend.app.modules.inventory.repository import ServerRepository
 from backend.app.modules.inventory.schemas import (
     InventoryCredentialReadinessRead,
@@ -34,13 +34,23 @@ from backend.app.modules.inventory.schemas import (
     ServerCreate,
     ServerUpdate,
 )
+from backend.app.modules.jobs.models import Job
+from backend.app.modules.monitoring.models import (
+    MetricSample,
+    MonitoringSnapshot,
+    MonitoringValidationAttempt,
+)
+from backend.app.modules.packages.models import PackageInstallation
+from backend.app.modules.provisioning.models import ProvisioningRequest, VirtualMachine
 from backend.app.modules.proxmox.schemas import ProxmoxVmRead
+from backend.app.modules.runtime_state.models import NodeRuntimeSnapshot, RuntimeRefreshEvent
 from backend.app.modules.runtime_state.repository import (
     NodeRuntimeSnapshotRepository,
     RuntimeRefreshEventRepository,
     RuntimeRefreshStatusRepository,
 )
 from backend.app.modules.runtime_state.snapshots import RuntimeSnapshotService
+from backend.app.modules.workflows.models import WorkflowRun
 
 logger = structlog.get_logger(__name__)
 

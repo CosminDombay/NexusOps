@@ -2,7 +2,6 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
-
 VARIABLE_PATTERN = re.compile(r"{{\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*}}")
 
 

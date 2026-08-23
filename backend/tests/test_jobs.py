@@ -3,10 +3,10 @@ from typing import Any
 import pytest
 
 from backend.app.adapters.ssh import SshAdapter, SshConnectionError, SshExecutionResult
-from backend.app.modules.inventory.models import Server
+from backend.app.adapters.ssh.host_keys import HostKeyPolicy
 from backend.app.modules.inventory.repository import ServerRepository
-from backend.app.modules.inventory.service import InventoryService
 from backend.app.modules.inventory.schemas import ServerCreate
+from backend.app.modules.inventory.service import InventoryService
 from backend.app.modules.jobs.models import JobStatus
 from backend.app.modules.jobs.repository import CustomOperationalActionRepository, JobRepository
 from backend.app.modules.jobs.schemas import (
@@ -45,6 +45,7 @@ class FakeSshAdapter(SshAdapter):
         private_key: str | None = None,
         passphrase: str | None = None,
         input_data: str | None = None,
+        host_key_policy: HostKeyPolicy | None = None,
     ) -> SshExecutionResult:
         self.calls.append(
             {

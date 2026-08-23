@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.adapters.ssh import ParamikoSshAdapter
+from backend.app.common.variables import VariableResolutionError
 from backend.app.db.session import AsyncSessionLocal, get_db_session
 from backend.app.modules.audit.repository import AuditEventRepository
 from backend.app.modules.audit.service import AuditService
@@ -14,8 +15,11 @@ from backend.app.modules.deployments.repository import (
     DeploymentRevisionRepository,
     DeploymentTargetRepository,
 )
-from backend.app.modules.deployments.service import DeploymentNotFoundError, DeploymentValidationError, DockerComposeDeploymentService
-from backend.app.modules.inventory.repository import ServerRepository
+from backend.app.modules.deployments.service import (
+    DeploymentNotFoundError,
+    DeploymentValidationError,
+    DockerComposeDeploymentService,
+)
 from backend.app.modules.identity.repository import (
     IdentityExecutionRepository,
     LinuxGroupRepository,
@@ -28,8 +32,13 @@ from backend.app.modules.identity.service import (
     LinuxPermissionService,
     LinuxUserService,
 )
+from backend.app.modules.inventory.repository import ServerRepository
 from backend.app.modules.jobs.repository import CustomOperationalActionRepository, JobRepository
-from backend.app.modules.jobs.service import JobService, JobTargetNotFoundError, JobTargetNotManagedError
+from backend.app.modules.jobs.service import (
+    JobService,
+    JobTargetNotFoundError,
+    JobTargetNotManagedError,
+)
 from backend.app.modules.orchestration.security import CommandValidationError
 from backend.app.modules.packages.repository import PackageDefinitionRepository
 from backend.app.modules.profiles.repository import InfrastructureProfileRepository
@@ -40,13 +49,12 @@ from backend.app.modules.profiles.schemas import (
     InfrastructureProfileImportRequest,
     InfrastructureProfileRead,
     InfrastructureProfileUpdate,
-    ProfileCloneRequest,
     ProfileApplyRead,
+    ProfileApplyRequest,
     ProfileBulkApplyRead,
     ProfileBulkApplyRequest,
-    ProfileApplyRequest,
+    ProfileCloneRequest,
 )
-from backend.app.common.variables import VariableResolutionError
 from backend.app.modules.profiles.service import (
     BuiltinProfileError,
     ProfileConflictError,

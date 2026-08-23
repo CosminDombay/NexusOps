@@ -8,7 +8,11 @@ from backend.app.modules.automations.repository import AutomationRepository
 from backend.app.modules.automations.service import AutomationService
 from backend.app.modules.credentials.repository import CredentialRepository
 from backend.app.modules.credentials.service import CredentialService
-from backend.app.modules.deployments.repository import DeploymentRepository, DeploymentRevisionRepository, DeploymentTargetRepository
+from backend.app.modules.deployments.repository import (
+    DeploymentRepository,
+    DeploymentRevisionRepository,
+    DeploymentTargetRepository,
+)
 from backend.app.modules.deployments.service import DockerComposeDeploymentService
 from backend.app.modules.inventory.repository import ServerRepository
 from backend.app.modules.jobs.repository import CustomOperationalActionRepository, JobRepository

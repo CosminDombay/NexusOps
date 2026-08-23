@@ -5,7 +5,7 @@ from backend.app.modules.audit.repository import AuditEventRepository
 from backend.app.modules.audit.service import AuditService
 from backend.app.modules.inventory.repository import ServerRepository
 from backend.app.modules.orchestration.activity import workflow_activity_timeline
-from backend.app.modules.orchestration.security import SecretSanitizer, WorkflowExecutionError
+from backend.app.modules.orchestration.security import SecretSanitizer
 from backend.app.modules.orchestration.transitions import (
     validate_workflow_step_transition,
     validate_workflow_transition,
@@ -18,7 +18,12 @@ from backend.app.modules.workflows.models import (
     WorkflowStepStatus,
 )
 from backend.app.modules.workflows.repository import WorkflowRunRepository, WorkflowStepRepository
-from backend.app.modules.workflows.schemas import WorkflowCreate, WorkflowRunRead, WorkflowStepCreate, WorkflowStepRead
+from backend.app.modules.workflows.schemas import (
+    WorkflowCreate,
+    WorkflowRunRead,
+    WorkflowStepCreate,
+    WorkflowStepRead,
+)
 
 
 class WorkflowNotFoundError(Exception):

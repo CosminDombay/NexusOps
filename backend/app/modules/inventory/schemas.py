@@ -6,8 +6,8 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from backend.app.common.constants import (
-    InventoryLifecycleState,
     InventoryHealthStatus,
+    InventoryLifecycleState,
     InventorySyncStatus,
     ManagedNodeType,
     ManagementState,

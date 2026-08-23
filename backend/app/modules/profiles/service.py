@@ -3,22 +3,41 @@ from uuid import UUID
 
 from sqlalchemy.exc import IntegrityError
 
-from backend.app.common.import_export import ExportFormat, ImportExportError, parse_document, render_document
+from backend.app.common.import_export import (
+    ExportFormat,
+    ImportExportError,
+    parse_document,
+    render_document,
+)
 from backend.app.common.variables import VariableResolutionError, VariableResolutionService
 from backend.app.modules.deployments.service import DockerComposeDeploymentService
-from backend.app.modules.identity.schemas import LinuxUserUpdate, PermissionReplicateRequest, ReplicationRequest
-from backend.app.modules.identity.service import LinuxGroupService, LinuxPermissionService, LinuxUserService
+from backend.app.modules.identity.schemas import (
+    LinuxUserUpdate,
+    PermissionReplicateRequest,
+    ReplicationRequest,
+)
+from backend.app.modules.identity.service import (
+    LinuxGroupService,
+    LinuxPermissionService,
+    LinuxUserService,
+)
 from backend.app.modules.jobs.actions import get_action
-from backend.app.modules.jobs.models import JobStatus
 from backend.app.modules.jobs.schemas import JobExecuteRequest
 from backend.app.modules.jobs.service import JobService
-from backend.app.modules.orchestration.semantics import job_failure_states, job_success_states
 from backend.app.modules.orchestration.security import CommandValidationError, SafeCommandBuilder
+from backend.app.modules.orchestration.semantics import job_failure_states, job_success_states
 from backend.app.modules.orchestration.utils import success_failure_counts, summarize_statuses
 from backend.app.modules.packages.definitions import get_package_definition
 from backend.app.modules.packages.repository import PackageDefinitionRepository
-from backend.app.modules.packages.service import PackageAutomationService, PackageDefinitionNotFoundError
-from backend.app.modules.profiles.definitions import InfrastructureProfile, get_profile, list_profiles
+from backend.app.modules.packages.service import (
+    PackageAutomationService,
+    PackageDefinitionNotFoundError,
+)
+from backend.app.modules.profiles.definitions import (
+    InfrastructureProfile,
+    get_profile,
+    list_profiles,
+)
 from backend.app.modules.profiles.models import InfrastructureProfileRecord
 from backend.app.modules.profiles.repository import InfrastructureProfileRepository
 from backend.app.modules.profiles.schemas import (
@@ -29,14 +48,19 @@ from backend.app.modules.profiles.schemas import (
     InfrastructureProfileRead,
     InfrastructureProfileUpdate,
     ProfileApplyRead,
+    ProfileApplyRequest,
     ProfileBulkApplyRead,
     ProfileBulkApplyRequest,
     ProfileBulkHostResult,
-    ProfileApplyRequest,
     ProfileCloneRequest,
 )
 from backend.app.modules.workflows.models import WorkflowTriggerSource, WorkflowType
-from backend.app.modules.workflows.schemas import WorkflowCreate, WorkflowRunRead, WorkflowStepCreate, WorkflowStepRead
+from backend.app.modules.workflows.schemas import (
+    WorkflowCreate,
+    WorkflowRunRead,
+    WorkflowStepCreate,
+    WorkflowStepRead,
+)
 from backend.app.modules.workflows.service import WorkflowService
 
 
@@ -680,60 +704,6 @@ class ProfileService:
                 1 for job in jobs if job.status in job_failure_states()
             ),
         }
-
-    async def _resolve_step_command(
-        self,
-        kind: str,
-        reference_id: str,
-        *,
-        variables: dict[str, str],
-        profile_variables: list[dict],
-        command: str | None = None,
-    ) -> str:
-        if kind == "command":
-            return self.variable_service.resolve_text(
-                command or "",
-                definitions=profile_variables,
-                variables=variables,
-            )
-
-        if kind in {"deployment", "script", "identity_user", "identity_group", "identity_permission"}:
-            raise ProfileStepResolutionError(f"Unsupported profile step kind: {kind}")
-
-        if kind == "action":
-            action = get_action(reference_id)
-            if action is None and self.job_service.action_repository is not None:
-                action = await self.job_service.action_repository.get_by_slug(reference_id)
-            if action is None:
-                raise ProfileStepResolutionError(f"Unknown action reference: {reference_id}")
-            return self.variable_service.resolve_text(
-                action.command,
-                definitions=profile_variables,
-                variables=variables,
-            )
-
-        if kind == "package":
-            package_read = None
-            if self.package_repository is not None:
-                package_service = PackageAutomationService(repository=self.package_repository)
-                try:
-                    package_read = await package_service.get_definition(reference_id)
-                except PackageDefinitionNotFoundError:
-                    package_read = None
-            if package_read is None:
-                package = get_package_definition(reference_id)
-                if package is None:
-                    raise ProfileStepResolutionError(f"Unknown package reference: {reference_id}")
-                definitions = [*profile_variables, *package.variables]
-                install = self.variable_service.resolve_text(package.install_command, definitions=definitions, variables=variables)
-                validation = self.variable_service.resolve_text(package.validation_command, definitions=definitions, variables=variables)
-                return f"{install} && {validation}"
-            definitions = [*profile_variables, *[variable.model_dump() for variable in package_read.variables]]
-            install = self.variable_service.resolve_text(package_read.install_command, definitions=definitions, variables=variables)
-            validation = self.variable_service.resolve_text(package_read.validation_command, definitions=definitions, variables=variables)
-            return f"{install} && {validation}"
-
-        raise ProfileStepResolutionError(f"Unsupported profile step kind: {kind}")
 
     async def _resolve_step_commands(
         self,

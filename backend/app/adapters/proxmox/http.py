@@ -1,5 +1,5 @@
-from typing import Any
 import zlib
+from typing import Any
 from urllib.parse import quote, urljoin
 
 import httpx

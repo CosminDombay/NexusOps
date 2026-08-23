@@ -1,8 +1,9 @@
-from backend.app.common.repository import BaseRepository
-from backend.app.modules.packages.models import PackageDefinitionRecord, PackageInstallation
+from uuid import UUID
 
 from sqlalchemy import delete, select
-from uuid import UUID
+
+from backend.app.common.repository import BaseRepository
+from backend.app.modules.packages.models import PackageDefinitionRecord, PackageInstallation
 
 
 class PackageInstallationRepository(BaseRepository[PackageInstallation]):

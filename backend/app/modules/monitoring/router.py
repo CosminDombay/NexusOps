@@ -5,13 +5,14 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.db.session import get_db_session
+from backend.app.modules.auth.security.dependencies import require_operator
 from backend.app.modules.credentials.repository import CredentialRepository
 from backend.app.modules.credentials.service import CredentialService
 from backend.app.modules.integrations.repository import IntegrationRepository
 from backend.app.modules.integrations.service import IntegrationService
 from backend.app.modules.inventory.repository import ServerRepository
 from backend.app.modules.inventory.service import ServerNotFoundError
-from backend.app.modules.auth.security.dependencies import require_operator
+from backend.app.modules.monitoring.repository import MonitoringValidationAttemptRepository
 from backend.app.modules.monitoring.schemas import (
     MonitoringOverviewRead,
     MonitoringValidationAttemptRead,
@@ -19,7 +20,6 @@ from backend.app.modules.monitoring.schemas import (
     PrometheusHealthRead,
     ServerMetricsRead,
 )
-from backend.app.modules.monitoring.repository import MonitoringValidationAttemptRepository
 from backend.app.modules.monitoring.service import MonitoringService
 
 router = APIRouter()

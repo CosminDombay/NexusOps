@@ -15,7 +15,6 @@ from backend.app.modules.runtime_state.schemas import (
     NodeRuntimeState,
 )
 
-
 INACTIVE_LIFECYCLE_STATES = {
     InventoryLifecycleState.ARCHIVED.value,
     InventoryLifecycleState.DECOMMISSIONED.value,
@@ -75,11 +74,6 @@ class RuntimeStateService:
             inventory_state=inventory_state,
             node_type=node_type,
             ssh_state=ssh_state,
-        )
-        readiness_state = cls._readiness_state(
-            ssh_state=ssh_state,
-            monitoring_state=monitoring_state,
-            orchestration_state=orchestration_state,
         )
         administrative_state = cls._administrative_state(inventory_state)
         infrastructure_state = cls._infrastructure_state(
