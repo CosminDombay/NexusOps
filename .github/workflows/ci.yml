@@ -4,8 +4,6 @@ on:
   pull_request:
     paths-ignore:
       - "docs/**"
-      - "review/**"
-      - "project-tree.txt"
       - "*.md"
   push:
     branches:
@@ -13,8 +11,6 @@ on:
       - main
     paths-ignore:
       - "docs/**"
-      - "review/**"
-      - "project-tree.txt"
       - "*.md"
   workflow_dispatch:
 
