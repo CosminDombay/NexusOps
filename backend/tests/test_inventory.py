@@ -907,7 +907,7 @@ def test_inventory_import_restores_archived_proxmox_record(client, monkeypatch) 
             "environment": "development",
             "tags": ["restored"],
             "ssh_port": 22,
-            "ssh_username": "cerberus",
+            "ssh_username": "appops",
             "ssh_auth_method": "key",
         },
     )
@@ -985,7 +985,7 @@ def test_inventory_import_promotes_unmanaged_proxmox_record(client, monkeypatch)
             "environment": "development",
             "tags": ["promoted"],
             "ssh_port": 22,
-            "ssh_username": "cerberus",
+            "ssh_username": "appops",
             "ssh_auth_method": "key",
         },
     )

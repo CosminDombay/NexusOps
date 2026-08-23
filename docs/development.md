@@ -2,19 +2,19 @@
 
 ## Workspace Path
 
-This checkout is expected to live in WSL at:
+Keep this checkout inside the WSL filesystem, for example:
 
 ```bash
-/home/cerberus/Projects/NexusOps-project
+~/projects/nexusops
 ```
 
 From PowerShell or other Windows tooling, prefer WSL-aware commands such as:
 
 ```powershell
-wsl.exe sh -lc 'cd /home/cerberus/Projects/NexusOps-project && ./scripts/start-dev.sh'
+wsl.exe sh -lc 'cd ~/projects/nexusops && ./scripts/start-dev.sh'
 ```
 
-Do not assume the equivalent Windows path is `C:\home\cerberus\Projects\NexusOps-project`; that path may not exist because the repository is inside the WSL filesystem.
+Do not assume there is an equivalent `C:\...` path; the repository lives inside the WSL filesystem.
 
 ## Local Services
 
@@ -88,7 +88,7 @@ Self-hosted deployment entrypoints:
 
 Latest documentation/readiness review from the current checkout:
 
-- confirmed the active workspace path is `/home/cerberus/Projects/NexusOps-project`
+- confirmed the active workspace path is the WSL checkout directory
 - checked the registered backend router tree, frontend route tree, backend module surface, migrations, tests, and local demo planning files
 - refreshed README pointers, API overview date/surface, development path notes, current-state review notes, architecture route notes, next-step priorities, and the local demo-use-case narrative
 - no Word `.doc` or `.docx` files were present in the repository at review time

@@ -443,7 +443,7 @@ async def test_provisioning_bootstrap_profile_can_apply_identity_group_steps(cli
             replication_service=identity_replication,
         )
         group = await group_service.create_group(
-            LinuxGroupCreate(name="infra", members=["cerberus"], target_server_ids=[])
+            LinuxGroupCreate(name="infra", members=["appops"], target_server_ids=[])
         )
         await ProfileService(
             job_service=job_service,
@@ -484,7 +484,7 @@ async def test_provisioning_bootstrap_profile_can_apply_identity_group_steps(cli
         commands = "\n".join(call["command"] for call in ssh.calls)
         assert "cloud-init status --wait" in commands
         assert "groupadd infra" in commands
-        assert "usermod -aG infra cerberus" in commands
+        assert "usermod -aG infra appops" in commands
 
 
 @pytest.mark.asyncio

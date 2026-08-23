@@ -534,7 +534,7 @@ The 2026-06-18 stabilization work focused on keeping the app steady for validati
 The 2026-06-21 review aligned the living documentation and local demo-use-case files with the current simplified demonstration plan:
 
 - `USECASE.md` and `USECASE-001-RUNBOOK.md` now describe a focused Docker demo host instead of the earlier monitoring-heavy node.
-- The primary demo flow is base utilities, optional data disk preparation, Docker Engine, an Identity step that places `cerberus` in the `docker` group, Portainer, cAdvisor, a demo Nginx service, and final Jobs-backed validation.
+- The primary demo flow is base utilities, optional data disk preparation, Docker Engine, an Identity step that places `appops` in the `docker` group, Portainer, cAdvisor, a demo Nginx service, and final Jobs-backed validation.
 - Node Exporter, Promtail, Tailscale, code-server, broad account rollout, and monitoring deep dives are intentionally out of the first live presentation path.
 - The router/page review found no `.doc` or `.docx` Word files in the repository at the time of review.
 - Repository shape at review time was approximately 190 backend Python files, 113 frontend TypeScript/TSX files, 42 Alembic migration files, and 20 backend test modules.

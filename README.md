@@ -52,8 +52,8 @@ See `docs/development.md` for validation notes and `docs/architecture/current-st
 
 ## Quick Start With Docker
 
-> WSL note: in this local setup the checkout lives at `/home/cerberus/Projects/NexusOps-project`.
-> If you are launching commands from Windows tooling, use WSL commands or open the folder through the WSL integration rather than treating it as `C:\home\cerberus\Projects\NexusOps-project`.
+> WSL note: keep the checkout inside the WSL filesystem, for example `~/projects/nexusops`.
+> If you are launching commands from Windows tooling, use WSL-aware commands or open the folder through the WSL integration; the repository has no equivalent `C:\...` path.
 
 ## Deployment Setup Scripts
 

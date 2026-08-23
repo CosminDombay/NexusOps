@@ -29,6 +29,9 @@ env:
   SECRET_KEY: "ci-secret-key"
   ACCESS_TOKEN_EXPIRE_MINUTES: "15"
   REFRESH_TOKEN_EXPIRE_DAYS: "7"
+  # Dummy Fernet key for CI only: the base64 of a fixed 32-byte filler string,
+  # committed deliberately so the suite can exercise credential encryption.
+  # It protects nothing and is not used by any deployment.
   NEXUSOPS_MASTER_KEY: "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="
   PUPPETEER_SKIP_DOWNLOAD: "true"
 

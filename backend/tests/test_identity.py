@@ -354,7 +354,7 @@ async def test_identity_can_inspect_user_groups(client) -> None:
         server = await InventoryService(ServerRepository(db_session)).create_server(
             ServerCreate(**server_payload(hostname="membership-identity-01", ip_address="10.4.0.13"))
         )
-        adapter = FakeSshAdapter(stdout="cerberus docker www-data sudo\n")
+        adapter = FakeSshAdapter(stdout="appops docker www-data sudo\n")
 
         membership = await IdentityReplicationService(
             job_service=JobService(
@@ -363,10 +363,10 @@ async def test_identity_can_inspect_user_groups(client) -> None:
                 ssh_adapter=adapter,
             ),
             execution_repository=IdentityExecutionRepository(db_session),
-        ).discover_user_groups("cerberus", [server.id])
+        ).discover_user_groups("appops", [server.id])
 
-        assert adapter.calls[0]["command"] == "id -nG cerberus"
-        assert membership.hosts[0].groups == ["cerberus", "docker", "sudo", "www-data"]
+        assert adapter.calls[0]["command"] == "id -nG appops"
+        assert membership.hosts[0].groups == ["appops", "docker", "sudo", "www-data"]
 
 
 @pytest.mark.asyncio
@@ -378,9 +378,9 @@ async def test_identity_can_inspect_group_members_including_primary_group_users(
         )
         adapter = FakeSshAdapter(
             stdout=(
-                "cerberus:x:1001:deploy\n"
+                "appops:x:1001:deploy\n"
                 "root:x:0:0:root:/root:/bin/bash\n"
-                "cerberus:x:1001:1001::/home/cerberus:/bin/bash\n"
+                "appops:x:1001:1001::/home/appops:/bin/bash\n"
                 "deploy:x:1002:1002::/home/deploy:/bin/bash\n"
             )
         )
@@ -392,12 +392,12 @@ async def test_identity_can_inspect_group_members_including_primary_group_users(
                 ssh_adapter=adapter,
             ),
             execution_repository=IdentityExecutionRepository(db_session),
-        ).discover_group_members("cerberus", [server.id])
+        ).discover_group_members("appops", [server.id])
 
-        assert adapter.calls[0]["command"] == "getent group cerberus; getent passwd"
-        assert membership.hosts[0].primary_members == ["cerberus"]
+        assert adapter.calls[0]["command"] == "getent group appops; getent passwd"
+        assert membership.hosts[0].primary_members == ["appops"]
         assert membership.hosts[0].supplementary_members == ["deploy"]
-        assert membership.hosts[0].members == ["cerberus", "deploy"]
+        assert membership.hosts[0].members == ["appops", "deploy"]
 
 
 @pytest.mark.asyncio
@@ -451,7 +451,7 @@ async def test_linux_group_can_store_planned_members_without_targets(client) -> 
             LinuxGroupCreate(
                 name="infra",
                 description="Infrastructure operators",
-                members=["monitoring", "cerberus", "automation", "cerberus"],
+                members=["monitoring", "appops", "automation", "appops"],
                 target_server_ids=[],
             )
         )
@@ -460,13 +460,13 @@ async def test_linux_group_can_store_planned_members_without_targets(client) -> 
             LinuxGroupUpdate(
                 name="infra",
                 description="Infrastructure operators",
-                members=["monitoring", "cerberus", "automation", "test"],
+                members=["monitoring", "appops", "automation", "test"],
                 target_server_ids=[],
             ),
         )
 
-        assert created.item.members == ["monitoring", "cerberus", "automation"]
-        assert updated.item.members == ["monitoring", "cerberus", "automation", "test"]
+        assert created.item.members == ["monitoring", "appops", "automation"]
+        assert updated.item.members == ["monitoring", "appops", "automation", "test"]
         assert updated.replication is None
 
 
@@ -491,7 +491,7 @@ async def test_linux_group_replication_applies_planned_members(client) -> None:
         )
 
         created = await service.create_group(
-            LinuxGroupCreate(name="infra", members=["monitoring", "cerberus"], target_server_ids=[])
+            LinuxGroupCreate(name="infra", members=["monitoring", "appops"], target_server_ids=[])
         )
         replication = await service.replicate_group(
             created.item.id,
@@ -501,7 +501,7 @@ async def test_linux_group_replication_applies_planned_members(client) -> None:
         assert replication.success_count == 1
         assert "groupadd infra" in adapter.calls[0]["command"]
         assert "usermod -aG infra monitoring" in adapter.calls[0]["command"]
-        assert "usermod -aG infra cerberus" in adapter.calls[0]["command"]
+        assert "usermod -aG infra appops" in adapter.calls[0]["command"]
 
 
 @pytest.mark.asyncio

@@ -995,7 +995,7 @@ function ActionModal({
               label="Planned members"
               value={form.memberNames}
               onChange={(value) => onFormChange({ memberNames: value })}
-              placeholder="deploy,cerberus"
+              placeholder="deploy,appops"
             />
             <SelectInput label="Execution / sudo credential" value={form.executionCredentialId} onChange={(value) => onFormChange({ executionCredentialId: value })}>
               <option value="">Use target saved credential</option>

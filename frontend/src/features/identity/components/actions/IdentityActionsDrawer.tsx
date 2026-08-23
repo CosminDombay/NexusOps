@@ -188,7 +188,7 @@ export function IdentityActionsDrawer({
           <div className="space-y-3">
             <TextInput label="Group name" value={form.groupName} onChange={(value) => onFormChange({ groupName: value })} />
             <TextInput label="Description" value={form.groupDescription} onChange={(value) => onFormChange({ groupDescription: value })} />
-            <TextInput label="Members" value={form.memberNames} onChange={(value) => onFormChange({ memberNames: value })} placeholder="deploy,cerberus" />
+            <TextInput label="Members" value={form.memberNames} onChange={(value) => onFormChange({ memberNames: value })} placeholder="deploy,appops" />
             <div className="grid gap-2">
               <IconButton icon={Users} disabled={isWorking} label={discoveredGroupSelected ? (targetsReady ? 'Adopt & sync' : 'Adopt') : 'Create'} onClick={onCreateGroup} />
               <IconButton icon={Save} disabled={discoveredGroupSelected || !groups.length || isWorking} label="Update" onClick={onUpdateGroup} />

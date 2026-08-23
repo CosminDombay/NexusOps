@@ -97,7 +97,7 @@ Updated: 2026-06-21
    - base utilities
    - optional secondary disk
    - Docker Engine
-   - Identity step for `cerberus` Docker access
+   - Identity step for `appops` Docker access
    - Portainer, cAdvisor, and demo Nginx deployment
    - final Jobs-backed validation
 
