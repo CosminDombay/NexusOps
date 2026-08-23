@@ -15,6 +15,7 @@ from backend.app.modules.credentials.repository import CredentialRepository
 from backend.app.modules.credentials.service import CredentialService
 from backend.app.modules.integrations.repository import IntegrationRepository
 from backend.app.modules.integrations.service import IntegrationService
+from backend.app.modules.orchestration.reconciliation import reconcile_interrupted_executions
 from backend.app.workers.scheduler.service import scheduler_service
 
 
@@ -35,7 +36,9 @@ def create_app() -> FastAPI:
         if scheduler_enabled:
             await bootstrap_admin()
             await bootstrap_integrations()
-        if scheduler_enabled:
+            # Close out work abandoned by the previous process before the
+            # scheduler starts queueing new work against the same records.
+            await reconcile_interrupted_executions()
             await scheduler_service.start()
         try:
             yield
