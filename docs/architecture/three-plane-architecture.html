@@ -1,0 +1,730 @@
+<title>NexusOps — Three-Plane Architecture</title>
+<style>
+  /* ---- Tokens: complete light palette on bare :root ---- */
+  :root {
+    --ground:        #F6F7F9;
+    --surface:       #FFFFFF;
+    --sunken:        #EDEFF4;
+    --ink:           #171D2B;
+    --ink-soft:      #4E5769;
+    --ink-faint:     #78829A;
+    --rule:          #DCE0E9;
+    --rule-strong:   #C3C9D6;
+
+    --plan:          #5145CD;
+    --plan-wash:     #ECEBFA;
+    --deploy:        #9E5406;
+    --deploy-wash:   #FAF0E3;
+    --operate:       #0E6E6E;
+    --operate-wash:  #E3F2F1;
+
+    --shadow: 0 1px 2px rgb(23 29 43 / .05), 0 8px 24px -12px rgb(23 29 43 / .18);
+
+    --mono: ui-monospace, "SF Mono", SFMono-Regular, "Cascadia Mono", Menlo, Consolas, monospace;
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+  }
+
+  /* System-dark, unless the viewer explicitly chose light */
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground:       #0E121A;
+      --surface:      #151A24;
+      --sunken:       #1B2130;
+      --ink:          #E5E9F1;
+      --ink-soft:     #A3ADC1;
+      --ink-faint:    #737E95;
+      --rule:         #242C3B;
+      --rule-strong:  #354054;
+
+      --plan:         #A79EF7;
+      --plan-wash:    #1E1D3A;
+      --deploy:       #E8A54B;
+      --deploy-wash:  #2C2113;
+      --operate:      #4FC3BB;
+      --operate-wash: #0F2A2A;
+
+      --shadow: 0 1px 2px rgb(0 0 0 / .4), 0 8px 24px -12px rgb(0 0 0 / .6);
+    }
+  }
+
+  /* Explicit dark choice wins in the other direction */
+  :root[data-theme="dark"] {
+    --ground:       #0E121A;
+    --surface:      #151A24;
+    --sunken:       #1B2130;
+    --ink:          #E5E9F1;
+    --ink-soft:     #A3ADC1;
+    --ink-faint:    #737E95;
+    --rule:         #242C3B;
+    --rule-strong:  #354054;
+
+    --plan:         #A79EF7;
+    --plan-wash:    #1E1D3A;
+    --deploy:       #E8A54B;
+    --deploy-wash:  #2C2113;
+    --operate:      #4FC3BB;
+    --operate-wash: #0F2A2A;
+
+    --shadow: 0 1px 2px rgb(0 0 0 / .4), 0 8px 24px -12px rgb(0 0 0 / .6);
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 16px;
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap {
+    max-width: 60rem;
+    margin: 0 auto;
+    padding: clamp(2rem, 5vw, 4.5rem) clamp(1.15rem, 4vw, 2.5rem) 6rem;
+    display: flex;
+    flex-direction: column;
+    gap: clamp(2.75rem, 5vw, 4rem);
+  }
+
+  /* ---- Type scale ---- */
+  h1, h2, h3 { text-wrap: balance; margin: 0; }
+
+  h1 {
+    font-family: var(--mono);
+    font-size: clamp(1.75rem, 4.6vw, 2.7rem);
+    font-weight: 600;
+    letter-spacing: -.035em;
+    line-height: 1.12;
+  }
+
+  h2 {
+    font-family: var(--mono);
+    font-size: clamp(1.15rem, 2.4vw, 1.4rem);
+    font-weight: 600;
+    letter-spacing: -.02em;
+  }
+
+  h3 {
+    font-family: var(--mono);
+    font-size: 1rem;
+    font-weight: 600;
+    letter-spacing: -.01em;
+  }
+
+  p { margin: 0; max-width: 65ch; }
+
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: .69rem;
+    font-weight: 600;
+    letter-spacing: .16em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+  }
+
+  .lede { font-size: clamp(1.02rem, 1.8vw, 1.16rem); color: var(--ink-soft); max-width: 58ch; }
+
+  strong { font-weight: 600; color: var(--ink); }
+
+  code {
+    font-family: var(--mono);
+    font-size: .875em;
+    background: var(--sunken);
+    border: 1px solid var(--rule);
+    border-radius: 4px;
+    padding: .08em .34em;
+  }
+
+  /* ---- Header ---- */
+  header { display: flex; flex-direction: column; gap: 1.15rem; }
+
+  .meta {
+    display: flex; flex-wrap: wrap; gap: .5rem 1.4rem;
+    padding-top: 1.15rem;
+    border-top: 1px solid var(--rule);
+    font-family: var(--mono);
+    font-size: .74rem;
+    color: var(--ink-faint);
+  }
+  .meta b { color: var(--ink-soft); font-weight: 600; }
+
+  /* ---- Section ---- */
+  section { display: flex; flex-direction: column; gap: 1.25rem; }
+  .section-head { display: flex; flex-direction: column; gap: .4rem; }
+
+  /* ---- Plane bands: the three planes, stacked as literal layers ---- */
+  .planes { display: flex; flex-direction: column; gap: .75rem; }
+
+  .plane {
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-left: 4px solid var(--tone);
+    border-radius: 7px;
+    padding: 1.15rem 1.35rem;
+    display: grid;
+    grid-template-columns: minmax(0, 13rem) minmax(0, 1fr);
+    gap: .5rem 2rem;
+    box-shadow: var(--shadow);
+  }
+  @media (max-width: 40rem) { .plane { grid-template-columns: 1fr; } }
+
+  .plane[data-plane="planning"]  { --tone: var(--plan);    --tone-wash: var(--plan-wash); }
+  .plane[data-plane="deployment"]{ --tone: var(--deploy);  --tone-wash: var(--deploy-wash); }
+  .plane[data-plane="operations"]{ --tone: var(--operate); --tone-wash: var(--operate-wash); }
+
+  .plane-id { display: flex; flex-direction: column; gap: .25rem; }
+  .plane-id h3 { color: var(--tone); }
+  .plane-id .role { font-size: .84rem; color: var(--ink-faint); }
+
+  .plane-body { display: flex; flex-direction: column; gap: .8rem; min-width: 0; }
+  .plane-body p { font-size: .94rem; color: var(--ink-soft); }
+
+  .owns { display: flex; flex-wrap: wrap; gap: .38rem; }
+  .owns span {
+    font-family: var(--mono);
+    font-size: .72rem;
+    padding: .2rem .5rem;
+    border-radius: 4px;
+    background: var(--tone-wash);
+    color: var(--tone);
+    border: 1px solid color-mix(in srgb, var(--tone) 28%, transparent);
+  }
+
+  /* ---- Diagram ---- */
+  .figure {
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-radius: 7px;
+    padding: 1.35rem 1.15rem 1rem;
+    box-shadow: var(--shadow);
+    display: flex; flex-direction: column; gap: .85rem;
+  }
+  .figure-scroll { overflow-x: auto; }
+  .figure svg { display: block; min-width: 42rem; width: 100%; height: auto; }
+  .caption { font-size: .82rem; color: var(--ink-faint); max-width: 62ch; }
+
+  .svg-box-label { font-family: var(--mono); font-size: 13px; font-weight: 600; }
+  .svg-sub       { font-family: var(--mono); font-size: 10.5px; }
+  .svg-edge      { font-family: var(--mono); font-size: 10px; letter-spacing: .06em; text-transform: uppercase; }
+
+  /* ---- Code block ---- */
+  pre {
+    margin: 0;
+    background: var(--sunken);
+    border: 1px solid var(--rule);
+    border-radius: 7px;
+    padding: 1.1rem 1.25rem;
+    overflow-x: auto;
+    font-family: var(--mono);
+    font-size: .82rem;
+    line-height: 1.7;
+    color: var(--ink);
+  }
+  pre .c { color: var(--ink-faint); }
+  pre .k { color: var(--plan); font-weight: 600; }
+
+  /* ---- Tables ---- */
+  .table-scroll { overflow-x: auto; border: 1px solid var(--rule); border-radius: 7px; background: var(--surface); }
+  table { border-collapse: collapse; width: 100%; font-size: .88rem; }
+  caption { caption-side: top; text-align: left; padding: .9rem 1rem .1rem; font-size: .82rem; color: var(--ink-faint); }
+  th, td { text-align: left; padding: .62rem 1rem; border-bottom: 1px solid var(--rule); vertical-align: top; }
+  thead th {
+    font-family: var(--mono); font-size: .7rem; font-weight: 600;
+    letter-spacing: .1em; text-transform: uppercase; color: var(--ink-faint);
+    background: var(--sunken);
+  }
+  tbody tr:last-child td { border-bottom: 0; }
+  td code { background: transparent; border: 0; padding: 0; color: var(--ink-soft); }
+
+  /* ---- Phases: a genuine ordered sequence with dependencies ---- */
+  .phases { display: flex; flex-direction: column; gap: 0; }
+  .phase {
+    display: grid;
+    grid-template-columns: 3.1rem minmax(0, 1fr);
+    gap: 0 1.15rem;
+    padding: 1rem 0;
+    border-top: 1px solid var(--rule);
+  }
+  .phase:last-child { border-bottom: 1px solid var(--rule); }
+  .phase-n {
+    font-family: var(--mono); font-size: .74rem; font-weight: 600;
+    letter-spacing: .08em; color: var(--ink-faint); padding-top: .16rem;
+  }
+  .phase-main { display: flex; flex-direction: column; gap: .3rem; min-width: 0; }
+  .phase-title { display: flex; flex-wrap: wrap; align-items: baseline; gap: .55rem; }
+  .phase-title h3 { font-size: .97rem; }
+  .phase p { font-size: .9rem; color: var(--ink-soft); }
+
+  .tag {
+    font-family: var(--mono); font-size: .66rem; font-weight: 600;
+    letter-spacing: .07em; text-transform: uppercase;
+    padding: .12rem .42rem; border-radius: 3px;
+    background: var(--tone-wash, var(--sunken));
+    color: var(--tone, var(--ink-faint));
+    border: 1px solid color-mix(in srgb, var(--tone, var(--rule-strong)) 30%, transparent);
+  }
+  .tag[data-tone="planning"]  { --tone: var(--plan);    --tone-wash: var(--plan-wash); }
+  .tag[data-tone="deployment"]{ --tone: var(--deploy);  --tone-wash: var(--deploy-wash); }
+  .tag[data-tone="operations"]{ --tone: var(--operate); --tone-wash: var(--operate-wash); }
+
+  /* ---- Callout ---- */
+  .callout {
+    background: var(--deploy-wash);
+    border: 1px solid color-mix(in srgb, var(--deploy) 32%, transparent);
+    border-radius: 7px;
+    padding: 1.15rem 1.35rem;
+    display: flex; flex-direction: column; gap: .65rem;
+  }
+  .callout .eyebrow { color: var(--deploy); }
+  .callout p { font-size: .93rem; color: var(--ink-soft); }
+
+  /* ---- Principles ---- */
+  .principles { display: flex; flex-direction: column; gap: 0; }
+  .principle {
+    padding: .95rem 0;
+    border-top: 1px solid var(--rule);
+    display: flex; flex-direction: column; gap: .28rem;
+  }
+  .principle:last-child { border-bottom: 1px solid var(--rule); }
+  .principle h3 { font-size: .94rem; }
+  .principle p { font-size: .9rem; color: var(--ink-soft); }
+
+  footer {
+    border-top: 1px solid var(--rule);
+    padding-top: 1.25rem;
+    font-family: var(--mono);
+    font-size: .74rem;
+    color: var(--ink-faint);
+  }
+
+  a { color: var(--plan); text-underline-offset: 2px; }
+  a:focus-visible, [tabindex]:focus-visible {
+    outline: 2px solid var(--plan);
+    outline-offset: 3px;
+    border-radius: 3px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { animation: none !important; transition: none !important; }
+  }
+</style>
+
+<div class="wrap">
+
+  <header>
+    <div class="eyebrow">NexusOps · Target Architecture</div>
+    <h1>Three planes: Planning, Deployment, Operations</h1>
+    <p class="lede">
+      Templatize a machine completely. Deploy it fully from that template. Then
+      operate it from the UI — so touching the infrastructure by hand is rarely
+      needed.
+    </p>
+    <div class="meta">
+      <span><b>Status</b> Agreed direction</span>
+      <span><b>Split</b> Domain + UI</span>
+      <span><b>Engine</b> Pluggable executors</span>
+      <span><b>Delivery</b> Incremental strangler</span>
+      <span><b>Date</b> 2026-08-19</span>
+    </div>
+  </header>
+
+  <section>
+    <div class="section-head">
+      <div class="eyebrow">The problem</div>
+      <h2>Three concerns, currently intercalated</h2>
+    </div>
+    <p>
+      The platform can already plan, deploy, and operate. What it cannot do is
+      keep those three apart. Each capability is spread across modules that also
+      do the other two:
+    </p>
+    <div class="table-scroll">
+      <table>
+        <thead>
+          <tr><th>Module</th><th>Holds a definition</th><th>Performs a change</th><th>Reports live state</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><code>packages</code></td><td>catalog of packages</td><td>installs them</td><td>—</td></tr>
+          <tr><td><code>deployments</code></td><td>compose definition</td><td>deploys it</td><td>container status</td></tr>
+          <tr><td><code>identity</code></td><td>desired users and groups</td><td>replicates them</td><td>discovers them back</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>
+      The consequence is that no single object says <strong>“this is what a machine
+      should be”</strong> — and so the platform can never answer <strong>“is this machine
+      still what we said it should be?”</strong> Drift is not a missing feature; it is
+      currently inexpressible.
+    </p>
+  </section>
+
+  <section>
+    <div class="section-head">
+      <div class="eyebrow">The split</div>
+      <h2>What each plane owns</h2>
+    </div>
+
+    <div class="planes">
+      <article class="plane" data-plane="planning">
+        <div class="plane-id">
+          <h3>Planning</h3>
+          <div class="role">What should exist</div>
+        </div>
+        <div class="plane-body">
+          <p>
+            Pure desired state — nothing here touches infrastructure. The new
+            aggregate root is the <strong>Machine Template</strong>: base image, disks and
+            network, identity sets, packages, containers, services, monitoring
+            expectations and access policy, composed into one versioned object.
+            Templates are immutable once published; editing produces a new version,
+            and every deployment records the exact version it realised.
+          </p>
+          <div class="owns">
+            <span>machine templates</span><span>package catalog</span><span>container definitions</span>
+            <span>identity sets</span><span>access profiles</span><span>blueprints</span><span>parameter schemas</span>
+          </div>
+        </div>
+      </article>
+
+      <article class="plane" data-plane="deployment">
+        <div class="plane-id">
+          <h3>Deployment</h3>
+          <div class="role">Making it real, once</div>
+        </div>
+        <div class="plane-body">
+          <p>
+            Owns the act of change — not the definition, not the ongoing state.
+            Renders a template and its parameters into an execution plan, previews
+            the diff against the target, executes it through the available
+            executors, then registers the result into Operations carrying a link
+            back to the template version that produced it.
+          </p>
+          <div class="owns">
+            <span>render</span><span>preview / diff</span><span>execute</span><span>idempotency</span>
+            <span>rollback</span><span>run history</span>
+          </div>
+        </div>
+      </article>
+
+      <article class="plane" data-plane="operations">
+        <div class="plane-id">
+          <h3>Operations</h3>
+          <div class="role">What is actually there</div>
+        </div>
+        <div class="plane-body">
+          <p>
+            Live machines and day-2 work: shell, files, logs, metrics, monitoring,
+            lifecycle, nodes and storage. Its distinctive job is <strong>drift</strong> —
+            observed state against the template version the machine came from.
+            Every day-2 change offers two routes: an immediate ad-hoc action, or an
+            edit to the template followed by a redeploy. The UI should make the
+            second one attractive, because it is the one that keeps drift at zero.
+          </p>
+          <div class="owns">
+            <span>machine inventory</span><span>drift</span><span>shell &amp; files</span><span>logs</span>
+            <span>monitoring</span><span>lifecycle</span><span>nodes &amp; storage</span>
+          </div>
+        </div>
+      </article>
+    </div>
+  </section>
+
+  <section>
+    <div class="section-head">
+      <div class="eyebrow">The seam</div>
+      <h2>ExecutionPlan makes the engine pluggable</h2>
+    </div>
+    <p>
+      One provider-neutral contract sits between Planning and every executor. Steps
+      describe <strong>what should be true</strong>, never the commands that make it true —
+      which is precisely what lets Terraform and Ansible arrive as additions rather
+      than a rewrite.
+    </p>
+
+    <div class="figure">
+      <div class="figure-scroll">
+        <svg viewBox="0 0 900 300" role="img" aria-label="A machine template renders into an ExecutionPlan, which dispatches typed steps to four executors, which realise a machine; the machine's observed state is diffed back against the template as drift.">
+          <defs>
+            <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+              <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--rule-strong)"/>
+            </marker>
+          </defs>
+
+          <!-- Template -->
+          <rect x="14" y="112" width="152" height="62" rx="6" fill="var(--plan-wash)" stroke="var(--plan)" stroke-width="1.5"/>
+          <text class="svg-box-label" x="90" y="138" text-anchor="middle" fill="var(--plan)">Machine Template</text>
+          <text class="svg-sub" x="90" y="156" text-anchor="middle" fill="var(--ink-faint)">versioned · declarative</text>
+          <text class="svg-edge" x="90" y="100" text-anchor="middle" fill="var(--plan)">Planning</text>
+
+          <!-- Template -> Plan -->
+          <line x1="170" y1="143" x2="232" y2="143" stroke="var(--rule-strong)" stroke-width="1.5" marker-end="url(#ar)"/>
+          <text class="svg-edge" x="201" y="134" text-anchor="middle" fill="var(--ink-faint)">render</text>
+
+          <!-- ExecutionPlan -->
+          <rect x="236" y="105" width="170" height="76" rx="6" fill="var(--deploy-wash)" stroke="var(--deploy)" stroke-width="1.5"/>
+          <text class="svg-box-label" x="321" y="132" text-anchor="middle" fill="var(--deploy)">ExecutionPlan</text>
+          <text class="svg-sub" x="321" y="150" text-anchor="middle" fill="var(--ink-faint)">ordered typed steps</text>
+          <text class="svg-sub" x="321" y="165" text-anchor="middle" fill="var(--ink-faint)">provider-neutral</text>
+          <text class="svg-edge" x="321" y="93" text-anchor="middle" fill="var(--deploy)">Deployment</text>
+
+          <!-- Fan out to executors -->
+          <g stroke="var(--rule-strong)" stroke-width="1.5" fill="none" marker-end="url(#ar)">
+            <path d="M 410 143 C 445 143 445 47 484 47"/>
+            <path d="M 410 143 C 445 143 445 111 484 111"/>
+            <path d="M 410 143 C 445 143 445 175 484 175"/>
+            <path d="M 410 143 C 445 143 445 239 484 239"/>
+          </g>
+          <text class="svg-edge" x="447" y="284" text-anchor="middle" fill="var(--ink-faint)">dispatch</text>
+
+          <!-- Executors -->
+          <g>
+            <rect x="488" y="28" width="158" height="38" rx="5" fill="var(--surface)" stroke="var(--rule-strong)"/>
+            <text class="svg-box-label" x="504" y="46" fill="var(--ink)">proxmox</text>
+            <text class="svg-sub" x="504" y="59" fill="var(--ink-faint)">provision</text>
+
+            <rect x="488" y="92" width="158" height="38" rx="5" fill="var(--surface)" stroke="var(--rule-strong)"/>
+            <text class="svg-box-label" x="504" y="110" fill="var(--ink)">terraform</text>
+            <text class="svg-sub" x="504" y="123" fill="var(--ink-faint)">provision</text>
+
+            <rect x="488" y="156" width="158" height="38" rx="5" fill="var(--surface)" stroke="var(--rule-strong)"/>
+            <text class="svg-box-label" x="504" y="174" fill="var(--ink)">ansible</text>
+            <text class="svg-sub" x="504" y="187" fill="var(--ink-faint)">identity · package · service · file</text>
+
+            <rect x="488" y="220" width="158" height="38" rx="5" fill="var(--surface)" stroke="var(--rule-strong)"/>
+            <text class="svg-box-label" x="504" y="238" fill="var(--ink)">ssh</text>
+            <text class="svg-sub" x="504" y="251" fill="var(--ink-faint)">all kinds · fallback</text>
+          </g>
+
+          <!-- Executors -> Machine -->
+          <g stroke="var(--rule-strong)" stroke-width="1.5" fill="none" marker-end="url(#ar)">
+            <path d="M 650 47 C 690 47 690 143 726 143"/>
+            <path d="M 650 111 C 690 111 690 143 726 143"/>
+            <path d="M 650 175 C 690 175 690 143 726 143"/>
+            <path d="M 650 239 C 690 239 690 143 726 143"/>
+          </g>
+
+          <!-- Machine -->
+          <rect x="730" y="112" width="152" height="62" rx="6" fill="var(--operate-wash)" stroke="var(--operate)" stroke-width="1.5"/>
+          <text class="svg-box-label" x="806" y="138" text-anchor="middle" fill="var(--operate)">Machine</text>
+          <text class="svg-sub" x="806" y="156" text-anchor="middle" fill="var(--ink-faint)">observed state</text>
+          <text class="svg-edge" x="806" y="100" text-anchor="middle" fill="var(--operate)">Operations</text>
+
+          <!-- Drift loop back to template -->
+          <path d="M 806 178 L 806 282 L 90 282 L 90 178"
+                stroke="var(--operate)" stroke-width="1.5" stroke-dasharray="5 4" fill="none" marker-end="url(#ar)"/>
+          <rect x="392" y="270" width="112" height="24" rx="4" fill="var(--ground)"/>
+          <text class="svg-edge" x="448" y="286" text-anchor="middle" fill="var(--operate)">drift diff</text>
+        </svg>
+      </div>
+      <p class="caption">
+        The dashed return path is the whole point of the separation. Because the
+        machine records which template version produced it, its observed state can
+        be re-rendered and diffed — turning drift from an inexpressible question
+        into a first-class status.
+      </p>
+    </div>
+
+<pre><span class="c">// The contract every executor implements against</span>
+<span class="k">ExecutionPlan</span>
+  plan_id
+  target:      TargetRef          <span class="c">// existing machine, or a spec for a new one</span>
+  source:      TemplateRef        <span class="c">// template id + version that produced this</span>
+  steps:       [ExecutionStep]
+
+<span class="k">ExecutionStep</span>
+  step_id
+  kind:        provision | identity | package | container
+               | service | file | command | validate
+  desired:     typed payload      <span class="c">// declarative, provider-neutral</span>
+  depends_on:  [step_id]
+  executor:    ssh | ansible | terraform | proxmox
+  idempotency_key
+  rollback:    optional step</pre>
+
+    <p>
+      A capability matrix declares which executor realises which step kind, so a
+      template can be deployed by whichever engine is available without the
+      template changing. The same object also serves both UI audiences: a
+      plain-language summary for the operator who wants “add a web server”, and the
+      expanded step list with rendered commands, playbooks or HCL for the engineer
+      who wants to see exactly what will run.
+    </p>
+  </section>
+
+  <section>
+    <div class="section-head">
+      <div class="eyebrow">Delivery</div>
+      <h2>Seven phases, each one deployable</h2>
+    </div>
+    <p>
+      Ordered because the dependencies are real, not for decoration. Phase 1 is the
+      seam everything else hangs off; nothing after it can start until it lands.
+      Every phase leaves the platform green — no long-lived branch.
+    </p>
+
+    <div class="phases">
+      <div class="phase">
+        <div class="phase-n">01</div>
+        <div class="phase-main">
+          <div class="phase-title"><h3>The contract, behind existing behaviour</h3></div>
+          <p>
+            Introduce <code>ExecutionPlan</code> and a renderer. Wrap today's job runtime as
+            <code>SshExecutor</code>. Route existing package, profile and action execution
+            through plan → executor. No user-visible change.
+          </p>
+        </div>
+      </div>
+
+      <div class="phase">
+        <div class="phase-n">02</div>
+        <div class="phase-main">
+          <div class="phase-title"><h3>Planning plane</h3><span class="tag" data-tone="planning">planning</span></div>
+          <p>
+            New <code>backend/app/planning/</code>. Introduce <code>MachineTemplate</code> composing
+            existing catalogs by reference, plus versioning and validation. Catalogs
+            move under Planning; their execution halves stay put for now.
+          </p>
+        </div>
+      </div>
+
+      <div class="phase">
+        <div class="phase-n">03</div>
+        <div class="phase-main">
+          <div class="phase-title"><h3>Deployment plane</h3><span class="tag" data-tone="deployment">deployment</span></div>
+          <p>
+            Move provisioning, deployments and profile-apply behind the plan
+            pipeline. <code>WorkflowRun</code> becomes the single execution record for every
+            kind of change. Add idempotency keys and preview/diff. Do the durable
+            execution work here.
+          </p>
+        </div>
+      </div>
+
+      <div class="phase">
+        <div class="phase-n">04</div>
+        <div class="phase-main">
+          <div class="phase-title"><h3>Operations plane</h3><span class="tag" data-tone="operations">operations</span></div>
+          <p>
+            Consolidate inventory, runtime state, monitoring and remote access. Add
+            drift detection: render the observed plan from a machine, diff it
+            against its template version.
+          </p>
+        </div>
+      </div>
+
+      <div class="phase">
+        <div class="phase-n">05</div>
+        <div class="phase-main">
+          <div class="phase-title"><h3><code>AnsibleExecutor</code></h3></div>
+          <p>
+            The highest-value second executor. Identity, packages, services and
+            files are exactly what Ansible is strongest at, and they are the steps
+            most repeated across machines.
+          </p>
+        </div>
+      </div>
+
+      <div class="phase">
+        <div class="phase-n">06</div>
+        <div class="phase-main">
+          <div class="phase-title"><h3><code>TerraformExecutor</code></h3></div>
+          <p>Provisioning first, then whatever providers follow.</p>
+        </div>
+      </div>
+
+      <div class="phase">
+        <div class="phase-n">07</div>
+        <div class="phase-main">
+          <div class="phase-title"><h3>UI rebuild</h3></div>
+          <p>
+            Can start once the Phase 2 and 3 APIs are shaped, and proceed in
+            parallel with 4–6 rather than waiting for them.
+          </p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="callout">
+      <div class="eyebrow">Prerequisite — schedule into Phase 3</div>
+      <h2>Execution has to become durable first</h2>
+      <p>
+        The queue is in-process asyncio tasks with no persistence. A restart
+        abandons in-flight work; startup reconciliation now closes those records
+        out, but it marks them stale rather than resuming them.
+      </p>
+      <p>
+        Terraform applies and Ansible playbooks run for minutes, not seconds.
+        Execution needs to survive a restart and move between processes before
+        Phase 5 — which also lifts the single-instance ceiling that the in-process
+        scheduler and rate limiter share. This is the one item that blocks the
+        engine work, and it is much cheaper to do in Phase 3 than to discover in
+        Phase 5.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <div class="section-head">
+      <div class="eyebrow">Interface</div>
+      <h2>Understandable, without being less technical</h2>
+    </div>
+    <p>
+      One pattern serves both audiences, and <code>ExecutionPlan</code> makes it natural:
+      the same object, shown at two zoom levels.
+    </p>
+    <div class="principles">
+      <div class="principle">
+        <h3>Three top-level areas</h3>
+        <p>Plan, Deploy, Operate. Everything belongs to exactly one. Anything that appears to belong to two is a signal the domain split is wrong at that point.</p>
+      </div>
+      <div class="principle">
+        <h3>Progressive disclosure, not a simple mode and an advanced mode</h3>
+        <p>Every action shows a plain-language summary by default, with the rendered plan, commands, playbook or HCL one click away. Two modes fork the product; two zoom levels do not.</p>
+      </div>
+      <div class="principle">
+        <h3>Preview before every change</h3>
+        <p>The diff is the trust-building surface — it is what lets an operator act without reaching for the terminal.</p>
+      </div>
+      <div class="principle">
+        <h3>Drift is a status, not a report</h3>
+        <p>Visible on every machine, with reconcile as the primary action.</p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="section-head">
+      <div class="eyebrow">Migration map</div>
+      <h2>Where today's modules land</h2>
+    </div>
+    <div class="table-scroll">
+      <table>
+        <caption>Modules that appear twice are exactly the ones currently mixing concerns.</caption>
+        <thead><tr><th>Today</th><th>Becomes</th></tr></thead>
+        <tbody>
+          <tr><td><code>packages</code>, <code>profiles</code> — definition half</td><td>Planning · component catalogs</td></tr>
+          <tr><td><code>provisioning</code> — blueprints</td><td>Planning · templates</td></tr>
+          <tr><td><code>deployments</code> — definition half</td><td>Planning · container and service components</td></tr>
+          <tr><td><code>identity</code> — desired half</td><td>Planning · identity sets</td></tr>
+          <tr><td><code>jobs</code>, <code>workflows</code></td><td>Deployment · plan execution and run record</td></tr>
+          <tr><td><code>provisioning</code> — execution half</td><td>Deployment · <code>provision</code> steps</td></tr>
+          <tr><td><code>deployments</code> — deploy half</td><td>Deployment · <code>container</code> steps</td></tr>
+          <tr><td><code>identity</code> — replication half</td><td>Deployment · <code>identity</code> steps</td></tr>
+          <tr><td><code>inventory</code>, <code>runtime_state</code></td><td>Operations · machines and live state</td></tr>
+          <tr><td><code>monitoring</code>, <code>remote_access</code></td><td>Operations · observability and access</td></tr>
+          <tr><td><code>credentials</code>, <code>variables</code>, <code>audit</code></td><td>Shared platform services, used by all three</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <footer>
+    NexusOps · docs/architecture/three-plane-architecture.md · 2026-08-19
+  </footer>
+
+</div>
